@@ -140,12 +140,12 @@ export class WindField {
   }
 
   /** Tile origins of the tile containing `around` plus its 8 neighbours. */
-  private neighbourhood(around: LatLon, deg: number, latMax: number): { lat0: number; lon0: number }[] {
+  private neighbourhood(around: LatLon, deg: number, latMax: number, radius: 0 | 1 = 1): { lat0: number; lon0: number }[] {
     const c = tileOrigin(around, deg, latMax);
     const seen = new Set<string>();
     const out: { lat0: number; lon0: number }[] = [];
-    for (let di = -1; di <= 1; di++) {
-      for (let dj = -1; dj <= 1; dj++) {
+    for (let di = -radius; di <= radius; di++) {
+      for (let dj = -radius; dj <= radius; dj++) {
         const lat0 = c.lat0 + di * deg;
         if (lat0 < -90 || lat0 > latMax) continue;
         const lon0 = wrapLon(c.lon0 + dj * deg);
@@ -162,10 +162,11 @@ export class WindField {
    * Load every tile a route step near `around` could need within [fromUtcMs, toUtcMs]. Before the
    * first successful prepare, a missing cruise tile moves the field to the next usable run.
    */
-  async prepare(around: LatLon, hours: [number, number]): Promise<void> {
+  async prepare(around: LatLon, hours: [number, number], opts?: { radius?: 0 | 1 }): Promise<void> {
+    const radius = opts?.radius ?? 1;
     for (;;) {
       try {
-        await this.prepareRun(around, hours);
+        await this.prepareRun(around, hours, radius);
         this.prepared = true;
         return;
       } catch (e) {
@@ -176,7 +177,7 @@ export class WindField {
     }
   }
 
-  private async prepareRun(around: LatLon, span: [number, number]): Promise<void> {
+  private async prepareRun(around: LatLon, span: [number, number], radius: 0 | 1): Promise<void> {
     const run = this.run;
     const issued = this.runIssuedMs;
     const maxH = run.hours[run.hours.length - 1];
@@ -188,7 +189,7 @@ export class WindField {
     const w1 = Math.max(w0, Math.min(nWin - 1, Math.ceil(toH / win) - 1));
 
     const jobs: Promise<void>[] = [];
-    for (const { lat0, lon0 } of this.neighbourhood(around, run.cruise.tileDeg, CRUISE_LAT_MAX)) {
+    for (const { lat0, lon0 } of this.neighbourhood(around, run.cruise.tileDeg, CRUISE_LAT_MAX, radius)) {
       for (let w = w0; w <= w1; w++) {
         const key = this.cruiseKey(run.id, lat0, lon0, w);
         const url = `${this.base}/cruise/${run.id}/${lat0}_${lon0}_${w}.bin.gz`;
@@ -202,7 +203,7 @@ export class WindField {
     const climbMax = run.climb.hours[run.climb.hours.length - 1];
     if (fromH <= climbMax) {
       const list = await this.climbList(run.id);
-      for (const { lat0, lon0 } of this.neighbourhood(around, run.climb.tileDeg, CLIMB_LAT_MAX)) {
+      for (const { lat0, lon0 } of this.neighbourhood(around, run.climb.tileDeg, CLIMB_LAT_MAX, radius)) {
         if (!list.has(tileKey(lat0, lon0))) continue;
         // A failed climb tile is not fatal: sampling falls back to the cruise tiles.
         jobs.push(this.load(this.climbKey(run.id, lat0, lon0), `${this.base}/climb/${run.id}/${lat0}_${lon0}.bin.gz`).then(() => {}));

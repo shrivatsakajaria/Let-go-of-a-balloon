@@ -106,3 +106,14 @@ test('a transient network failure is not cached: the next prepare retries', asyn
   await w.prepare(AROUND, span);
   expect(w.sample(AROUND, 1500, ISSUED + 6 * HOUR).u).toBeCloseTo(10, 5);
 });
+
+test('prepare with radius 0 requests only the tile under the point, one per window', async () => {
+  const files: Files = twoRuns();
+  await addCruise(files, NEW, LATS, LONS, [0], cell(10));
+  const m = mockFetch(files);
+  const w = new WindField(await loadManifest(BASE, m.fn, ISSUED + 10 * HOUR), m.fn, BASE);
+  await w.prepare(AROUND, [ISSUED + 6 * HOUR, ISSUED + 9 * HOUR], { radius: 0 });
+  const tiles = m.requests.filter((r) => r.endsWith('.bin.gz'));
+  expect(tiles).toHaveLength(1);
+  expect(w.sample(AROUND, 1500, ISSUED + 6 * HOUR).u).toBeCloseTo(10, 5);
+});
