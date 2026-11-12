@@ -43,12 +43,13 @@ jobs:
 
       - name: Check for a newer GFS run (scheduled runs only)
         id: newrun
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' && steps.cf.outputs.has_cf == 'true'
         run: ./scripts/check-new-run.sh | tee -a "$GITHUB_OUTPUT"
 
       - name: Skip note
         if: github.event_name == 'schedule' && steps.newrun.outputs.new != 'true'
-        run: echo "No newer GFS run than the deployed one. Nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Scheduled run - nothing to do (Cloudflare secrets missing, or no newer GFS run than the deployed one)." | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Everything below runs for push and manual runs, or for scheduled runs with a new GFS run.
       - uses: actions/setup-node@v4

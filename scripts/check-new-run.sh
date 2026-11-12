@@ -32,7 +32,10 @@ deployed=$(curl -fsS -m 20 "$MANIFEST_URL" 2>/dev/null | python3 -c '
 import json, sys
 try:
     m = json.load(sys.stdin)
-    print(m.get("run") or m.get("runId") or m.get("run_id") or m.get("cycle") or "")
+    ids = [str(r.get("id", "")) for r in m.get("runs", []) if isinstance(r, dict)]
+    ids = ["".join(c for c in i if c.isdigit()) for i in ids]
+    ids = [i for i in ids if i]
+    print(max(ids) if ids else "")
 except Exception:
     print("")
 ' 2>/dev/null || true)
