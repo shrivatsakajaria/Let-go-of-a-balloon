@@ -1,0 +1,5 @@
+# Wind pipeline (pipeline/build_tiles.py). Tested on Python 3.12 (CI) and 3.13.
+# eccodeslib ships the ecCodes C library as a wheel, so no apt packages are needed.
+numpy==2.5.4
+eccodes==2.50.1
+eccodeslib==2.50.0.34

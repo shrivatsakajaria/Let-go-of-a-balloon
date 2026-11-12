@@ -62,20 +62,43 @@ jobs:
         if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
 
       - name: Install dependencies
         if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
         run: npm ci
 
-      - name: Build wind tiles (pipeline added in Task 3)
-        if: (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true') && hashFiles('pipeline/build_tiles.py') != ''
-        run: |
-          pip install -r pipeline/requirements.txt
-          python pipeline/build_tiles.py --out dist/winds
-
+      # Vite empties dist/, so the site is built first and the winds are written into it after.
       - name: Build site
         if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
         run: npm run build
+
+      # The wind store keeps the newest four built runs between workflow runs. The key never
+      # matches exactly, so the newest saved store is restored through the prefix.
+      - name: Restore wind store
+        if: (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true') && hashFiles('pipeline/build_tiles.py') != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .winds-store
+          key: winds-store-${{ github.run_id }}
+          restore-keys: winds-store-
+
+      # Adds the latest GFS run to the store, keeps the newest four, writes dist/winds/.
+      # If the download fails it still publishes the cached runs (and exits 0).
+      - name: Build wind tiles
+        id: winds
+        if: (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true') && hashFiles('pipeline/build_tiles.py') != ''
+        run: |
+          pip install -r pipeline/requirements.txt
+          python pipeline/build_tiles.py --run latest --store .winds-store --out dist/winds
+
+      - name: Save wind store
+        if: steps.winds.outputs.newest != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .winds-store
+          key: winds-store-${{ steps.winds.outputs.newest }}
 
       - name: Cross-origin check (does not block)
         if: github.event_name != 'schedule'

@@ -1,0 +1,13 @@
+# Cloudflare Pages headers. Wind tiles are gzip files the browser unpacks itself
+# (DecompressionStream), so no Content-Encoding header. Files under a run id never change.
+# Rules are kept disjoint because Pages joins the values when several rules match a path.
+/winds/climb/*
+  Content-Type: application/octet-stream
+  Cache-Control: public, max-age=31536000, immutable
+
+/winds/cruise/*
+  Content-Type: application/octet-stream
+  Cache-Control: public, max-age=31536000, immutable
+
+/winds/manifest.json
+  Cache-Control: public, max-age=300

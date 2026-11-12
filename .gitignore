@@ -8,3 +8,6 @@ dist/
 node_modules/
 playwright-report/
 test-results/
+.winds-store/
+public/winds/
+.pytest_cache/
