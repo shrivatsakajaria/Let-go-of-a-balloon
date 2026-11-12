@@ -1,0 +1,43 @@
+name: Keep alive
+
+# GitHub switches off scheduled workflows in public repositories after 60 days
+# with no activity. This makes one small commit to main each month.
+
+on:
+  schedule:
+    - cron: '41 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check main exists
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}.git" main > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No main branch yet. Nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.main.outputs.exists == 'true'
+        with:
+          ref: main
+
+      - name: Commit keep-alive
+        if: steps.main.outputs.exists == 'true'
+        run: |
+          date -u +%Y-%m-%d > .github/keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive
+          git commit --allow-empty -m "chore: monthly keep-alive"
+          git push origin HEAD:main

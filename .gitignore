@@ -1,9 +1,10 @@
-node_modules/
-dist/
-.superpowers/
 *.log
 .DS_Store
-test-results/
-playwright-report/
-__pycache__/
+.superpowers/
 .venv/
+.wrangler/
+__pycache__/
+dist/
+node_modules/
+playwright-report/
+test-results/

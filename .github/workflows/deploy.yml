@@ -1,0 +1,116 @@
+name: Deploy
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BRANCH: ${{ github.event_name == 'schedule' && 'main' || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Cloudflare secrets
+        id: cf
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+            echo "has_cf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cf=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Cloudflare secrets missing::Build and checks will run, but deploy is skipped until CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are added. See docs/for-sk/02-github-secrets.md."
+            {
+              echo "## Deploy skipped"
+              echo
+              echo "The Cloudflare secrets are not set yet. The build still ran."
+              echo "Add \`CLOUDFLARE_API_TOKEN\` and \`CLOUDFLARE_ACCOUNT_ID\` (see docs/for-sk/02-github-secrets.md)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check for a newer GFS run (scheduled runs only)
+        id: newrun
+        if: github.event_name == 'schedule'
+        run: ./scripts/check-new-run.sh | tee -a "$GITHUB_OUTPUT"
+
+      - name: Skip note
+        if: github.event_name == 'schedule' && steps.newrun.outputs.new != 'true'
+        run: echo "No newer GFS run than the deployed one. Nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Everything below runs for push and manual runs, or for scheduled runs with a new GFS run.
+      - uses: actions/setup-node@v4
+        if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
+        run: npm ci
+
+      - name: Build wind tiles (pipeline added in Task 3)
+        if: (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true') && hashFiles('pipeline/build_tiles.py') != ''
+        run: |
+          pip install -r pipeline/requirements.txt
+          python pipeline/build_tiles.py --out dist/winds
+
+      - name: Build site
+        if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
+        run: npm run build
+
+      - name: Cross-origin check (does not block)
+        if: github.event_name != 'schedule'
+        continue-on-error: true
+        run: node scripts/check-cors.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Create Pages project (once)
+        if: steps.cf.outputs.has_cf == 'true' && (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          out=$(npx --yes wrangler@3 pages project create let-go-of-a-balloon --production-branch main 2>&1) && rc=0 || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 0 ] && ! echo "$out" | grep -qi "already exists"; then
+            exit "$rc"
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        if: steps.cf.outputs.has_cf == 'true' && (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true')
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name let-go-of-a-balloon --branch ${{ env.BRANCH }}
+
+      - name: Show deployment URL
+        if: steps.deploy.outcome == 'success'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          {
+            echo "## Deployed"
+            echo
+            echo "Branch: \`$BRANCH\`"
+            echo
+            echo "Preview link: $DEPLOY_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
