@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Let go of a balloon · style frames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<style>
+  :root { --text: #fffaf3; --text-2: rgba(255,250,243,0.8); --text-3: rgba(255,250,243,0.6); --hair: rgba(255,250,243,0.35); --accent: #ff5a12; --ease: cubic-bezier(0.22,1,0.36,1); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0d0f13; color: var(--text); }
+  body { font-family: "Archivo", system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100dvh; -webkit-font-smoothing: antialiased; }
+  .phone { position: relative; overflow: hidden; width: 100%; height: 100dvh; }
+  @media (min-width: 560px) { .phone { width: 400px; height: min(860px, calc(100dvh - 48px)); border-radius: 28px; } }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .shade-top, .shade-bottom { position: absolute; left: 0; right: 0; pointer-events: none; }
+  .shade-top { top: 0; height: 150px; background: linear-gradient(to bottom, rgba(10,14,28,0.42), rgba(10,14,28,0)); }
+  .shade-bottom { bottom: 0; height: 250px; background: linear-gradient(to top, rgba(10,14,28,0.5), rgba(10,14,28,0)); }
+  .top { position: absolute; top: 0; left: 0; right: 0; padding: 18px 18px 0; }
+  .row { display: flex; gap: 4px; flex-wrap: nowrap; align-items: center; font-size: 12px; }
+  .row + .row { margin-top: 6px; }
+  .row span { color: var(--text-3); width: 34px; flex: none; }
+  .row { overflow-x: auto; scrollbar-width: none; }
+  .row button, .views button {
+    font: inherit; color: var(--text-2); background: rgba(255,250,243,0.08); border: 1px solid transparent; border-radius: 8px;
+    padding: 5px 8px; cursor: pointer; white-space: nowrap; transition: color 160ms var(--ease), background-color 160ms var(--ease), border-color 160ms var(--ease);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .row button[aria-pressed="true"], .views button[aria-pressed="true"] { color: var(--text); border-color: var(--hair); background: rgba(255,250,243,0.18); }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 18px; }
+  .clock { font-variation-settings: "wdth" 62; font-weight: 700; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .phase { font-size: 14px; color: var(--text-2); margin-bottom: 6px; }
+  .bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 18px 18px; }
+  .stats { display: flex; gap: 22px; align-items: baseline; }
+  .stat .l { font-size: 12px; color: var(--text-3); }
+  .stat .v { font-variation-settings: "wdth" 62; font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .over { font-size: 14px; color: var(--text-2); margin-top: 8px; }
+  .controls { display: flex; gap: 8px; margin-top: 14px; }
+  .views { display: flex; gap: 4px; }
+  .views button { font-size: 14px; padding: 10px 12px; border-radius: 10px; }
+  .letgo { flex: 1; font: inherit; font-size: 14px; font-weight: 600; color: #fffaf3; background: var(--accent); border: 0; border-radius: 10px; padding: 10px 12px; cursor: pointer; transition: transform 120ms var(--ease); }
+  .letgo:active { transform: scale(0.97); }
+  button:focus-visible { outline: 2px solid #fffaf3; outline-offset: 2px; }
+  .note { font-size: 11px; color: var(--text-3); margin-top: 10px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <canvas id="c"></canvas>
+  <div class="shade-top"></div><div class="shade-bottom"></div>
+  <div class="top">
+    <div class="row" role="group" aria-label="Style"><span>Style</span>
+      <button data-style="contour" aria-pressed="true">Contour</button>
+      <button data-style="sculpt">Sculpted</button>
+      <button data-style="lowpoly">Low-poly</button>
+      <button data-style="toy">Toy town</button>
+    </div>
+    <div class="row" role="group" aria-label="Time of day"><span>Light</span>
+      <button data-time="auto" aria-pressed="true">Auto</button>
+      <button data-time="dawn" data-ph="0.02">Dawn</button>
+      <button data-time="day" data-ph="0.25">Day</button>
+      <button data-time="golden" data-ph="0.45">Golden</button>
+      <button data-time="dusk" data-ph="0.5">Dusk</button>
+      <button data-time="night" data-ph="0.75">Night</button>
+    </div>
+    <div class="head"><div class="clock" id="clock">21:00</div><div class="phase" id="phase">Night</div></div>
+  </div>
+  <div class="bottom">
+    <div class="stats">
+      <div class="stat"><div class="l">Height</div><div class="v" id="alt">0 m</div></div>
+      <div class="stat"><div class="l">Speed</div><div class="v" id="spd">0 km/h</div></div>
+    </div>
+    <div class="over">Over <span id="over">the city</span></div>
+    <div class="controls">
+      <div class="views" role="group" aria-label="Camera">
+        <button data-view="auto" aria-pressed="true">Film</button>
+        <button data-view="ride">Ride</button>
+        <button data-view="above">Above</button>
+        <button data-view="side">Side-on</button>
+      </div>
+      <button class="letgo" id="letgo">Let go again</button>
+    </div>
+    <p class="note">Style frame with made-up ground. The real build draws the land, coast and buildings from real map data.</p>
+  </div>
+</div>
+<script>__BUNDLE__</script>
+</body>
+</html>

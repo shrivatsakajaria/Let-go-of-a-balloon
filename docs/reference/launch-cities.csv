@@ -1,0 +1,121 @@
+Group,Country,City,Tier,Launch spot,Launch lat,Launch lon,Landmarks to model,Animated touch,Notes,Batch
+Country,United States,New York,1,"Liberty Island, beside the Statue of Liberty",40.689,-74.045,Statue of Liberty; Empire State Building; One World Trade Center; Brooklyn Bridge; Chrysler Building,Torch flame flickers; Empire State tower lights at dusk,,Launch batch
+Country,United States,Washington DC,1,"National Mall, by the Washington Monument",38.8895,-77.0353,Washington Monument; US Capitol; Lincoln Memorial; White House,Reflecting Pool shimmers; Capitol dome lit at night,,Weekly batches
+Country,United States,Chicago,1,"Millennium Park, by Cloud Gate",41.8827,-87.6233,Willis Tower; Cloud Gate; 875 North Michigan (Hancock); Navy Pier wheel,Navy Pier wheel turns,,Weekly batches
+Country,United States,San Francisco,1,"Crissy Field, facing the Golden Gate Bridge",37.804,-122.466,Golden Gate Bridge; Transamerica Pyramid; Coit Tower; Alcatraz,Fog rolls under the bridge at dawn,,Weekly batches
+Country,United States,Los Angeles,1,Griffith Observatory lawn,34.1184,-118.3004,Griffith Observatory; US Bank Tower; Santa Monica Pier,Pier wheel turns,Leave out the Hollywood Sign: its likeness is trademarked,Weekly batches
+Country,United States,Seattle,2,"Seattle Center, under the Space Needle",47.6205,-122.3493,Space Needle; Pike Place Market sign,Space Needle top slowly lights,,After Tier 1
+Country,United States,Boston,2,Boston Common,42.355,-71.0656,Massachusetts State House; Old North Church,,,After Tier 1
+Country,United States,Philadelphia,2,Independence Mall,39.9489,-75.15,Independence Hall; City Hall tower,,,After Tier 1
+Country,United States,Miami,2,"Ocean Drive, South Beach",25.7826,-80.13,Art Deco hotel row; Brickell skyline,Neon signs glow at night,,After Tier 1
+Country,United States,Las Vegas,2,Bellagio fountains on the Strip,36.1126,-115.1767,Strat tower; Bellagio,Fountains dance,,After Tier 1
+Country,United States,Austin,2,Texas State Capitol grounds,30.2747,-97.7404,Texas State Capitol; Congress Avenue Bridge,,,After Tier 1
+Country,India,Mumbai,1,Gateway of India waterfront,18.922,72.8347,Gateway of India; Taj Mahal Palace hotel; Chhatrapati Shivaji Terminus; Bandra-Worli Sea Link,Boats bob in the harbour,,Launch batch
+Country,India,Delhi,1,"Kartavya Path, facing India Gate",28.6129,77.2295,India Gate; Rashtrapati Bhavan; Qutub Minar; Lotus Temple; Red Fort,India Gate flame at dusk,,Weekly batches
+Country,India,Agra,1,Taj Mahal gardens,27.1735,78.0421,Taj Mahal; Agra Fort,Reflecting pool shimmers,,Weekly batches
+Country,India,Bengaluru,1,"Cubbon Park, by Vidhana Soudha",12.9794,77.591,Vidhana Soudha; UB City tower,,,Weekly batches
+Country,India,Hyderabad,2,Charminar square,17.3616,78.4747,Charminar; Golconda Fort,,,After Tier 1
+Country,India,Chennai,2,Marina Beach,13.05,80.2824,Kapaleeshwarar Temple gopuram; Chennai Central,Waves on Marina Beach,,After Tier 1
+Country,India,Kolkata,1,Victoria Memorial gardens,22.5448,88.3426,Victoria Memorial; Howrah Bridge,,,Weekly batches
+Country,India,Jaipur,2,Hawa Mahal road,26.9239,75.8267,Hawa Mahal; Amer Fort,,,After Tier 1
+Country,India,Pune,2,Shaniwar Wada,18.5195,73.8553,Shaniwar Wada,,,After Tier 1
+Country,Brazil,Rio de Janeiro,1,Copacabana beach,-22.9711,-43.1822,Sugarloaf Mountain and cable car; Copacabana promenade; Maracana,Cable car glides,Christ the Redeemer: image rights are claimed by the Archdiocese; check before modelling,Launch batch
+Country,Brazil,Sao Paulo,1,Ibirapuera Park,-23.5874,-46.6576,MASP; Ibirapuera Obelisk; Edificio Copan; Avenida Paulista towers,,,Weekly batches
+Country,Brazil,Brasilia,2,Esplanada dos Ministerios,-15.7998,-47.8645,National Congress; Cathedral of Brasilia,,Niemeyer buildings are recent works; check rights,After Tier 1
+Country,Brazil,Salvador,2,Elevador Lacerda square,-12.9744,-38.513,Elevador Lacerda; Pelourinho houses,,,After Tier 1
+Country,United Kingdom,London,1,Parliament Square,51.5007,-0.1263,Elizabeth Tower (Big Ben); Palace of Westminster; London Eye; Tower Bridge; St Paul's Cathedral; The Shard,Big Ben clock face lights at dusk; London Eye turns,,Launch batch
+Country,United Kingdom,Manchester,1,"Albert Square, by the Town Hall",53.4794,-2.2453,Manchester Town Hall; Beetham Tower; Old Trafford,,,Launch batch
+Country,United Kingdom,Edinburgh,1,Castle Esplanade,55.9488,-3.196,Edinburgh Castle; Scott Monument; Arthur's Seat (terrain),,,Launch batch
+Country,United Kingdom,Birmingham,1,Centenary Square,52.4791,-1.9082,Library of Birmingham; Selfridges Bullring,,,Launch batch
+Country,United Kingdom,Glasgow,1,George Square,55.8611,-4.2502,Glasgow City Chambers; SEC Armadillo,,,Launch batch
+Country,United Kingdom,Liverpool,1,Pier Head,53.4058,-2.9958,Royal Liver Building; Liverpool Cathedral,Liver birds on the towers,,Launch batch
+Country,United Kingdom,Belfast,1,Belfast City Hall,54.5965,-5.9301,Belfast City Hall; Titanic Belfast; Harland and Wolff cranes,,,Launch batch
+Country,United Kingdom,Cardiff,1,Cardiff Castle,51.4822,-3.1812,Cardiff Castle; Principality Stadium,,,Launch batch
+Country,United Kingdom,Bristol,1,Clifton Suspension Bridge viewpoint,51.4549,-2.6278,Clifton Suspension Bridge,,,Launch batch
+Country,United Kingdom,Oxford,1,Radcliffe Square,51.7534,-1.254,Radcliffe Camera; dreaming spires,,,Launch batch
+Country,Ireland,Dublin,1,"O'Connell Street, by the Spire",53.3498,-6.2603,The Spire; Ha'penny Bridge; Custom House; Aviva Stadium,,,Launch batch
+Country,Ireland,Cork,1,"Shandon, by St Anne's Church",51.9033,-8.4766,Shandon Bells tower; St Fin Barre's Cathedral; English Market roof,Shandon clock faces and bells,,Launch batch
+Country,Ireland,Galway,1,Spanish Arch,53.2707,-9.0568,Spanish Arch; Galway Cathedral,,,Launch batch
+Country,Ireland,Limerick,1,King John's Castle,52.6697,-8.6258,King John's Castle,,,Launch batch
+Country,Canada,Toronto,1,"Roundhouse Park, by the CN Tower",43.6418,-79.3872,CN Tower; Rogers Centre; Toronto City Hall,CN Tower lights at night,,Weekly batches
+Country,Canada,Vancouver,1,Canada Place waterfront,49.2888,-123.1111,Canada Place sails; Lions Gate Bridge; Stanley Park (terrain),Seaplanes on the harbour,,Weekly batches
+Country,Canada,Montreal,2,"Place d'Armes, by Notre-Dame Basilica",45.5045,-73.5562,Notre-Dame Basilica; Olympic Stadium tower,,,After Tier 1
+Country,Canada,Ottawa,2,Parliament Hill,45.4236,-75.7009,Parliament Peace Tower,,,After Tier 1
+Country,Canada,Calgary,2,Calgary Tower plaza,51.0443,-114.0631,Calgary Tower; Saddledome,,,After Tier 1
+Country,France,Paris,1,Champ de Mars,48.8556,2.2986,Eiffel Tower; Arc de Triomphe; Notre-Dame; Sacre-Coeur,Day lighting only,"Do not recreate the Eiffel Tower night light show (protected); leave out the Louvre Pyramid (recent work, France has limited freedom of panorama)",Launch batch
+Country,France,Marseille,2,Vieux-Port,43.295,5.374,Notre-Dame de la Garde; Fort Saint-Jean,Boats in the old port,,After Tier 1
+Country,France,Lyon,2,Place Bellecour,45.7578,4.832,Fourviere Basilica,,,After Tier 1
+Country,France,Nice,2,Promenade des Anglais,43.695,7.265,Promenade des Anglais; Castle Hill,,,After Tier 1
+Country,France,Bordeaux,2,Place de la Bourse water mirror,44.8412,-0.57,Place de la Bourse,,,After Tier 1
+Country,Germany,Berlin,1,"Pariser Platz, by the Brandenburg Gate",52.5163,13.3777,Brandenburg Gate; Reichstag; TV Tower (Fernsehturm),TV Tower ball catches the sun,,Weekly batches
+Country,Germany,Munich,2,Marienplatz,48.1374,11.5755,Frauenkirche; New Town Hall; Allianz Arena,Glockenspiel figures turn,,After Tier 1
+Country,Germany,Hamburg,2,Landungsbrucken harbour front,53.5456,9.9667,Elbphilharmonie; port cranes,,Elbphilharmonie is a recent work; check rights,After Tier 1
+Country,Germany,Frankfurt,2,Romerberg,50.1106,8.682,Romer; Main skyline towers,,,After Tier 1
+Country,Germany,Cologne,2,Roncalliplatz,50.9413,6.9583,Cologne Cathedral; Hohenzollern Bridge,,,After Tier 1
+Country,Spain,Madrid,1,Puerta del Sol,40.4169,-3.7035,Royal Palace; Cibeles; Gran Via Metropolis; Cuatro Torres,,,Weekly batches
+Country,Spain,Barcelona,1,"Placa de Gaudi, facing the Sagrada Familia",41.4036,2.1744,Sagrada Familia; Casa Batllo; Park Guell; Columbus Monument,Cranes on the Sagrada Familia,,Launch batch
+Country,Spain,Seville,2,Plaza de Espana,37.3772,-5.9869,Plaza de Espana; Giralda,,,After Tier 1
+Country,Spain,Valencia,2,City of Arts and Sciences,39.4542,-0.3503,City of Arts and Sciences,,Calatrava buildings are recent works; check rights,After Tier 1
+Country,Spain,Bilbao,2,Guggenheim riverside,43.2687,-2.934,Guggenheim Museum,,Recent work; check rights,After Tier 1
+Country,Italy,Rome,1,Piazza del Colosseo,41.8902,12.4922,Colosseum; Pantheon; Vittoriano; Trevi Fountain,,,Weekly batches
+Country,Italy,Milan,1,Piazza del Duomo,45.4642,9.19,Milan Cathedral; Galleria; Bosco Verticale,,Bosco Verticale is a recent work; check rights,Weekly batches
+Country,Italy,Venice,2,St Mark's Square,45.434,12.3388,St Mark's Basilica; Campanile; Rialto Bridge,Gondolas on the Grand Canal,,After Tier 1
+Country,Italy,Florence,1,Piazzale Michelangelo,43.7629,11.2651,Duomo; Ponte Vecchio; Palazzo Vecchio,,,Weekly batches
+Country,Italy,Naples,2,Piazza del Plebiscito,40.8359,14.2488,Vesuvius (terrain); Castel dell'Ovo,,,After Tier 1
+Country,Italy,Pisa,2,Piazza dei Miracoli,43.723,10.3966,Leaning Tower; Cathedral,,,After Tier 1
+Country,Netherlands,Amsterdam,1,Museumplein,52.358,4.881,Rijksmuseum; canal houses; Centraal Station,Canal boats,,Weekly batches
+Country,Netherlands,Rotterdam,2,Erasmus Bridge,51.9093,4.4868,Erasmus Bridge; Cube Houses; Markthal,,Recent works; check rights,After Tier 1
+Country,Netherlands,The Hague,2,Binnenhof,52.0799,4.3133,Binnenhof; Peace Palace,,,After Tier 1
+Country,Mexico,Mexico City,1,Zocalo,19.4326,-99.1332,Metropolitan Cathedral; Palacio de Bellas Artes; Angel of Independence; Torre Latinoamericana,Giant flag in the Zocalo flies,,Weekly batches
+Country,Mexico,Guadalajara,2,Guadalajara Cathedral,20.6767,-103.3475,Guadalajara Cathedral; Hospicio Cabanas,,,After Tier 1
+Country,Mexico,Monterrey,2,Macroplaza,25.669,-100.3096,Faro del Comercio; Cerro de la Silla (terrain),,,After Tier 1
+Country,Indonesia,Jakarta,1,"Merdeka Square, by the National Monument",-6.1754,106.8272,National Monument (Monas); Istiqlal Mosque; Bundaran HI,Monas flame catches the light,,Weekly batches
+Country,Indonesia,Bali,2,Tanah Lot,-8.6212,115.0868,Tanah Lot temple; rice terraces,Waves around Tanah Lot,,After Tier 1
+Country,Indonesia,Yogyakarta,2,Borobudur,-7.6079,110.2038,Borobudur; Prambanan,,,After Tier 1
+Country,Japan,Tokyo,1,Shibuya Crossing,35.6595,139.7005,Shibuya scramble; Tokyo Tower; Tokyo Skytree; Senso-ji,Crowds cross at the scramble,Tokyo Tower and Skytree likenesses are trademarked; check before modelling,Launch batch
+Country,Japan,Kyoto,1,Kiyomizu-dera terrace,34.9949,135.785,Kiyomizu-dera; Fushimi Inari gates; Kinkaku-ji,,,Weekly batches
+Country,Japan,Osaka,2,Osaka Castle Park,34.6873,135.5262,Osaka Castle; Umeda Sky Building,,,After Tier 1
+Country,Japan,Sapporo,2,Odori Park,43.0605,141.3546,Sapporo TV Tower; Clock Tower,,,After Tier 1
+Country,Australia,Sydney,1,Circular Quay,-33.861,151.211,Sydney Opera House; Harbour Bridge,Ferries cross the harbour,"Opera House has image-use guidelines; fine for non-commercial use, check before launch",Launch batch
+Country,Australia,Melbourne,1,Federation Square,-37.818,144.9691,Flinders Street Station; Eureka Tower,Trams move,,Weekly batches
+Country,Australia,Brisbane,2,South Bank,-27.481,153.0234,Story Bridge; Wheel of Brisbane,,,After Tier 1
+Country,Australia,Perth,2,Elizabeth Quay,-31.958,115.8572,Bell Tower; Elizabeth Quay bridge,,,After Tier 1
+Country,Saudi Arabia,Riyadh,1,Kingdom Centre plaza,24.7113,46.6744,Kingdom Centre; Al Faisaliah Tower; Masmak Fortress,,,Weekly batches
+Country,Saudi Arabia,Jeddah,2,Jeddah Corniche,21.515,39.146,King Fahd's Fountain; Al-Balad old town,Fountain jet,Mecca and Medina left out: entry restricted and religiously sensitive,After Tier 1
+Country,Turkey,Istanbul,1,Sultanahmet Square,41.0058,28.9768,Hagia Sophia; Blue Mosque; Galata Tower; Bosphorus Bridge,Ferries on the Bosphorus,,Weekly batches
+Country,Turkey,Cappadocia (Goreme),1,Goreme valley at dawn,38.6431,34.8289,Fairy chimneys (terrain); other balloons in the sky,Dozens of hot-air balloons rise at dawn,A natural fit: the world's best-known place for balloon flights,Launch batch
+Country,Turkey,Ankara,2,Anitkabir,39.925,32.8369,Anitkabir; Atakule,,,After Tier 1
+Country,South Africa,Cape Town,1,V&A Waterfront,-33.9036,18.4207,Table Mountain (terrain); Cape Town Stadium; Clock Tower,Table cloth cloud over the mountain,,Weekly batches
+Country,South Africa,Johannesburg,2,Nelson Mandela Square,-26.1076,28.0567,Ponte Tower; Hillbrow Tower,,,After Tier 1
+Country,South Africa,Durban,2,Moses Mabhida Stadium,-29.829,31.03,Moses Mabhida Stadium arch,,,After Tier 1
+Country,Nigeria,Lagos,1,Lekki-Ikoyi Link Bridge,6.4492,3.4339,Lekki-Ikoyi Link Bridge; National Theatre; Eko Atlantic towers,,,Weekly batches
+Country,Nigeria,Abuja,2,Abuja National Mosque,9.0597,7.4894,National Mosque; Aso Rock (terrain),,,After Tier 1
+Country,Philippines,Manila,1,Rizal Park,14.5831,120.9794,Rizal Monument; Intramuros walls; Manila Cathedral,,,Weekly batches
+Country,Philippines,Makati,2,Ayala Triangle Gardens,14.5565,121.0234,Makati skyline,,,After Tier 1
+Country,Philippines,Cebu,2,Magellan's Cross,10.2935,123.9019,Magellan's Cross; Basilica del Santo Nino,,,After Tier 1
+City-state or standout city,United Arab Emirates,Dubai,1,"Burj Park, by the Dubai Fountain",25.195,55.274,Burj Khalifa; Burj Al Arab; Museum of the Future; Palm Jumeirah (coastline),Fountain dances at dusk,Burj Khalifa likeness is trademarked; check before modelling,Launch batch
+City-state or standout city,United Arab Emirates,Abu Dhabi,2,Sheikh Zayed Grand Mosque,24.4128,54.475,Sheikh Zayed Grand Mosque; Etihad Towers,,,After Tier 1
+City-state or standout city,Singapore,Singapore,1,Merlion Park,1.2868,103.8545,Marina Bay Sands; Merlion; Gardens by the Bay Supertrees; Esplanade,Supertrees light at night,Merlion and Marina Bay Sands are trademarks; check before modelling,Launch batch
+City-state or standout city,Hong Kong,Hong Kong,1,Tsim Sha Tsui promenade,22.2934,114.1693,Victoria Harbour skyline; IFC; Bank of China Tower; Star Ferry,Star Ferry crosses the harbour,,Weekly batches
+City-state or standout city,South Korea,Seoul,1,Gwanghwamun Square,37.572,126.9769,Gyeongbokgung; N Seoul Tower; Lotte World Tower,,,Weekly batches
+City-state or standout city,Egypt,Cairo and Giza,1,Giza pyramid plateau,29.9765,31.1313,Great Pyramids; Sphinx; Cairo Tower,Desert haze,,Weekly batches
+City-state or standout city,Qatar,Doha,2,Museum of Islamic Art park,25.295,51.539,Museum of Islamic Art; West Bay towers,,,After Tier 1
+City-state or standout city,Thailand,Bangkok,1,"Sanam Luang, by the Grand Palace",13.755,100.493,Grand Palace; Wat Arun,Long-tail boats on the river,,Weekly batches
+City-state or standout city,Malaysia,Kuala Lumpur,1,KLCC Park,3.157,101.7123,Petronas Towers; KL Tower,,,Weekly batches
+City-state or standout city,Monaco,Monaco,2,Port Hercule,43.7347,7.4206,Monte Carlo Casino; Prince's Palace,Yachts in the harbour,,After Tier 1
+City-state or standout city,Luxembourg,Luxembourg City,2,Place d'Armes,49.6115,6.13,Adolphe Bridge; Grand Ducal Palace,,,After Tier 1
+City-state or standout city,Vatican City,Vatican City,2,St Peter's Square,41.9022,12.4568,St Peter's Basilica dome,,,After Tier 1
+City-state or standout city,Portugal,Lisbon,2,Praca do Comercio,38.7076,-9.1365,Belem Tower; 25 de Abril Bridge; Augusta arch,Yellow trams,,After Tier 1
+City-state or standout city,Greece,Athens,2,Areopagus Hill,37.9726,23.7236,Acropolis and Parthenon,,,After Tier 1
+City-state or standout city,Czechia,Prague,2,Charles Bridge,50.0865,14.4114,Charles Bridge; Prague Castle; Tyn Church,,,After Tier 1
+City-state or standout city,Austria,Vienna,2,Stephansplatz,48.2085,16.3731,St Stephen's Cathedral; Prater wheel,Prater wheel turns,,After Tier 1
+City-state or standout city,Denmark,Copenhagen,2,Nyhavn,55.6798,12.5907,Nyhavn houses; Little Mermaid,,The Little Mermaid statue is still under copyright; leave out,After Tier 1
+City-state or standout city,Sweden,Stockholm,2,"Stortorget, Gamla Stan",59.3251,18.0709,Stockholm City Hall; Gamla Stan,,,After Tier 1
+City-state or standout city,Switzerland,Zurich,2,Burkliplatz lakefront,47.3667,8.541,Grossmunster; Lake Zurich,,,After Tier 1
+City-state or standout city,Iceland,Reykjavik,2,Hallgrimskirkja,64.1417,-21.9266,Hallgrimskirkja; Harpa,Northern lights on some nights,Harpa is a recent work; check rights,After Tier 1
+City-state or standout city,Argentina,Buenos Aires,2,"Plaza de la Republica, by the Obelisco",-34.6037,-58.3816,Obelisco; Casa Rosada,,,After Tier 1
+City-state or standout city,Kenya,Nairobi,2,KICC grounds,-1.2885,36.8233,Kenyatta International Convention Centre,,,After Tier 1
+City-state or standout city,Morocco,Marrakech,2,Jemaa el-Fnaa,31.6258,-7.9891,Koutoubia Mosque minaret,Market lights at dusk,,After Tier 1
+City-state or standout city,New Zealand,Auckland,2,Sky Tower plaza,-36.8485,174.7622,Sky Tower; Harbour Bridge,,,After Tier 1
+City-state or standout city,Taiwan,Taipei,2,"Xinyi district, by Taipei 101",25.034,121.5645,Taipei 101,,,After Tier 1
+City-state or standout city,China,Shanghai,2,The Bund,31.24,121.49,Oriental Pearl Tower; Shanghai Tower,,Mainland China: LinkedIn and X are blocked there and map data uses shifted coordinates; low priority,After Tier 1
