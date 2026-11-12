@@ -2,10 +2,8 @@
 
 Things that need you before everything works. Tick them off as you go.
 
-- [ ] **Create the Cloudflare account** (`01-cloudflare-account.md`). Without it, there is nowhere to publish the site.
-- [ ] **Add the two secrets in GitHub** (`02-github-secrets.md`): `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Until then, the workflow builds the site but skips publishing, so there is no preview link yet. The workflow still shows a green tick.
-
-When both are done, open the **Actions** tab, run **Deploy** once, and open the preview link on your phone.
+- [x] **Cloudflare account and secrets** are done (12 November 2026).
+- [ ] **Your OK on the route proof page.** Open `/debug.html` on the preview site on your phone. It draws a real 72 hour balloon route from Albert Square using today's forecast winds. If it looks right, say so and we carry on.
 
 ## Cross-origin check
 

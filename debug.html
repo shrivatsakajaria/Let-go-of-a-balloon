@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Route proof</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0a0e1c; color: #f2efe6; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; font-weight: 600; }
+  p { margin: 0 0 12px; }
+  .note { color: #b9bccb; }
+  canvas { display: block; width: 100%; border-radius: 8px; background: #8fd3cf; }
+  dl { margin: 16px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
+  dt { color: #b9bccb; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  button { font: inherit; padding: 12px 20px; border: 0; border-radius: 8px; background: #ff5a12; color: #0a0e1c; font-weight: 600; min-height: 44px; }
+  #status { margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Route proof</h1>
+  <p class="note">A simulation using forecast winds, not a real balloon.</p>
+  <p class="note">Start: Albert Square, Manchester. Released now. Orange dots are hours, larger dots are every 24 hours.</p>
+  <canvas id="map" width="360" height="360" role="img" aria-label="Map of the simulated 72 hour balloon route"></canvas>
+  <p id="status" role="status">Working out the route from today's winds&hellip;</p>
+  <dl id="summary" hidden></dl>
+  <p id="retry" hidden><button type="button" id="retry-btn">Try again</button></p>
+</main>
+<script type="module" src="/src/debug/routeproof.ts"></script>
+</body>
+</html>

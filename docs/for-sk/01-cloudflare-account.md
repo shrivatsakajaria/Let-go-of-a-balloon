@@ -33,15 +33,12 @@ The token should be allowed to do one thing only: publish to Cloudflare Pages.
 1. Click your profile icon at the top right, then **My Profile**.
 2. In the left-hand menu, click **API Tokens**.
 3. Click **Create Token**.
-4. Scroll to the bottom and next to **Create Custom Token**, click **Get started**.
-5. Give it a name, for example `let-go-of-a-balloon`.
-6. Under **Permissions**, set the three boxes to:
-   - first box: **Account**
-   - second box: **Cloudflare Pages**
-   - third box: **Edit**
-7. Under **Account Resources**, set the two boxes to **Include** and then your own account.
-8. Leave everything else as it is.
-9. Click **Continue to summary**, then **Create Token**.
+4. The page shows a **Token name** box. Type a name, for example `let-go-of-a-balloon`.
+5. Below that is **Policies**, with some ready-made templates. Choose **Start from scratch** (it is marked **Custom**).
+6. Add the permission **Cloudflare Pages: Edit** for your account.
+7. Set **Token expiration** to **No expiration**.
+8. Leave **Client IP address filtering** empty.
+9. Click through to the summary, then click **Create Token**.
 10. Cloudflare now shows the token **once only**. Click **Copy**.
 11. Paste it into a safe note straight away.
 
