@@ -3,7 +3,7 @@ import { WindField, WindUnavailableError, loadManifest } from '../../src/wind/lo
 import { ISSUED, HOUR, BASE, addCruise, manifestJson, mockFetch, ghOf, CRUISE_LEVELS, type Files } from './helpers';
 
 const AROUND = { lat: 53, lon: -2 };
-const LATS = [20, 40, 60];
+const LATS = [30, 50, 70];
 const LONS = [-40, -20, 0];
 const OLD = '2026111212';
 const NEW = '2026111218';
@@ -66,7 +66,7 @@ test('no usable run -> WindUnavailableError', async () => {
 test('after the first successful prepare the run is pinned and a missing tile throws', async () => {
   const files: Files = twoRuns();
   await addCruise(files, NEW, LATS, LONS, [0], cell(10));
-  await addCruise(files, OLD, [-60, -40, -20], LONS, [0], cell(7)); // would serve a far-away place
+  await addCruise(files, OLD, [-70, -50, -30], LONS, [0], cell(7)); // would serve a far-away place
   const m = mockFetch(files);
   const w = new WindField(await loadManifest(BASE, m.fn, ISSUED + 10 * HOUR), m.fn, BASE);
   const span: [number, number] = [ISSUED + 6 * HOUR, ISSUED + 9 * HOUR];
@@ -85,4 +85,24 @@ test('in-flight requests are deduplicated', async () => {
   const tiles = m.requests.filter((r) => r.endsWith('.bin.gz'));
   expect(new Set(tiles).size).toBe(tiles.length);
   expect(tiles.length).toBe(9);
+});
+
+test('a transient network failure is not cached: the next prepare retries', async () => {
+  const files: Files = twoRuns();
+  await addCruise(files, NEW, LATS, LONS, [0], cell(10));
+  const m = mockFetch(files);
+  let failNext = true;
+  const flaky = async (url: string): Promise<Response> => {
+    if (failNext && url.includes('/cruise/')) {
+      failNext = false;
+      throw new TypeError('network down');
+    }
+    return m.fn(url);
+  };
+  const w = new WindField(await loadManifest(BASE, m.fn, ISSUED + 10 * HOUR), flaky, BASE);
+  const span: [number, number] = [ISSUED + 6 * HOUR, ISSUED + 9 * HOUR];
+  await expect(w.prepare(AROUND, span)).rejects.toBeInstanceOf(WindUnavailableError);
+  (w as unknown as { runIdx: number }).runIdx = 0; // the failed first prepare advanced to the next run; retry on the original
+  await w.prepare(AROUND, span);
+  expect(w.sample(AROUND, 1500, ISSUED + 6 * HOUR).u).toBeCloseTo(10, 5);
 });

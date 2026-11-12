@@ -85,10 +85,17 @@ export class WindField {
     return Date.parse(this.run.issued);
   }
 
-  private async fetchTile(url: string): Promise<WindTile | null> {
+  /** Returns the tile, null for a definitive miss, or undefined for a transient failure (retry later). */
+  private async fetchTile(url: string): Promise<WindTile | null | undefined> {
+    let res: Response;
     try {
-      const res = await this.fetchFn(url);
-      if (!res.ok || !res.body) return null;
+      res = await this.fetchFn(url);
+    } catch {
+      return undefined; // network error
+    }
+    if (res.status >= 500) return undefined;
+    if (!res.ok || !res.body) return null; // 404 and friends: definitive
+    try {
       return decodeTile(await gunzip(res));
     } catch {
       return null; // R17: a fallback HTML page or corrupt file counts as missing
@@ -100,9 +107,9 @@ export class WindField {
     let p = this.inflight.get(key);
     if (!p) {
       p = this.fetchTile(url).then((t) => {
-        this.tiles.set(key, t);
+        if (t !== undefined) this.tiles.set(key, t); // transient failures are not cached
         this.inflight.delete(key);
-        return t;
+        return t ?? null;
       });
       this.inflight.set(key, p);
     }

@@ -13,7 +13,8 @@ export interface LevelSample {
 /** South-west corner of the tile of size tileDeg containing p. Latitude rows run to latMax. */
 export function tileOrigin(p: LatLon, tileDeg: number, latMax: number): { lat0: number; lon0: number } {
   const lon = wrapLon(p.lon);
-  const lat0 = Math.max(-90, Math.min(latMax, Math.floor(p.lat / tileDeg) * tileDeg));
+  // The pipeline's grid starts at -90 / -180 (range(-90, 90, tileDeg)), not at multiples of tileDeg.
+  const lat0 = Math.max(-90, Math.min(latMax, Math.floor((p.lat + 90) / tileDeg) * tileDeg - 90));
   const lon0 = Math.floor((lon + 180) / tileDeg) * tileDeg - 180;
   return { lat0, lon0 };
 }

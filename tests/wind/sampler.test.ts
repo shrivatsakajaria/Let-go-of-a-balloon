@@ -8,7 +8,7 @@ import {
 } from './helpers';
 
 const AROUND = { lat: 53, lon: -2 };
-const LATS = [20, 40, 60];
+const LATS = [30, 50, 70];
 const LONS = [-40, -20, 0];
 const SPAN: [number, number] = [ISSUED + 3 * HOUR, ISSUED + 9 * HOUR];
 
@@ -32,7 +32,7 @@ describe('sampler', () => {
     await w.prepare(AROUND, SPAN);
     const t = ISSUED + 6 * HOUR;
     expect(w.sample({ lat: 53, lon: -2 }, 1500, t).u).toBeCloseTo(10, 1);
-    expect(w.sample({ lat: 41.3, lon: -19.4 }, 1500, t).u).toBeCloseTo(10, 1);
+    expect(w.sample({ lat: 51.3, lon: -19.4 }, 1500, t).u).toBeCloseTo(10, 1);
     expect(w.sample({ lat: 53, lon: -2 }, 1500, t).v).toBeCloseTo(0, 5);
   });
 
@@ -59,7 +59,7 @@ describe('sampler', () => {
     const cellFor = (_lat0: number, lon0: number) => (_h: number, l: number, _i: number, j: number) => ({
       u: 20 + lonDelta(180, lon0 + j), v: 0, gh: ghOf(CRUISE_LEVELS, l),
     });
-    await addCruise(files, RUN, [-20, 0, 20], [140, 160, -180], [0], cellFor);
+    await addCruise(files, RUN, [-30, -10, 10], [140, 160, -180], [0], cellFor);
     const { w } = await field(files);
     await w.prepare({ lat: 5, lon: 179.9 }, SPAN);
     const t = ISSUED + 6 * HOUR;
