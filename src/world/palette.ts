@@ -62,3 +62,14 @@ export function lightFor(elevationDeg: number): Light {
     night: n(a.night, b.night),
   };
 }
+
+/** Contour ground and building colours. All stay well below the balloon's saturation. */
+export const CONTOUR = {
+  /** chalk, then light to deep sage. */
+  land: ['#e6d6a2', '#b9cd86', '#a0c078', '#88b06c', '#76a063'] as Color[],
+  cliff: '#d4a982' as Color,
+  waterDeep: '#2b7fb0' as Color,
+  waterShallow: '#8fd3cf' as Color,
+  building: ['#f4efe5', '#ebe3d4'] as Color[],
+  roof: ['#d9bfa4', '#c9ad92', '#9fa6aa'] as Color[],
+};

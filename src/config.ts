@@ -15,3 +15,16 @@ export const BALLOON_HEX = '#ff5a12';
 
 /** Mean Earth radius (IUGG), used by haversine and destination. */
 export const EARTH_RADIUS_KM = 6371.0088;
+
+/**
+ * Terrain sources (Terrarium-encoded elevation, metres = R*256 + G + B/256 - 32768).
+ * Mapterhorn tiles are 512 px WebP; CORS is `*` on all of these. Verified 2026-11.
+ */
+export const TERRAIN_PLANET_PMTILES = 'https://download.mapterhorn.com/planet.pmtiles'; // global, z0-z12
+export const TERRAIN_REGIONAL_INDEX = 'https://download.mapterhorn.com/download_urls.json'; // regional z13+ archives
+export const TERRAIN_XYZ = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'; // fallback 1
+export const TERRAIN_AWS = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'; // fallback 2, 256 px, max z15
+export const TERRAIN_PLANET_MAX_ZOOM = 12;
+export const TERRAIN_AWS_MAX_ZOOM = 15;
+/** Zoom of the tiles the route reads ground height from. */
+export const ROUTE_GROUND_ZOOM = 7;
