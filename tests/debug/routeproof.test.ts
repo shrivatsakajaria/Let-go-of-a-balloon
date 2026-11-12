@@ -64,6 +64,11 @@ describe('nearestPlace', () => {
   it('picks the nearest within range', () => {
     expect(nearestPlace(places, { lat: 0, lon: 0 })?.name).toBe('Near');
   });
+  it('uses a village only when no city or town is in range', () => {
+    const v = { name: 'Hamlet', lat: 0.1, lon: 0, cls: 'village' };
+    expect(nearestPlace([v], { lat: 0, lon: 0 })?.name).toBe('Hamlet');
+    expect(nearestPlace([v, { name: 'Town', lat: 0.5, lon: 0, cls: 'town' }], { lat: 0, lon: 0 })?.name).toBe('Town');
+  });
   it('returns null when nothing is within 100 km', () => {
     expect(nearestPlace(places, { lat: 30, lon: 30 })).toBeNull();
   });

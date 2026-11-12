@@ -26,20 +26,24 @@ const countingFetch = async (url: string): Promise<Response> => {
 type Decoded = { tile: TileRef; vt: VectorTile };
 
 async function loadTiles(refs: TileRef[]): Promise<Decoded[]> {
-  const tj = (await (await fetch('https://tiles.openfreemap.org/planet')).json()) as { tiles: string[] };
-  const tpl = tj.tiles[0];
-  const out = await Promise.all(
-    refs.map(async (t): Promise<Decoded | null> => {
-      try {
-        const r = await fetch(tpl.replace('{z}', String(t.z)).replace('{x}', String(t.x)).replace('{y}', String(t.y)));
-        if (!r.ok) return null;
-        return { tile: t, vt: new VectorTile(new PbfReader(new Uint8Array(await r.arrayBuffer()))) };
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return out.filter((d): d is Decoded => d !== null);
+  try {
+    const tj = (await (await fetch('https://tiles.openfreemap.org/planet')).json()) as { tiles: string[] };
+    const tpl = tj.tiles[0];
+    const out = await Promise.all(
+      refs.map(async (t): Promise<Decoded | null> => {
+        try {
+          const r = await fetch(tpl.replace('{z}', String(t.z)).replace('{x}', String(t.x)).replace('{y}', String(t.y)));
+          if (!r.ok) return null;
+          return { tile: t, vt: new VectorTile(new PbfReader(new Uint8Array(await r.arrayBuffer()))) };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return out.filter((d): d is Decoded => d !== null);
+  } catch {
+    return [];
+  }
 }
 
 function drawMap(canvas: HTMLCanvasElement, route: Route, tiles: Decoded[], view: View, w: number, h: number): void {
@@ -135,12 +139,12 @@ function placesOf(tiles: Decoded[]): Place[] {
     if (!layer) continue;
     for (let i = 0; i < layer.length; i++) {
       const f = layer.feature(i);
-      if (!['city', 'town'].includes(String(f.properties.class))) continue;
+      if (!['city', 'town', 'village'].includes(String(f.properties.class))) continue;
       const name = String(f.properties['name:latin'] ?? f.properties.name ?? '');
       if (!name) continue;
       const g = f.toGeoJSON(d.tile.x, d.tile.y, d.tile.z).geometry;
       if (g.type !== 'Point') continue;
-      out.push({ name, lon: g.coordinates[0], lat: g.coordinates[1] });
+      out.push({ name, lon: g.coordinates[0], lat: g.coordinates[1], cls: String(f.properties.class) });
     }
   }
   return out;
@@ -187,7 +191,9 @@ async function run(): Promise<void> {
 
     const s = summarise(route);
     const place = nearestPlace(placesOf(tiles), s.landing, 100);
-    const where = place ? `near ${place.name} (${Math.round(place.km)} km away)` : 'open sea';
+    const where = tiles.length === 0
+      ? 'Map tiles did not load, so the place name is unknown'
+      : place ? `near ${place.name} (${Math.round(place.km)} km away)` : 'open sea';
     const f = (n: number): string => n.toFixed(2);
     const lt = localTime(route.points[route.points.length - 1].tSec * 1000 + now, s.landing);
     status.textContent = 'This is a real 72 hour route through the latest forecast winds.';

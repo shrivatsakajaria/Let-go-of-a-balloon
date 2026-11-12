@@ -78,16 +78,19 @@ export function summarise(route: Route): Summary {
   return { distanceKm: d, topSpeedKmh: top, landing: { lat: last.lat, lon: last.lon } };
 }
 
-export type Place = { name: string; lat: number; lon: number };
+export type Place = { name: string; lat: number; lon: number; cls?: string };
 
-/** Nearest named place within maxKm, or null (the page then says "open sea"). */
+/** Nearest named place within maxKm, or null (the page then says "open sea"). Cities and towns win; villages are only a fallback. */
 export function nearestPlace(places: Place[], p: LatLon, maxKm = 100): (Place & { km: number }) | null {
-  let best: (Place & { km: number }) | null = null;
-  for (const pl of places) {
-    const km = haversineKm(p, pl);
-    if (km <= maxKm && (!best || km < best.km)) best = { ...pl, km };
-  }
-  return best;
+  const pick = (list: Place[]): (Place & { km: number }) | null => {
+    let best: (Place & { km: number }) | null = null;
+    for (const pl of list) {
+      const km = haversineKm(p, pl);
+      if (km <= maxKm && (!best || km < best.km)) best = { ...pl, km };
+    }
+    return best;
+  };
+  return pick(places.filter((x) => x.cls !== 'village')) ?? pick(places.filter((x) => x.cls === 'village'));
 }
 
 export function ageText(ms: number): string {
