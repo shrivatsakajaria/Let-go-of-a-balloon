@@ -14,6 +14,7 @@
  */
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS as C, type Vec3 } from '../kit';
+import { clockState, hourAngle, localMs, minuteAngle, type ClockState } from '../clock';
 import type { LandmarkModel } from '../types';
 import type { Color } from '../../world/palette';
 
@@ -24,19 +25,7 @@ const DIAL_Z = -(4.15 + 0.3);
 /** Each face's error, minutes: the Four-Faced Liar's faces never quite agree. */
 const LIAR_MIN = [0, 1.5, -1, 0.5];
 
-type Hands = { hour: THREE.Object3D[]; minute: THREE.Object3D[]; hourKey: number; offsetMs: number };
-
-/** Last Sunday of a month (0-based), 01:00 UTC: when Irish clocks change. */
-function changeUtc(year: number, month: number): number {
-  const last = new Date(Date.UTC(year, month + 1, 0));
-  return last.getTime() - last.getUTCDay() * 864e5 + 3600e3;
-}
-
-/** Ireland's offset from UTC: Irish Standard Time (UTC+1) from the last Sunday of March to the last of October. */
-export function irelandOffsetMs(utcMs: number): number {
-  const y = new Date(utcMs).getUTCFullYear();
-  return utcMs >= changeUtc(y, 2) && utcMs < changeUtc(y, 9) ? 3600e3 : 0;
-}
+type Hands = ClockState & { hour: THREE.Object3D[]; minute: THREE.Object3D[] };
 
 /**
  * A square stage `half` from the axis, y0 to y0 + h, each side its own colour, in the order west
@@ -85,9 +74,9 @@ function hand(length: number, width: number): Kit {
 }
 
 export const model: LandmarkModel = {
-  build(style) {
+  build() {
     const k = new Kit();
-    const red = style.walls[0];
+    const red = C.redStone;
     const white = C.chalk;
     // west, north, east, south
     const tower = [red, red, white, white];
@@ -178,7 +167,7 @@ export const model: LandmarkModel = {
     const g = k.group('cork-shandon-bells');
     // the hands: one pair per face, turned in animate
     const hourKit = hand(1.3, 0.38), minuteKit = hand(1.8, 0.28);
-    const hands: Hands = { hour: [], minute: [], hourKey: Number.NaN, offsetMs: 0 };
+    const hands: Hands = { ...clockState(), hour: [], minute: [] };
     for (let i = 0; i < 4; i++) {
       const pivot = new THREE.Group();
       pivot.rotation.y = (-i * Math.PI) / 2;
@@ -201,15 +190,12 @@ export const model: LandmarkModel = {
   animate(group, utcMs) {
     const h = group.userData.hands as Hands | undefined;
     if (!h) return;
-    const key = Math.floor(utcMs / 3600e3);
-    if (key !== h.hourKey) {
-      h.hourKey = key;
-      h.offsetMs = irelandOffsetMs(utcMs);
-    }
+    // Irish time (the offset worked out once an hour), each face a little off
+    const local = localMs(h, utcMs);
     for (let i = 0; i < 4; i++) {
-      const t = utcMs + h.offsetMs + LIAR_MIN[i] * 60e3;
-      h.minute[i].rotation.z = ((((t % 3600e3) + 3600e3) % 3600e3) / 3600e3) * 2 * Math.PI;
-      h.hour[i].rotation.z = ((((t % 43200e3) + 43200e3) % 43200e3) / 43200e3) * 2 * Math.PI;
+      const t = local + LIAR_MIN[i] * 60e3;
+      h.minute[i].rotation.z = minuteAngle(t);
+      h.hour[i].rotation.z = hourAngle(t);
     }
   },
 };

@@ -20,7 +20,7 @@ const OUTER: [number, number][] = [[0, 61.5], [14, 54.5], [28, 48], [42, 42], [5
 const LEG: [number, number][] = [[0, 24], [57.6, 15.5], [115.7, 9.5]];
 
 /** The tower's paint: a calm bronze-brown, the deeper Contour clay roof. */
-const IRON: Color = '#c9ad92';
+const IRON: Color = C.bronze;
 
 const F1 = 57.6;
 const F2 = 115.7;

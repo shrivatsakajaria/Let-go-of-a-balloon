@@ -19,9 +19,10 @@ import { Director, type DirectorMode, type WaitFrame } from '../camera/director'
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
-import { brightLuminance, sceneAltitude } from '../ui/hudmath';
+import { brightLuminance, climbFloor, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
+import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
@@ -97,6 +98,8 @@ export class LiveScene {
   readonly stream: WorldStream;
   /** Landmark models near the camera, in place of their map buildings. */
   readonly landmarks: LandmarkLayer;
+  /** Where people, the street camera and the climb stand: the drawn ground or a landmark's own ground (standable.ts). */
+  private readonly ground: GroundSources = { groundAt: (p) => this.stream.groundAt(p), landmarkGroundAt: (p) => this.landmarks.groundAt(p) };
   readonly sky: Sky;
   readonly clouds: Clouds;
   readonly director: Director;
@@ -121,11 +124,15 @@ export class LiveScene {
   private wind = { speedMs: 2, headingDeg: 90 };
   private wait: WaitFrame = { centerY: 0.15, spanY: 0.7 };
   private groundS = Number.NaN;
+  /** Scene y of the balloon when it was let go here (NaN for a balloon opened from a link). */
+  private releaseY = Number.NaN;
   private placedAt = 0;
   private landmark: number | undefined = undefined;
   /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
   private holdUntil: { at: number; expire: () => void } | null = null;
   private feetS = Number.NaN;
+  /** Whether the feet stood on a landmark's own ground last frame (a change snaps them). */
+  private feetOnLandmark = false;
   private last = performance.now();
   private frames = 0;
   private skyAt = -Infinity;
@@ -179,7 +186,8 @@ export class LiveScene {
     };
     this.director = new Director(this.camera, {
       toScene: (p) => this.stream.toScene(p),
-      groundAt: (p) => this.stream.groundAt(p),
+      // street camera spots stand on a landmark's own ground (a summit terrace), never inside it
+      groundAt: (p) => standableGround(this.ground, p),
       buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
@@ -198,7 +206,7 @@ export class LiveScene {
     this.route = null;
     this.released = false;
     this.holdUntil = null;
-    this.groundS = this.feetS = Number.NaN;
+    this.groundS = this.feetS = this.releaseY = Number.NaN;
     // move the world's origin here first, so the director's street spots are chosen in the new frame
     this.stream.update({ lat: p.lat, lon: p.lon, altM: this.stream.groundAt(p) + 2, headingDeg: this.wind.headingDeg }, performance.now());
     this.newBalloon();
@@ -253,6 +261,8 @@ export class LiveScene {
         this.holdUntil = null;
         this.route = ready;
         this.released = true;
+        // the climb floor: only for a launch from a landmark's terrace (hudmath.climbFloor)
+        this.releaseY = climbFloorFrom(this.feetS, this.startLift());
         this.balloon.root.visible = true;
         this.balloon.release();
         this.director.release(); // the crane starts as the hand opens
@@ -281,7 +291,7 @@ export class LiveScene {
     this.released = true;
     this.holdUntil = null;
     this.start = route.points[0];
-    this.groundS = Number.NaN;
+    this.groundS = this.releaseY = Number.NaN;
     const p = positionAt(route, Date.now());
     this.stream.update({ lat: p.lat, lon: p.lon, altM: p.altM, headingDeg: p.headingDeg }, performance.now());
     this.person?.dispose();
@@ -383,17 +393,30 @@ export class LiveScene {
     this.balloon.hold(this.person.hand);
   }
 
+  /**
+   * How far the launch spot stands above the drawn ground (a landmark's terrace over a summit the
+   * map has lost), for the route's climb; 0 almost everywhere.
+   */
+  startLift(): number {
+    return startLiftM(this.ground, this.start);
+  }
+
   private updatePerson(dt: number): void {
     const person = this.person;
     if (!person) return;
-    const g = this.stream.groundAt(this.start);
-    // until the street's own tile is in, the ground there is a guess: the person waits out of sight
-    // rather than sinking into the street as finer land arrives
-    const fine = this.stream.zoomAt(this.start) >= 13 || performance.now() - this.placedAt > 6000;
+    const g = standableGround(this.ground, this.start);
+    // a landmark's ground appearing (or leaving) under the feet moves them at once, not over seconds
+    const onLandmark = g > this.stream.groundAt(this.start);
+    const changed = onLandmark !== this.feetOnLandmark;
+    this.feetOnLandmark = onLandmark;
+    // until the street's own tile is in (and any landmark whose ground may be under the spot), the
+    // ground there is a guess: the person waits out of sight rather than sinking into the street, or
+    // standing inside a summit's rock, as finer land and the landmark arrive
+    const fine = (this.stream.zoomAt(this.start) >= 13 && this.landmarks.settledAt(this.start)) || performance.now() - this.placedAt > 6000;
     if (fine && !person.root.visible) this.feetS = Number.NaN;
     person.root.visible = fine;
     if (!this.released) this.balloon.root.visible = fine;
-    this.feetS = Number.isNaN(this.feetS) || !fine || Math.abs(g - this.feetS) > 200 ? g : this.feetS + (g - this.feetS) * (1 - Math.exp(-dt / 0.6));
+    this.feetS = !fine ? g : nextFeet(this.feetS, g, dt, changed);
     const s = this.stream.toScene(this.start, this.tmp);
     person.place({ x: s.x, y: this.feetS, z: s.z });
     person.update(dt);
@@ -446,6 +469,11 @@ export class LiveScene {
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
     if (!rp) this.updatePerson(dt);
     let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
+    // never inside a landmark's own ground (the route's climb starts from it: this only catches a
+    // replayed route, which knows nothing of the terrace)
+    if (this.released) y = Math.max(y, this.landmarks.groundAt(pt) + 1.5);
+    // just let go, it rises from where the hand opened, though the drawn slope below falls away
+    if (this.released && !rp && route && !landed && Number.isFinite(this.releaseY)) y = climbFloor(y, pt.tSec, this.releaseY, pt.altM, route.points[0].altM);
     if (rp) {
       // the replay's balloon settles at the end, resting on the ground at the size it is drawn
       const rest = this.groundS + LANDED_M * displayScale(this.camera.position.distanceTo(this.target));
@@ -472,7 +500,7 @@ export class LiveScene {
     const dB = this.camera.position.distanceTo(this.target);
     let near = (dB - 1.4 - 0.2 * displayScale(dB)) * 0.5;
     if (this.person && !rp) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
-    const camGround = this.stream.groundAt(this.stream.fromScene(this.camera.position.x, this.camera.position.z));
+    const camGround = standableGround(this.ground, this.stream.fromScene(this.camera.position.x, this.camera.position.z));
     near = Math.min(near, (this.camera.position.y - camGround) * 0.5);
     this.camera.near = Math.min(rp ? 500 : 10, Math.max(0.08, near));
     const far = hazeFarM(this.camera.position.y);
@@ -508,7 +536,9 @@ export class LiveScene {
     }
 
     // live shadows round the balloon, a little ahead of it
-    const agl = Math.max(0, y - this.groundS);
+    // over a landmark's terrace where it is higher than the drawn ground (in the hand on Corcovado:
+    // 1.5 m, not 183 m); not by changing groundS, which sceneAltitude reads with the lifted route
+    const agl = aglOver(y, this.groundS, this.landmarks.groundAt(pt));
     let redraw = this.sky.light.setRadius(shadowRadius(agl));
     const ahead = Math.min(400, agl * 0.4);
     this.focus.set(this.target.x + Math.sin(h) * ahead, this.groundS, this.target.z - Math.cos(h) * ahead);

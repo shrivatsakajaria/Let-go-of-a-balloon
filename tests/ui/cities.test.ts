@@ -115,8 +115,8 @@ describe('cities.json', () => {
           expect(c.hero?.name, c.id).toBe(c.landmarks[0]);
         }
       }
-      // only Cappadocia, whose hero is terrain all round, has no single point to face
-      expect(launch.filter((c) => c.launch.headingDeg === null).map((c) => c.id)).toEqual(['cappadocia-goreme']);
+      // every launch-batch city now has a point to face (Cappadocia: its fairy-chimney model)
+      expect(launch.filter((c) => c.launch.headingDeg === null).map((c) => c.id)).toEqual([]);
     });
 
     test('the heading is the bearing from the launch spot to the hero landmark, within 1 degree', () => {
@@ -146,6 +146,31 @@ describe('cities.json', () => {
       }
     });
 
+    test('launch views re-aimed at their landmark models (Task 21c)', () => {
+      const get = (id: string) => list.find((c) => c.id === id)!;
+      // Cappadocia faces the fairy-chimney cluster west of Sunset Point
+      const cap = get('cappadocia-goreme');
+      expect(cap.hero).toEqual({ name: 'Fairy chimneys (terrain)', lat: 38.64016, lon: 34.8291 });
+      expect(cap.launch.headingDeg).toBeCloseTo(283, 0);
+      expect(cap.launch.headingNote).toBeUndefined();
+      // Galway: from the Long Walk, in front of the arches (they face south-east, 135 deg)
+      const gal = get('galway');
+      expect(gal.launch).toMatchObject({ lat: 53.26907, lon: -9.05281, label: 'The Long Walk, facing the Spanish Arch' });
+      expect(Math.abs(gal.launch.headingDeg! - 315)).toBeLessThan(5);
+      // Edinburgh faces the Gatehouse; Cardiff the south wall between the gate and the Clock Tower
+      expect(get('edinburgh').hero).toMatchObject({ lat: 55.94853, lon: -3.19855 });
+      expect(get('edinburgh').launch.headingDeg).toBeCloseTo(250.3, 1);
+      expect(get('cardiff').hero).toMatchObject({ lat: 51.48144, lon: -3.18129 });
+      expect(get('cardiff').launch.headingDeg).toBeGreaterThanOrEqual(315);
+      expect(get('cardiff').launch.headingDeg).toBeLessThanOrEqual(320);
+      // Rio: SK's choice (13 Nov 2026), Corcovado beside Christ the Redeemer
+      const rio = get('rio-de-janeiro');
+      expect(rio.launch).toMatchObject({ lat: -22.95188, lon: -43.21017, label: 'Corcovado, below Christ the Redeemer' });
+      expect(rio.landmarks.slice(0, 2)).toEqual(['Christ the Redeemer', 'Sugarloaf Mountain and cable car']);
+      expect(rio.hero).toEqual({ name: 'Christ the Redeemer', lat: -22.95192, lon: -43.21049 });
+      expect(rio.notes).toMatch(/13 Nov 2026/);
+    });
+
     test('coordinates are given to 5 decimal places at most (about 1 m)', () => {
       const fine = (x: number) => Math.abs(Math.round(x * 1e5) / 1e5 - x) < 1e-9;
       for (const c of launch) {
@@ -166,5 +191,5 @@ test('landmark heading for the launch camera: none until the sheet has one, a nu
   expect(landmarkHeading(undefined)).toBeUndefined();
   expect(landmarkHeading('no-such-city')).toBeUndefined();
   expect(landmarkHeading('london')).toBe(90.5); // Parliament Square to Elizabeth Tower, due east
-  expect(landmarkHeading('cappadocia-goreme')).toBeUndefined(); // terrain all round: the director's fallback
+  expect(landmarkHeading('cappadocia-goreme')).toBeCloseTo(283, 0); // the fairy-chimney model, west of Sunset Point
 });

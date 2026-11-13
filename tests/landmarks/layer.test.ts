@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import cities from '../../data/cities.json';
 import { haversineKm, type LatLon } from '../../src/geo/coords';
 import { LandmarkLayer } from '../../src/landmarks/layer';
-import { siteById } from '../../src/landmarks/registry';
+import { modelToLatLon, siteById } from '../../src/landmarks/registry';
+import { Kit, LANDMARK_COLOURS } from '../../src/landmarks/kit';
+import type { LandmarkModel, LandmarkSite } from '../../src/landmarks/types';
 import { lightFor } from '../../src/world/palette';
 import { WorldStream, type BuildPool } from '../../src/world/stream';
 import { DEFAULT_REGION } from '../../src/world/palette';
@@ -103,6 +105,133 @@ test('landmarks are dropped and freed once the focus is far away, and wait for f
   expect(disposed).toBeGreaterThan(0);
   expect(s.stream.materials.slots.available).toBeGreaterThan(free);
   s.layer.dispose();
+});
+
+/** A layer with one site at SQUARE, its model built by `build` (or loaded by `models`). */
+function oneModel(build: () => THREE.Group, models?: Record<string, () => Promise<LandmarkModel>>, id = 'test-thing', extra: Partial<LandmarkSite> = {}) {
+  const scene = new THREE.Scene();
+  const stream = new WorldStream(scene, never, () => DEFAULT_REGION, { vectorUrl: 'x/{z}/{x}/{y}', origin: SQUARE });
+  let t = 0;
+  const site: LandmarkSite = { id, cityId: 'test', name: 'Thing', at: SQUARE, headingDeg: 0, footprintRadiusM: 150, ...extra };
+  const host = { scene, toScene: stream.toScene.bind(stream), groundAt: () => 10, zoomAt: () => 14, materials: stream.materials };
+  const layer = new LandmarkLayer(host, { sites: [site], models: models ?? { [id]: async () => ({ build }) }, now: () => t });
+  return { scene, layer, site, tick: (ms: number) => (t += ms) };
+}
+
+test('thin overhead parts marked userData.noTops (ropes, chains) do not count as tops for the camera', async () => {
+  const { layer, site, tick } = oneModel(() => {
+    const k = new Kit();
+    k.box('walls', LANDMARK_COLOURS.stone, 0, 0, 0, 10, 30, 10);
+    const g = k.group('test-thing');
+    // ropes from a mast 100 m west, high over the ground, down to the tower: one along x, one across
+    const r = new Kit();
+    r.quad('plain', LANDMARK_COLOURS.iron, [-100, 80, -0.3], [0, 30, -0.3], [0, 30, 0.3], [-100, 80, 0.3], [0, 1, 0]);
+    r.quad('plain', LANDMARK_COLOURS.iron, [-100, 80, 40], [0, 30, -40], [0, 30.5, -40], [-100, 80.5, 40], [0, 1, 0]);
+    const rope = r.mesh('plain', 'rope')!;
+    rope.userData.noTops = true;
+    g.add(rope);
+    return g;
+  });
+  const day = lightFor(30);
+  layer.update(SQUARE, 0, day);
+  await flush(layer, 1);
+  tick(16);
+  layer.update(SQUARE, 0, day);
+  // the tower counts: 30 m over its ground (10)
+  expect(layer.topAt(site.at, 3)).toBeCloseTo(40, 3);
+  // under the ropes, 50 m west of it, there is nothing for the camera to keep out of
+  expect(layer.topAt(modelToLatLon(site, -50, 10), 3)).toBe(-Infinity);
+  layer.dispose();
+});
+
+test('a model that fails to import (offline) is tried again after 5 s, 20 s, then every 60 s, without the focus moving', async () => {
+  let calls = 0;
+  const build = () => {
+    const k = new Kit();
+    k.box('walls', LANDMARK_COLOURS.stone, 0, 0, 0, 10, 30, 10);
+    return k.group('test-retry');
+  };
+  const models = {
+    'test-retry': async (): Promise<LandmarkModel> => {
+      calls++;
+      if (calls <= 3) throw new Error('offline');
+      return { build };
+    },
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const { layer, tick } = oneModel(build, models, 'test-retry');
+    const day = lightFor(30);
+    const step = async (ms: number) => {
+      tick(ms);
+      layer.update(SQUARE, 0, day);
+      await flush();
+    };
+    await step(0);
+    expect(calls).toBe(1);
+    await step(4900);
+    expect(calls).toBe(1);
+    await step(200); // 5.1 s
+    expect(calls).toBe(2);
+    await step(19000);
+    expect(calls).toBe(2);
+    await step(1200); // 20 s after the second
+    expect(calls).toBe(3);
+    await step(59000);
+    expect(calls).toBe(3);
+    await step(1200); // 60 s after the third
+    expect(calls).toBe(4);
+    await step(16);
+    expect(layer.shown()).toEqual(['test-retry']);
+    layer.dispose();
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test("a landmark's own ground (meshes marked userData.ground: a terrace, a rock) is standable; its statue is not", async () => {
+  const { layer, site, tick } = oneModel(() => {
+    // a 40 m x 60 m terrace 30 m up (ground), a 25 m statue on it (not ground)
+    const kg = new Kit();
+    kg.box('plain', LANDMARK_COLOURS.stone, 0, -5, 0, 40, 35, 60);
+    const k = new Kit();
+    k.box('walls', LANDMARK_COLOURS.chalk, 0, 30, 10, 4, 25, 4);
+    const g = k.group('test-terrace');
+    const ground = kg.mesh('plain', 'test-terrace-ground')!;
+    ground.userData.ground = true;
+    g.add(ground);
+    return g;
+  }, undefined, 'test-terrace', { carriesGround: true });
+  const day = lightFor(30);
+  // before the model is in, nothing is known to stand on, and the start is not settled
+  expect(layer.groundAt(site.at)).toBe(-Infinity);
+  layer.update(SQUARE, 0, day);
+  expect(layer.settledAt(site.at)).toBe(false);
+  await flush(layer, 1);
+  tick(16);
+  layer.update(SQUARE, 0, day);
+  expect(layer.settledAt(site.at)).toBe(true);
+  // the terrace: its top over the site's ground (10)
+  expect(layer.groundAt(modelToLatLon(site, 5, -20))).toBeCloseTo(40, 3);
+  // where the statue stands, still the terrace (the statue is a top, not ground)
+  expect(layer.groundAt(modelToLatLon(site, 0, 10))).toBeCloseTo(40, 3);
+  expect(layer.topAt(modelToLatLon(site, 0, 10), 1)).toBeCloseTo(65, 3);
+  // the ground is not a top (the camera's floor stands on it through groundAt, sampled exactly,
+  // not on the coarse top grid, which would stand each sloping facet's highest point over its bounds)
+  expect(layer.topAt(modelToLatLon(site, 5, -20), 1)).toBe(-Infinity);
+  // off the terrace: none
+  expect(layer.groundAt(modelToLatLon(site, 40, 0))).toBe(-Infinity);
+  // far from any landmark the start is settled at once
+  expect(layer.settledAt({ lat: 52, lon: -1 })).toBe(true);
+  layer.dispose();
+});
+
+test('a start under a landmark that carries no ground of its own is settled at once (the person does not wait for Westminster)', () => {
+  const { layer, site } = oneModel(() => new THREE.Group(), { 'test-plain': () => new Promise(() => {}) }, 'test-plain');
+  layer.update(SQUARE, 0, lightFor(30));
+  expect(layer.settledAt(site.at)).toBe(true);
+  layer.dispose();
 });
 
 test('a replay seen from high up asks for no scan: nothing new loads, what is shown stays and is still placed', async () => {

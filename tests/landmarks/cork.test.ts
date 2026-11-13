@@ -1,7 +1,8 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three';
-import { model, irelandOffsetMs } from '../../src/landmarks/models/cork-shandon-bells';
+import { model } from '../../src/landmarks/models/cork-shandon-bells';
 import { countTriangles } from '../../src/landmarks/kit';
+import { ukOffsetMs } from '../../src/landmarks/clock';
 import { regionStyle, lightFor } from '../../src/world/palette';
 
 const CORK = { lat: 51.90328, lon: -8.47617 };
@@ -14,10 +15,10 @@ test('Shandon: about 52 m to the salmon, four lit dials, hands on Irish time (ea
   const glow = g.children.find((m) => m.userData.bucket === 'glow') as THREE.Mesh;
   expect(countTriangles(glow)).toBe(4 * 20);
   // Irish Standard Time in summer, GMT in winter, changing with the UK
-  expect(irelandOffsetMs(Date.UTC(2026, 0, 15, 12))).toBe(0);
-  expect(irelandOffsetMs(Date.UTC(2026, 6, 15, 12))).toBe(3600e3);
-  expect(irelandOffsetMs(Date.UTC(2026, 9, 25, 0, 59))).toBe(3600e3);
-  expect(irelandOffsetMs(Date.UTC(2026, 9, 25, 1, 0))).toBe(0);
+  expect(ukOffsetMs(Date.UTC(2026, 0, 15, 12))).toBe(0);
+  expect(ukOffsetMs(Date.UTC(2026, 6, 15, 12))).toBe(3600e3);
+  expect(ukOffsetMs(Date.UTC(2026, 9, 25, 0, 59))).toBe(3600e3);
+  expect(ukOffsetMs(Date.UTC(2026, 9, 25, 1, 0))).toBe(0);
   // 15:45 IST: the west face's minute hand at nine, the hour hand just short of four
   model.animate!(g, Date.UTC(2026, 6, 15, 14, 45), lightFor(30));
   const hands = g.userData.hands as { hour: THREE.Object3D[]; minute: THREE.Object3D[] };

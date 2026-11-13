@@ -27,9 +27,9 @@ import type { LandmarkModel } from '../types';
 type P3 = [number, number, number];
 
 /** Contour's deep sage (CONTOUR.land[4]): forest. */
-const FOREST: Color = '#76a063';
+const FOREST: Color = C.cypress;
 /** Contour's sage (CONTOUR.land[3]): scrub on the gentler rock. */
-const SCRUB: Color = '#88b06c';
+const SCRUB: Color = C.sage;
 
 /** The rock's grid: corner, spacing and size (model frame, m). */
 const GX = -275, GZ = -1700, STEP = 25, NX = 25, NZ = 29;
@@ -153,7 +153,10 @@ function car(): THREE.Group {
   k.prism('plain', C.chalk, 0, -7.6, 0, 2.6, 1.2, 8, { r1: 2.9 });
   k.prism('glow', C.slate, 0, -6.4, 0, 2.9, 2.2, 8, { top: false });
   k.prism('plain', C.chalk, 0, -4.2, 0, 2.9, 1.0, 8, { r1: 2.2 });
-  return k.group('rio-de-janeiro-sugarloaf-car');
+  const g = k.group('rio-de-janeiro-sugarloaf-car');
+  // the cars move: they are not tops for the camera (types.ts noTops)
+  for (const m of g.children) m.userData.noTops = true;
+  return g;
 }
 
 type Cars = { cars: THREE.Object3D[] };
@@ -183,7 +186,9 @@ export const model: LandmarkModel = {
     const k = new Kit();
     rock(k);
     STATIONS.forEach(([x, z, floor, plinth, l], i) => station(k, x, z, floor, plinth, turnOf(LINES[l]) + (i % 2 ? 180 : 0), i === 0));
-    // the ropes: two tracks a line, each a thin ribbon seen from both sides
+    // the ropes: two tracks a line, each a thin ribbon seen from both sides; their own mesh, left
+    // out of the camera's tops (types.ts noTops)
+    const kr = new Kit();
     for (const [a, b] of LINES) {
       const dx = b[0] - a[0], dz = b[2] - a[2], len = Math.hypot(dx, b[1] - a[1], dz), n = Math.hypot(dx, dz);
       for (const s of [TRACK, -TRACK]) {
@@ -191,11 +196,14 @@ export const model: LandmarkModel = {
         for (let i = 0; i < 8; i++) {
           const p = i / 8, q = (i + 1) / 8;
           const P = (t: number, dy: number): P3 => [a[0] + dx * t + ox, a[1] + (b[1] - a[1]) * t - sag(len, t) + dy, a[2] + dz * t + oz];
-          for (const hint of [1, -1]) k.quad('plain', C.iron, P(p, -0.35), P(q, -0.35), P(q, 0.35), P(p, 0.35), [(-dz / n) * hint, 0, (dx / n) * hint]);
+          for (const hint of [1, -1]) kr.quad('plain', C.iron, P(p, -0.35), P(q, -0.35), P(q, 0.35), P(p, 0.35), [(-dz / n) * hint, 0, (dx / n) * hint]);
         }
       }
     }
     const g = k.group('rio-de-janeiro-sugarloaf');
+    const ropes = kr.mesh('plain', 'rio-de-janeiro-sugarloaf-ropes')!;
+    ropes.userData.noTops = true;
+    g.add(ropes);
     const cars: Cars = { cars: [] };
     const v = new THREE.Vector3();
     for (let l = 0; l < LINES.length; l++) {

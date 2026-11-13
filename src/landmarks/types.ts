@@ -16,7 +16,11 @@
  * metres below y = 0 so a sloping street never shows under them.
  *
  * Budget per model module: under 4,000 triangles and under 30 KB gzipped; Contour colours only
- * (kit.ts LANDMARK_COLOURS and the region style's walls and roofs). animate must not allocate.
+ * (kit.ts LANDMARK_COLOURS and the region style's walls and roofs, by name: no hex of its own).
+ * animate must not allocate. A model module imports only ../kit, ../clock (clock hands on UK and
+ * Irish time), ../types, three and palette types (registry.test.ts checks); shared helpers live
+ * outside models/, where every file is a landmark. Check a model alone with lmview.html?id=<id>
+ * on the dev server.
  */
 import type * as THREE from 'three';
 import type { LatLon } from '../geo/coords';
@@ -48,6 +52,11 @@ export type LandmarkSite = Omit<Landmark, 'build' | 'animate'> & {
    * footprint circle for hiding map buildings. footprintRadiusM still bounds the whole model.
    */
   hides?: HideCircle[];
+  /**
+   * The model carries ground of its own (meshes marked userData.ground: a summit the map has lost).
+   * A launch inside the footprint waits for the model before the person is shown on it.
+   */
+  carriesGround?: boolean;
 };
 
 /** What a model module exports as `model`. */
@@ -58,6 +67,16 @@ export type LandmarkModel = Pick<Landmark, 'build' | 'animate'>;
  *  - walls: stone with the Contour window pattern (subtle by day, some windows lit at night);
  *  - plain: stone, roofs, spires, metal: no windows;
  *  - glow:  surfaces that light up from dusk (clock faces, lanterns), dim by day.
+ *
+ * Thin overhead parts (ropes, chains, cables, hangers) go in their own meshes (a second Kit's
+ * `mesh(bucket, name)`) marked `mesh.userData.noTops = true`: the layer leaves them out of the
+ * landmark's tops for the camera, which would otherwise stand each long triangle's highest point
+ * over the whole of its plan bounds.
+ *
+ * Ground a landmark carries itself (a summit rock and terrace where the map's elevation data has
+ * lost the summit: Corcovado) goes in its own mesh marked `mesh.userData.ground = true`: the layer
+ * samples its top (LandmarkLayer.groundAt), and the person, the street camera and the balloon's
+ * climb stand on it (app/standable.ts).
  */
 export type LandmarkBucket = 'walls' | 'plain' | 'glow';
 export const LANDMARK_BUCKETS: LandmarkBucket[] = ['walls', 'plain', 'glow'];

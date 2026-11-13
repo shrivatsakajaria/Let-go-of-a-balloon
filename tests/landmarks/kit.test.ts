@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS, contourColours, countTriangles, linearColour } from '../../src/landmarks/kit';
-import { DEFAULT_REGION, hslOf, toHex } from '../../src/world/palette';
+import { CONTOUR, DEFAULT_REGION, ROADS, hslOf, regionStyle, toHex } from '../../src/world/palette';
 
 /** Every triangle's stored normal points away from the given centre. */
 function outward(g: THREE.BufferGeometry, cx: number, cy: number, cz: number): boolean {
@@ -68,6 +68,56 @@ test('prisms, spires, gables and discs face outward; push/turn moves and turns w
   expect(tg.boundingBox!.max.x).toBeCloseTo(111, 5);
   expect(tg.boundingBox!.min.x).toBeCloseTo(-1, 5);
   expect(outward(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute((tg.getAttribute('position').array as Float32Array).slice(0, 30 * 3), 3)).setAttribute('normal', new THREE.BufferAttribute((tg.getAttribute('normal').array as Float32Array).slice(0, 30 * 3), 3)), 110, 1, 50)).toBe(true);
+});
+
+test('place puts an object (a clock hand pivot) where the kit frame is, turned with it', () => {
+  const k = new Kit();
+  k.push(100, 0, 50, 90);
+  k.push(0, 0, -10, 90);
+  const o = new THREE.Object3D();
+  k.place(o, 0, 5, -2);
+  // a box drawn at the same spot in the same frame lands where the object is
+  k.box('walls', LANDMARK_COLOURS.stone, 0, 5, -2, 0.2, 0.2, 0.2);
+  k.pop();
+  k.pop();
+  const g = (k.group('t').children[0] as THREE.Mesh).geometry;
+  g.computeBoundingBox();
+  const c = g.boundingBox!.getCenter(new THREE.Vector3());
+  expect(o.position.x).toBeCloseTo(c.x, 5);
+  expect(o.position.y).toBeCloseTo(5 + 0.1, 0);
+  expect(o.position.z).toBeCloseTo(c.z, 5);
+  // turned 180 deg in all: its -z (front) faces +z (south)
+  o.updateMatrixWorld(true);
+  const front = new THREE.Vector3(0, 0, -1).transformDirection(o.matrixWorld);
+  expect(front.z).toBeCloseTo(1, 5);
+});
+
+test('a prism can be closed below (an overhang, a cornice: no sky through it from under)', () => {
+  const k = new Kit();
+  k.prism('plain', LANDMARK_COLOURS.stone, 0, 5, 0, 3, 2, 8, { bottom: true, r1: 2 });
+  expect(k.triangles).toBe(8 * 2 + 6 + 6);
+  const g = (k.group('p').children[0] as THREE.Mesh).geometry;
+  expect(outward(g, 0, 6, 0)).toBe(true);
+  // the bottom faces down, at y0, as wide as the base
+  const p = g.getAttribute('position'), n = g.getAttribute('normal');
+  let down = 0, maxR = 0;
+  for (let i = 0; i < p.count; i++) {
+    if (n.getY(i) < -0.99) {
+      down++;
+      expect(p.getY(i)).toBeCloseTo(5, 6);
+      maxR = Math.max(maxR, Math.hypot(p.getX(i), p.getZ(i)));
+    }
+  }
+  expect(down).toBe(6 * 3);
+  expect(maxR).toBeCloseTo(3, 6);
+});
+
+test('landmark colours: limestone (the rail grey), copper (the pale sea-green) and a fixed red stone', () => {
+  expect(LANDMARK_COLOURS.limestone).toBe(ROADS.rail);
+  expect(LANDMARK_COLOURS.copper).toBe(CONTOUR.waterShallow);
+  // the UK and Ireland's muted brick, whatever the region a model stands in
+  expect(LANDMARK_COLOURS.redStone).toBe(regionStyle({ lat: 51.9033, lon: -8.4762 }).walls[0]);
+  expect(contourColours(DEFAULT_REGION)).toContain(LANDMARK_COLOURS.redStone);
 });
 
 test('colours are stored linear, and every Contour colour is calm (the balloon stays the only saturated thing)', () => {

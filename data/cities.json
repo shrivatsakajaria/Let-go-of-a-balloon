@@ -60,23 +60,24 @@
     "tier": 1,
     "batch": "launch",
     "launch": {
-      "lat": -22.9554,
-      "lon": -43.1647,
-      "label": "Praia Vermelha beach, below Sugarloaf",
-      "headingDeg": 53.1
+      "lat": -22.95188,
+      "lon": -43.21017,
+      "label": "Corcovado, below Christ the Redeemer",
+      "headingDeg": 262.3
     },
     "landmarks": [
+      "Christ the Redeemer",
       "Sugarloaf Mountain and cable car",
       "Copacabana promenade",
       "Maracana"
     ],
     "hero": {
-      "name": "Sugarloaf Mountain and cable car",
-      "lat": -22.94949,
-      "lon": -43.15616
+      "name": "Christ the Redeemer",
+      "lat": -22.95192,
+      "lon": -43.21049
     },
     "animated": "Cable car glides",
-    "notes": "Christ the Redeemer: image rights are claimed by the Archdiocese; check before modelling"
+    "notes": "Christ the Redeemer: image rights are claimed by the Archdiocese; SK checked and OK'd modelling it on 13 Nov 2026"
   },
   {
     "id": "london",
@@ -141,7 +142,7 @@
       "lat": 55.94878,
       "lon": -3.1973,
       "label": "Castle Esplanade",
-      "headingDeg": 267.1
+      "headingDeg": 250.3
     },
     "landmarks": [
       "Edinburgh Castle",
@@ -150,8 +151,8 @@
     ],
     "hero": {
       "name": "Edinburgh Castle",
-      "lat": 55.94869,
-      "lon": -3.20043
+      "lat": 55.94853,
+      "lon": -3.19855
     }
   },
   {
@@ -259,7 +260,7 @@
       "lat": 51.4807,
       "lon": -3.18019,
       "label": "High Street, facing Cardiff Castle",
-      "headingDeg": 339.5
+      "headingDeg": 317.2
     },
     "landmarks": [
       "Cardiff Castle",
@@ -267,8 +268,8 @@
     ],
     "hero": {
       "name": "Cardiff Castle",
-      "lat": 51.48233,
-      "lon": -3.18117
+      "lat": 51.48144,
+      "lon": -3.18129
     }
   },
   {
@@ -374,10 +375,10 @@
     "tier": 1,
     "batch": "launch",
     "launch": {
-      "lat": 53.26895,
-      "lon": -9.05585,
-      "label": "Claddagh Quay, across the river from the Spanish Arch",
-      "headingDeg": 52.6
+      "lat": 53.26907,
+      "lon": -9.05281,
+      "label": "The Long Walk, facing the Spanish Arch",
+      "headingDeg": 316
     },
     "landmarks": [
       "Spanish Arch",
@@ -527,13 +528,17 @@
       "lat": 38.6398,
       "lon": 34.83105,
       "label": "Sunset Point, above Goreme",
-      "headingDeg": null,
-      "headingNote": "Fairy chimneys are terrain all round Goreme, so there is no single point to face"
+      "headingDeg": 283.3
     },
     "landmarks": [
       "Fairy chimneys (terrain)",
       "other balloons in the sky"
     ],
+    "hero": {
+      "name": "Fairy chimneys (terrain)",
+      "lat": 38.64016,
+      "lon": 34.8291
+    },
     "animated": "Dozens of hot-air balloons rise at dawn",
     "notes": "A natural fit: the world's best-known place for balloon flights"
   },

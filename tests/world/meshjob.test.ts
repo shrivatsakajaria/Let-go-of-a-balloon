@@ -254,6 +254,16 @@ test('gap fill: houses in residential land with no buildings, about one per 350 
   expect(tb.stats.gapHouses).toBe(1500);
 });
 
+test('gap fill: no house inside a landmark hiding circle (the landmark stands there)', () => {
+  const s = emptyFeatures();
+  s.landuse.push({ cls: 'residential', subclass: '', polygon: rect(300, -300, 500, -500) });
+  const c = frame.toLatLon(400, -400);
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION, { hiddenFootprints: [{ lat: c.lat, lon: c.lon, radiusM: 50 }] });
+  expect(t.stats.gapHouses).toBeGreaterThan(20); // the rest of the area still gets houses
+  for (const b of [t.buildings, t.roofs])
+    for (let i = 0; i < b.position.length; i += 3) expect(Math.hypot(b.position[i] - 400, b.position[i + 2] + 400)).toBeGreaterThan(50);
+});
+
 test('roads and rivers drape 0.3 m above the drawn ground', () => {
   for (const b of [m.roads, m.waterways]) {
     expect(b.position.length).toBeGreaterThan(0);
@@ -561,6 +571,48 @@ test('roads crossing flat water stay above its surface (bridges over docks and l
     const x = t.roads.position[i];
     if (x > 420 && x < 680) expect(t.roads.position[i + 1]).toBeGreaterThan(level + 0.25);
   }
+});
+
+test('a bridge inside a landmark hiding circle is not draped on the ground (the model carries it); other roads are', () => {
+  const s = emptyFeatures();
+  // a bridge across a gorge, through a hiding circle at (600, -550) r 60, and a street under it
+  s.transportation.push({ cls: 'primary', subclass: '', brunnel: 'bridge', line: Float64Array.from([300, -550, 900, -550]) });
+  s.transportation.push({ cls: 'minor', subclass: '', brunnel: '', line: Float64Array.from([600, -300, 600, -800]) });
+  const c = frame.toLatLon(600, -550);
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION, { hiddenFootprints: [{ lat: c.lat, lon: c.lon, radiusM: 60 }] });
+  const p = t.roads.position;
+  let bridgeOutside = 0, streetInside = 0;
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i], z = p[i + 2];
+    const d = Math.hypot(x - 600, z + 550);
+    if (Math.abs(z + 550) < 6) {
+      // the bridge's ribbon (half width 5): none of it inside the circle, all of it outside kept
+      if (Math.abs(x - 600) > 4) expect(d, `bridge vertex at ${x.toFixed(1)}`).toBeGreaterThan(60 - 5.5);
+      if (d > 70) bridgeOutside++;
+    }
+    if (Math.abs(x - 600) < 4 && d < 50) streetInside++;
+  }
+  expect(bridgeOutside).toBeGreaterThan(4);
+  expect(streetInside).toBeGreaterThan(4);
+  // reaching from 300 to 540 and from 660 to 900
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < p.length; i += 3) if (Math.abs(p[i + 2] + 550) < 6 && Math.abs(p[i] - 600) > 4) { lo = Math.min(lo, p[i]); hi = Math.max(hi, p[i]); }
+  expect(lo).toBeLessThan(305);
+  expect(hi).toBeGreaterThan(895);
+});
+
+test('outsideCircles: a polyline cut exactly at circle edges, its pieces joined across vertices', async () => {
+  const { outsideCircles } = await import('../../src/world/lines');
+  const c = [{ x: 50, z: 0, r: 10 }];
+  // a line through the circle: two pieces, cut at x 40 and 60
+  expect(outsideCircles([0, 0, 100, 0], c)).toEqual([[0, 0, 40, 0], [60, 0, 100, 0]]);
+  // vertices outside the circle keep the piece in one polyline
+  expect(outsideCircles([0, 0, 20, 0, 20, 20], c)).toEqual([[0, 0, 20, 0, 20, 20]]);
+  // all inside: nothing; untouched: the line as it was
+  expect(outsideCircles([45, 0, 55, 0], c)).toEqual([]);
+  expect(outsideCircles([0, 30, 100, 30], c)).toEqual([[0, 30, 100, 30]]);
+  // two overlapping circles cut as one
+  expect(outsideCircles([0, 0, 100, 0], [...c, { x: 62, z: 0, r: 8 }])).toEqual([[0, 0, 40, 0], [70, 0, 100, 0]]);
 });
 
 test('trees: none on the protected-area (park layer) polygon, some in the city parks', () => {

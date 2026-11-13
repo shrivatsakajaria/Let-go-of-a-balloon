@@ -261,7 +261,7 @@ export class Live {
     this.hud.setView('film');
     this.scene.setPaused(false);
     const t0 = Date.now();
-    const route = releaseRoute(c, t0 + HOLD_MS);
+    const route = releaseRoute(c, t0 + HOLD_MS, this.scene.startLift());
     this.hook.routeMs = this.hook.routeError = null;
     route.then(
       () => (this.hook.routeMs = Date.now() - t0),

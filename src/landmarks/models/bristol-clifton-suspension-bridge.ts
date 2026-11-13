@@ -106,30 +106,44 @@ export const model: LandmarkModel = {
       k.box('plain', C.iron, MID, D - 2.4, s * GIRDER_Z, 2 * HALF - 7, GIRDER_TOP - D + 2.4, 0.35);
       k.box('plain', C.chalkShade, MID, GIRDER_TOP, s * GIRDER_Z, 2 * HALF - 7, 0.15, 0.4, { top: true });
     }
-    // the chains, the backstays into the rock, the hangers, and the lights along the chains
-    const SEG = 24;
-    for (const s of [-1, 1]) {
-      const z = s * CHAIN_Z;
-      for (let i = 0; i < SEG; i++) {
-        const x0 = LEIGH + ((CLIFTON - LEIGH) * i) / SEG, x1 = LEIGH + ((CLIFTON - LEIGH) * (i + 1)) / SEG;
-        beam(k, 'plain', C.iron, [x0, chainY(x0), z], [x1, chainY(x1), z], 0.6, 1.3);
-      }
-      beam(k, 'plain', C.iron, [CLIFTON, CHAIN_TOP, z], [CLIFTON + BACKSTAY, D - 2, z], 0.6, 1.3);
-      beam(k, 'plain', C.iron, [LEIGH, CHAIN_TOP, z], [LEIGH - BACKSTAY, D - 2, z], 0.6, 1.3);
-      for (let x = LEIGH + 5.5; x < CLIFTON - 5; x += 4.4) {
-        beam(k, 'plain', C.iron, [x, chainY(x) - 0.4, z], [x, GIRDER_TOP, s * (GIRDER_Z + 0.1)], 0.12, 0.12);
-      }
-      for (let x = LEIGH + 4; x < CLIFTON - 3; x += 8.2) k.box('glow', C.chalk, x, chainY(x) + 0.6, z, 0.5, 0.5, 0.5);
-      for (const [x0, x1] of [[CLIFTON, CLIFTON + BACKSTAY], [LEIGH, LEIGH - BACKSTAY]]) {
-        for (let t = 0.2; t < 0.9; t += 0.25) {
-          const x = x0 + (x1 - x0) * t;
-          k.box('glow', C.chalk, x, CHAIN_TOP + (D - 2 - CHAIN_TOP) * t + 0.6, z, 0.5, 0.5, 0.5);
-        }
-      }
-    }
     // the approaches' road beyond the towers
     k.box('plain', C.paving, CLIFTON + 18, D - 1.6, 0, 22, 1.5, 10);
     k.box('plain', C.paving, LEIGH - 20, D - 1.6, 0, 22, 1.5, 10);
-    return k.group('bristol-clifton-suspension-bridge');
+    const g = k.group('bristol-clifton-suspension-bridge');
+    // the chains, the backstays into the rock, the hangers, and the lights along the chains: their
+    // own meshes, marked so the camera's floor is the deck and the towers, not columns of chain
+    const kc = new Kit();
+    chains(kc);
+    for (const b of ['plain', 'glow'] as const) {
+      const m = kc.mesh(b, 'bristol-clifton-suspension-bridge-chains');
+      if (!m) continue;
+      m.userData.noTops = true;
+      g.add(m);
+    }
+    return g;
   },
 };
+
+/** The chains (three a side, drawn as one), the backstays, the hangers and the lights along the chains. */
+function chains(k: Kit): void {
+  const SEG = 24;
+  for (const s of [-1, 1]) {
+    const z = s * CHAIN_Z;
+    for (let i = 0; i < SEG; i++) {
+      const x0 = LEIGH + ((CLIFTON - LEIGH) * i) / SEG, x1 = LEIGH + ((CLIFTON - LEIGH) * (i + 1)) / SEG;
+      beam(k, 'plain', C.iron, [x0, chainY(x0), z], [x1, chainY(x1), z], 0.6, 1.3);
+    }
+    beam(k, 'plain', C.iron, [CLIFTON, CHAIN_TOP, z], [CLIFTON + BACKSTAY, D - 2, z], 0.6, 1.3);
+    beam(k, 'plain', C.iron, [LEIGH, CHAIN_TOP, z], [LEIGH - BACKSTAY, D - 2, z], 0.6, 1.3);
+    for (let x = LEIGH + 5.5; x < CLIFTON - 5; x += 4.4) {
+      beam(k, 'plain', C.iron, [x, chainY(x) - 0.4, z], [x, GIRDER_TOP, s * (GIRDER_Z + 0.1)], 0.12, 0.12);
+    }
+    for (let x = LEIGH + 4; x < CLIFTON - 3; x += 8.2) k.box('glow', C.chalk, x, chainY(x) + 0.6, z, 0.5, 0.5, 0.5);
+    for (const [x0, x1] of [[CLIFTON, CLIFTON + BACKSTAY], [LEIGH, LEIGH - BACKSTAY]]) {
+      for (let t = 0.2; t < 0.9; t += 0.25) {
+        const x = x0 + (x1 - x0) * t;
+        k.box('glow', C.chalk, x, CHAIN_TOP + (D - 2 - CHAIN_TOP) * t + 0.6, z, 0.5, 0.5, 0.5);
+      }
+    }
+  }
+}

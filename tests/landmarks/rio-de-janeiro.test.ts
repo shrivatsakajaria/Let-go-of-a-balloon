@@ -42,3 +42,27 @@ test('the four cars glide along their ropes, wait at the stations, and are moved
   }
   expect((g.userData.cars as { cars: THREE.Object3D[] }).cars[0]).toBe(cars[0]);
 });
+
+test('the camera floor is the rock and the stations, not columns under the ropes and the cars', async () => {
+  const { heightGrid } = await import('../../src/landmarks/layer');
+  const g = model.build(regionStyle(site.at));
+  const t = heightGrid(g);
+  const top = (x: number, z: number) => t.h[Math.floor((z - t.minZ) / 6) * t.nx + Math.floor((x - t.minX) / 6)];
+  // under the middle of the lower rope (the rope is about 110 m up there)
+  const ropeY = (19.5 + 195) / 2 - 0.035 * Math.hypot(275.6, 175.5, 403.7);
+  expect(top(-137.8 - 5 * 0.83, -201.9 + 5 * 0.57)).toBeLessThan(ropeY - 20);
+  // under each car
+  model.animate!(g, Date.UTC(2026, 10, 13, 18, 2), lightFor(10));
+  const t2 = heightGrid(g);
+  const top2 = (x: number, z: number) => t2.h[Math.floor((z - t2.minZ) / 6) * t2.nx + Math.floor((x - t2.minX) / 6)];
+  let checked = 0;
+  const stations = [[0, 0], [-275.6, -403.7], [-249.7, -562.7], [-22, -1259]];
+  for (const c of (g.userData.cars as { cars: THREE.Object3D[] }).cars) {
+    // (a car waiting in a station is under the station's roof, which does count)
+    if (stations.some(([x, z]) => Math.hypot(c.position.x - x, c.position.z - z) < 30)) continue;
+    checked++;
+    const v = top2(c.position.x, c.position.z);
+    if (v > -Infinity) expect(v).toBeLessThan(c.position.y - 8);
+  }
+  expect(checked).toBeGreaterThanOrEqual(2);
+});

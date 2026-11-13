@@ -267,6 +267,8 @@ export type GapFillInput = {
   region: RegionStyle;
   /** Footprint boxes of the map's buildings (a cell touched by one is covered). */
   boxes: BBox[];
+  /** Landmark hiding circles: no house anywhere in one (the landmark stands there). */
+  hidden?: Circle[];
   /** Residential land-use polygons: house centres must fall inside one. */
   residentialAreas: Polygon[];
   /** Road segments bucketed by land-cover cell; and a road bearing per cell (NaN = none). */
@@ -336,6 +338,7 @@ export function gapFill(inp: GapFillInput, walls: MeshBuilder, roofs: MeshBuilde
       if (!inArea) continue;
       const len = 8 + 3 * h(5), wid = 6 + 1.5 * h(6);
       const clear = Math.hypot(len, wid) / 2 + 1;
+      if (inp.hidden?.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + clear) ** 2)) continue;
       let onRoad = false;
       for (let dj = -1; dj <= 1 && !onRoad; dj++)
         for (let di = -1; di <= 1 && !onRoad; di++) {

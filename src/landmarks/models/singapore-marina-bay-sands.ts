@@ -16,9 +16,9 @@ import type { LandmarkBucket, LandmarkModel } from '../types';
 type P3 = [number, number, number];
 
 /** Contour's shallow water (CONTOUR.waterShallow): the pool. */
-const POOL: Color = '#8fd3cf';
+const POOL: Color = C.copper; // the same Contour value as the shallow sea
 /** Contour's sage (CONTOUR.land[3]): the SkyPark's garden. */
-const GARDEN: Color = '#88b06c';
+const GARDEN: Color = C.sage;
 
 /** Tower roofs, under the deck (m). */
 const TOP = 191;

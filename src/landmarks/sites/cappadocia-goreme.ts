@@ -1,6 +1,6 @@
 /**
- * Göreme's landmark: the fairy chimneys. They are terrain all round the town, and the sheet has no
- * hero point, so the model is a cluster placed where the launch sees it: on the floor of the valley
+ * Göreme's landmark: the fairy chimneys. They are terrain all round the town, so the model is a
+ * cluster placed where the launch sees it (the sheet's hero point is `at`): on the floor of the valley
  * 175 m west of Sunset Point (bearing 283 deg from the launch spot, about 27 m below it, the sunset
  * side). The place was picked on the Terrarium elevation tiles: the floor there runs north-south and
  * falls about 1 m in 20 m, and no OSM building stands within 90 m of it.

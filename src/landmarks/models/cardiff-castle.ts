@@ -3,7 +3,7 @@
  * east, the medieval south wall on Castle Street with the Barbican Tower at its gate), the Norman
  * shell keep on its motte with its gate tower and the wall running down to the south gate, and
  * Burges's Gothic west range: the Clock Tower at the south-west corner (46 m, with its gilt-framed
- * dials that light from dusk), the Octagon Tower and its spire, the Bute and Herbert towers.
+ * dials that light from dusk and keep UK time), the Octagon Tower and its spire, the Bute and Herbert towers.
  * Faceted grey and pale stone, slate and lead, Contour colours.
  *
  * Built in map metres (x east, z south of the origin, the middle of the green) inside a turn that
@@ -11,7 +11,9 @@
  * is turned 15 deg anticlockwise from north. Heights from the green (11.4 m above the sea); the
  * motte is in the map's ground (its top about 9 m up).
  */
+import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS as C } from '../kit';
+import { clockState, hourAngle, localMs, minuteAngle, type ClockState } from '../clock';
 import type { LandmarkModel } from '../types';
 import type { Color } from '../../world/palette';
 
@@ -72,6 +74,7 @@ function shell(k: Kit, colour: Color, e: number, s: number, r: number, t: number
 export const model: LandmarkModel = {
   build(style) {
     const k = new Kit();
+    const pivots: THREE.Group[] = [];
     // the walls' grey stone: the region's where it has one
     const GREY = style.walls[3] ?? C.stoneDeep;
     k.push(0, 0, 0, -HEADING);
@@ -133,9 +136,8 @@ export const model: LandmarkModel = {
       k.box('plain', C.gilt, 0, 21.4, -5.2, 6.4, 6.4, 0.4, { top: false });
       k.disc('glow', C.chalk, 0, 24.6, -5.45, 2.7, 16, [0, 0, -1]);
       k.disc('plain', C.iron, 0, 24.6, -5.5, 0.3, 6, [0, 0, -1]);
-      // the hands (fixed at three o'clock), dark iron
-      k.quad('plain', C.iron, [-0.15, 24.6, -5.52], [0.15, 24.6, -5.52], [0.12, 26.8, -5.52], [-0.12, 26.8, -5.52], [0, 0, -1]);
-      k.quad('plain', C.iron, [0, 24.45, -5.52], [0, 24.75, -5.52], [1.6, 24.7, -5.52], [1.6, 24.5, -5.52], [0, 0, -1]);
+      // the hands' pivot on the dial (the hands are added below, turned in animate)
+      pivots.push(k.place(new THREE.Group(), 0, 24.6, -5.5));
       // a lancet pair in the upper stage
       for (const x of [-1.6, 1.6]) k.box('plain', C.iron, x, 32.2, -5.65, 1.1, 3.6, 0.2, { top: false });
       k.pop();
@@ -149,6 +151,43 @@ export const model: LandmarkModel = {
     k.pop();
 
     k.pop();
-    return k.group('cardiff-castle');
+    const g = k.group('cardiff-castle');
+    // the hands, dark iron, one pair per dial, on UK time
+    const hourKit = hand(1.6, 0.3), minuteKit = hand(2.2, 0.24);
+    const hands: Hands = { ...clockState(), hour: [], minute: [] };
+    pivots.forEach((pivot, i) => {
+      const hour = hourKit.mesh('plain', `hour-${i}`)!;
+      const minute = minuteKit.mesh('plain', `minute-${i}`)!;
+      hour.position.z = -0.03;
+      minute.position.z = -0.06;
+      hour.castShadow = minute.castShadow = false;
+      pivot.add(hour, minute);
+      hands.hour.push(hour);
+      hands.minute.push(minute);
+      g.add(pivot);
+    });
+    g.userData.hands = hands;
+    return g;
+  },
+
+  animate(group, utcMs) {
+    const h = group.userData.hands as Hands | undefined;
+    if (!h) return;
+    const t = localMs(h, utcMs);
+    const minute = minuteAngle(t), hour = hourAngle(t);
+    for (let i = 0; i < h.hour.length; i++) {
+      h.hour[i].rotation.z = hour;
+      h.minute[i].rotation.z = minute;
+    }
   },
 };
+
+type Hands = ClockState & { hour: THREE.Object3D[]; minute: THREE.Object3D[] };
+
+/** One hand, pointing up (+y) from its pivot, in the dial's plane, facing -z. */
+function hand(length: number, width: number): Kit {
+  const k = new Kit();
+  const w = width / 2;
+  k.quad('plain', C.iron, [-w, -0.3, 0], [w, -0.3, 0], [w * 0.8, length, 0], [-w * 0.8, length, 0], [0, 0, -1]);
+  return k;
+}

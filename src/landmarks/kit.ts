@@ -47,6 +47,22 @@ export const LANDMARK_COLOURS = {
   gilt: lerpHex(CONTOUR.land[0], CONTOUR.cliff, 0.45),
   /** Contour pale stone road colour, for paving and plinths. */
   paving: ROADS.small,
+  /** Grey limestone and steel: the Contour rail grey (#b4aea2). */
+  limestone: ROADS.rail,
+  /** Verdigris copper (domes, the Liver Birds): the Contour pale sea-green (#8fd3cf). */
+  copper: CONTOUR.waterShallow,
+  /**
+   * Red sandstone: the UK and Ireland's muted brick (palette.ts, the UK walls' first colour), fixed,
+   * so it reads the same whatever region style a model is built with.
+   */
+  redStone: '#a58b80',
+  /** Lawn and planting: the Contour sages. */
+  grass: CONTOUR.land[2],
+  sage: CONTOUR.land[3],
+  /** Dark trees (cypress, forest): the Contour deepest sage (#76a063). */
+  cypress: CONTOUR.land[4],
+  /** Bronze-brown paint (the Eiffel Tower): the deeper Contour clay roof (#c9ad92). */
+  bronze: CONTOUR.roof[1],
 } satisfies Record<string, Color>;
 
 /** Every colour a landmark may use: the Contour palette, the region's walls and roofs, and the landmark palette. */
@@ -110,6 +126,17 @@ export class Kit {
     return this;
   }
 
+  /**
+   * Put an object (the pivot of a part turned in animate, such as a clock hand) at (x, y, z) of the
+   * current frame, turned with the frame: its -z is the frame's front.
+   */
+  place<T extends THREE.Object3D>(o: T, x = 0, y = 0, z = 0): T {
+    const f = this.f;
+    o.position.set(f.x + x * f.c - z * f.s, f.y + y, f.z + x * f.s + z * f.c);
+    o.rotation.set(0, -f.deg * D2R, 0);
+    return o;
+  }
+
   pop(): this {
     const f = this.stack.pop();
     if (!f) throw new Error('Kit.pop without push');
@@ -156,12 +183,24 @@ export class Kit {
 
   /**
    * An upright n-sided prism of circumradius r on (cx, y0, cz), h tall; `r1` the top's radius (a
-   * frustum), `rot` turns it (default: a flat side toward -z). Top cap unless top: false.
+   * frustum), `rot` turns it (default: a flat side toward -z). Top cap unless top: false; a bottom
+   * cap (facing down) if bottom: true, for parts the eye can see from below (overhangs, cornices).
    */
-  prism(b: LandmarkBucket, colour: Color, cx: number, y0: number, cz: number, r: number, h: number, sides: number, o: { top?: boolean; r1?: number; rot?: number; topColour?: Color } = {}): void {
+  prism(b: LandmarkBucket, colour: Color, cx: number, y0: number, cz: number, r: number, h: number, sides: number, o: { top?: boolean; bottom?: boolean; r1?: number; rot?: number; topColour?: Color } = {}): void {
     const r1 = o.r1 ?? r;
     const a0 = (o.rot ?? 0) * D2R + Math.PI / sides;
     const y1 = y0 + h;
+    if (o.bottom && r > 0) {
+      const p = (i: number): Vec3 => {
+        const a = a0 + (i * 2 * Math.PI) / sides;
+        return [cx + r * Math.sin(a), y0, cz - r * Math.cos(a)];
+      };
+      const p0 = p(0);
+      for (let i = 1; i < sides - 1; i++) {
+        const p1 = p(i), p2 = p(i + 1);
+        this.tri(b, colour, p0[0], p0[1], p0[2], p2[0], p2[1], p2[2], p1[0], p1[1], p1[2], 0, -1, 0);
+      }
+    }
     for (let i = 0; i < sides; i++) {
       const a = a0 + (i * 2 * Math.PI) / sides, b2 = a0 + ((i + 1) * 2 * Math.PI) / sides, m = (a + b2) / 2;
       const s0 = Math.sin(a), c0 = -Math.cos(a), s1 = Math.sin(b2), c1 = -Math.cos(b2);

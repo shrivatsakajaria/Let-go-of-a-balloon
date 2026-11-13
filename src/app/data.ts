@@ -55,10 +55,13 @@ export async function surfaceWind(p: LatLon, now = Date.now()): Promise<{ speedM
   }
 }
 
-/** The 72-hour route from p, released at releaseMs, from the latest winds (spec 6.3). */
-export async function releaseRoute(p: LatLon, releaseMs: number): Promise<Route> {
+/**
+ * The 72-hour route from p, released at releaseMs, from the latest winds (spec 6.3). `startLiftM`:
+ * how far the launch stands above the drawn ground (a landmark's terrace; scene.startLift()).
+ */
+export async function releaseRoute(p: LatLon, releaseMs: number, startLiftM = 0): Promise<Route> {
   const w = await windField();
-  return computeRoute(p, releaseMs, w, routeGround);
+  return computeRoute(p, releaseMs, w, routeGround, { startLiftM });
 }
 
 /** How long a link waits for the terrain under its route before counting it as sea level. */
@@ -69,6 +72,11 @@ export const LINK_GROUND_WAIT_MS = 4000;
  * along it are asked for together first (the rebuild then reads them from the cache). A terrain
  * failure counts as sea level, and so does any ground still missing after waitMs (one deadline for
  * the whole rebuild), so a link always opens, and soon.
+ *
+ * A link does not carry a launch's start lift (route.ts RouteOptions.startLiftM: a launch from a
+ * landmark's terrace, Corcovado): its first couple of minutes' heights are re-derived from the route
+ * ground without it. The horizontal path is identical, and the scene keeps the balloon out of the
+ * landmark's ground until it has climbed clear.
  */
 export async function linkRoute(b: SavedBalloon, routeGroundFn: RouteGroundFn = routeGround, waitMs = LINK_GROUND_WAIT_MS): Promise<Route> {
   let timer = 0;
