@@ -447,7 +447,9 @@ export class LiveScene {
     this.focus.set(this.target.x + Math.sin(h) * ahead, this.groundS, this.target.z - Math.cos(h) * ahead);
     redraw = this.sky.place(this.focus) || redraw;
     if (this.shadowAsked > this.shadowDrawnAt && t - this.shadowDrawnAt > 250) redraw = true;
-    if (rp && rp.drive.wide() > 0.3) redraw = false; // no shadow worth drawing from that high
+    // the replay: no shadow worth drawing from high up; close to the balloon (the climb's start, the landing)
+    // the shadow map is redrawn every frame, since the land under it changed in between
+    if (rp) redraw = rp.drive.wide() <= 0.3;
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
