@@ -8,7 +8,8 @@ import { eastward, linkTo, liveWorld, SWIFTSHADER } from './fixtures';
  *
  * The software renderer can draw very few frames a second on a busy machine, so what the scene shows
  * is read from the page's hook by polling, and what the chrome shows is recorded in the page as it
- * changes; the replay's own length is measured in the page (tap to end).
+ * changes; the replay's own length is measured in the page (tap to end). window.__live (the read-only
+ * test hook) exists because liveWorld sets window.__lgoabTest before the page loads.
  */
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 150_000 });

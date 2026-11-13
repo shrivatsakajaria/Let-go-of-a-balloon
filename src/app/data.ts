@@ -10,7 +10,7 @@ import { computeRoute, routeFromHourly, type Route } from '../flight/route';
 import type { SavedBalloon } from '../flight/codec';
 import type { LatLon } from '../geo/coords';
 import { loadManifest, WindField } from '../wind/loader';
-import { routeGround } from '../world/terrainsrc';
+import { routeGround, type RouteGroundFn } from '../world/terrainsrc';
 
 /** A manifest older than this is read again before the next release. */
 const MANIFEST_TTL_MS = 20 * 60e3;
@@ -61,13 +61,30 @@ export async function releaseRoute(p: LatLon, releaseMs: number): Promise<Route>
   return computeRoute(p, releaseMs, w, routeGround);
 }
 
+/** How long a link waits for the terrain under its route before counting it as sea level. */
+export const LINK_GROUND_WAIT_MS = 4000;
+
 /**
  * A shared or saved balloon's drawable route, rebuilt from its 73 hourly points. The ground tiles
- * along it are asked for together first (the rebuild then reads them from the cache), and a terrain
- * failure counts as sea level, so a link always opens.
+ * along it are asked for together first (the rebuild then reads them from the cache). A terrain
+ * failure counts as sea level, and so does any ground still missing after waitMs (one deadline for
+ * the whole rebuild), so a link always opens, and soon.
  */
-export async function linkRoute(b: SavedBalloon): Promise<Route> {
-  const ground = (p: LatLon) => routeGround(p).catch(() => 0);
+export async function linkRoute(b: SavedBalloon, routeGroundFn: RouteGroundFn = routeGround, waitMs = LINK_GROUND_WAIT_MS): Promise<Route> {
+  let timer = 0;
+  const deadline = new Promise<undefined>((r) => (timer = setTimeout(() => r(undefined), waitMs) as unknown as number));
+  const ground = async (p: LatLon): Promise<number> => {
+    const g = await Promise.race([routeGroundFn(p).catch(() => 0), deadline]);
+    return g ?? routeGroundFn.peek?.(p) ?? 0;
+  };
+  try {
+    return await rebuild(b, ground);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function rebuild(b: SavedBalloon, ground: (p: LatLon) => Promise<number>): Promise<Route> {
   await Promise.all(b.hourly.map(ground));
   const r = await routeFromHourly(b.hourly, b.release, ground);
   return { ...r, runId: b.runId };

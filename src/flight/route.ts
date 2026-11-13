@@ -135,26 +135,31 @@ function hourlyOf(points: RoutePoint[]): LatLon[] {
 
 const lerp = (a: number, b: number, f: number): number => a + (b - a) * f;
 
-/** Position at a wall-clock time: clamped to the ends, interpolated between 10-minute points. */
-export function positionAt(route: Route, utcMs: number): RoutePoint {
+/**
+ * Position at a wall-clock time: clamped to the ends, interpolated between 10-minute points. With `out`
+ * the result is written into it (no allocation, for every frame) and `out` is returned.
+ */
+export function positionAt(route: Route, utcMs: number, out?: RoutePoint): RoutePoint {
   const pts = route.points;
   const idx = (utcMs - route.release) / (STEP_S * 1000);
-  if (idx <= 0) return pts[0];
-  if (idx >= pts.length - 1) return pts[pts.length - 1];
+  if (idx <= 0 || idx >= pts.length - 1) {
+    const p = idx <= 0 ? pts[0] : pts[pts.length - 1];
+    return out ? Object.assign(out, p) : p;
+  }
   const i = Math.floor(idx);
   const f = idx - i;
   const a = pts[i];
   const b = pts[i + 1];
   const dh = ((((b.headingDeg - a.headingDeg + 180) % 360) + 360) % 360) - 180;
-  return {
-    tSec: lerp(a.tSec, b.tSec, f),
-    lat: lerp(a.lat, b.lat, f),
-    lon: wrapLon(a.lon + lonDelta(a.lon, b.lon) * f),
-    altM: lerp(a.altM, b.altM, f),
-    groundM: lerp(a.groundM, b.groundM, f),
-    speedMs: lerp(a.speedMs, b.speedMs, f),
-    headingDeg: (((a.headingDeg + dh * f) % 360) + 360) % 360,
-  };
+  const o = out ?? ({} as RoutePoint);
+  o.tSec = lerp(a.tSec, b.tSec, f);
+  o.lat = lerp(a.lat, b.lat, f);
+  o.lon = wrapLon(a.lon + lonDelta(a.lon, b.lon) * f);
+  o.altM = lerp(a.altM, b.altM, f);
+  o.groundM = lerp(a.groundM, b.groundM, f);
+  o.speedMs = lerp(a.speedMs, b.speedMs, f);
+  o.headingDeg = (((a.headingDeg + dh * f) % 360) + 360) % 360;
+  return o;
 }
 
 /** Uniform Catmull-Rom through four points at parameter s in [0, 1] between p1 and p2. */
