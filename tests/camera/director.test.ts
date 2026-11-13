@@ -489,6 +489,21 @@ describe('Director', () => {
     expect(cam.position.y).toBeLessThan(5 + 2);
   });
 
+  test('cut ends a launch at once (a balloon opened from a link) and frames the balloon in the chosen view', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 0.8 } });
+    run(d, 0, 2);
+    d.cut('film');
+    expect(d.mode).toBe('film');
+    expect(d.shot).toBe('ride');
+    expect(d.waiting).toBe(false);
+    d.update(balloon(2.1), 0.1);
+    const B = ballPos(balloon(2.1));
+    expect(cam.position.distanceTo(B)).toBeLessThan(3);
+    expect(inFrame(cam, B)).toBe(true);
+  });
+
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     const H = 30;

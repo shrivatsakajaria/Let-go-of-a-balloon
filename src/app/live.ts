@@ -213,9 +213,11 @@ export class Live {
     const own = store.list().some((x) => x.id === balloonId(b));
     const route = await linkRoute(b);
     const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
-    this.scene.fly(route);
+    // a landed balloon is seen from the side, in its field or on its sea, not from straight above
+    const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
+    this.scene.fly(route, mode);
     this.hud.setPaused(false);
-    this.hud.setView('film');
+    this.hud.setView(mode);
     this.beginFlight(route, home, own);
     this.deps.setView('flight');
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});

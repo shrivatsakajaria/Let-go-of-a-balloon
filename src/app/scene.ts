@@ -198,7 +198,7 @@ export class LiveScene {
   }
 
   /** Show a balloon already in flight (a shared or saved link): no launch, the camera with it. */
-  fly(route: Route): void {
+  fly(route: Route, mode: DirectorMode = 'film'): void {
     this.route = route;
     this.released = true;
     this.start = route.points[0];
@@ -209,7 +209,7 @@ export class LiveScene {
     this.person = null;
     this.newBalloon();
     this.balloon.release();
-    this.director.set('film');
+    this.director.cut(mode);
   }
 
   setView(mode: DirectorMode): void {

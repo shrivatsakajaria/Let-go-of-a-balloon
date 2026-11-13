@@ -217,6 +217,18 @@ export class Director {
     this.ready = false; // first frame snaps to the street position
   }
 
+  /** Cut straight to a view, ending any launch (another balloon opened mid-flight): the next frame snaps. */
+  cut(mode: DirectorMode): void {
+    if (mode === 'launch') return;
+    this.wait = null;
+    this.launchOpts = null;
+    this.street = this.wide = null;
+    this.afterLaunch = 'film';
+    this._shot = 'ride';
+    this.enter(mode);
+    this.ready = false;
+  }
+
   /** Waiting for Let go (the start screen's establishing shot). */
   get waiting(): boolean {
     return this._shot === 'launch' && this.wait !== null;
