@@ -13,7 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
-import { clockText, dayLine, heightText, progress, speedText } from './hudmath';
+import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
 export type HudHandlers = {
@@ -92,6 +92,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   const pauseBtn = $<HTMLButtonElement>('.pause'), again = $<HTMLButtonElement>('.again'), status = $('.status');
   const bottom = $('.hud-bottom');
 
+  let clockNow = clockFor();
   let release = 0;
   let facts: string[] = [];
   let idx = 0;
@@ -160,6 +161,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   return {
     el: root,
     setFlight(f) {
+      clockNow = clockFor(); // another balloon may be in another time zone
       release = f.release;
       lastP = -1;
       again.textContent = f.own ? COPY.letGoAnother : COPY.letGoYourOwn;
@@ -173,7 +175,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       requestAnimationFrame(fit);
     },
     frame(f) {
-      text(clock, clockText(f.now, f.point));
+      text(clock, clockNow(f.now, f.point));
       text(height, f.landed ? '0 m' : heightText(f.aglM));
       text(speed, speedText(f.landed ? 0 : f.speedMs));
       text(day, dayLine(release, f.now));

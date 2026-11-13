@@ -363,3 +363,10 @@ test('a link opened while a launch is waiting for its route takes over: the laun
   expect(new URL(page.url()).hash).toBe(link.slice(1));
   expect(await page.evaluate(() => localStorage.getItem('lgoab.balloons.v1'))).toBeNull();
 });
+
+test('the page keeps no test hook unless a test asks for one', async ({ context, page }) => {
+  await context.route('**/*', (r) => (/^https?:\/\/(localhost|127\.0\.0\.1)/.test(r.request().url()) ? r.continue() : r.abort('blockedbyclient')));
+  await page.goto('/');
+  await ready(page);
+  expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
+});

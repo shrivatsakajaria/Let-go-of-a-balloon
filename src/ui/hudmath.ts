@@ -93,6 +93,23 @@ export function clockText(utcMs: number, p: LatLon): string {
   return localTime(utcMs, p).label.split(' ').pop() ?? '';
 }
 
+/**
+ * A clock for every frame: the time zone lookup and formatting run once a minute (a balloon crosses no
+ * zone line in less), and the same string comes back in between.
+ */
+export function clockFor(): (utcMs: number, p: LatLon) => string {
+  let minute = Number.NaN;
+  let text = '';
+  return (utcMs, p) => {
+    const m = Math.floor(utcMs / 60e3);
+    if (m !== minute) {
+      minute = m;
+      text = clockText(utcMs, p);
+    }
+    return text;
+  };
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);

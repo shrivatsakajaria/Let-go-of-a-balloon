@@ -87,6 +87,12 @@ export class Live {
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
+  /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
+  private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
+  private readonly hookRoute = { altM: 0, groundM: 0, tSec: 0 };
+  private readonly subject: [number, number] = [0, 0];
+  private readonly v1 = new Vector3();
+  private readonly v2 = new Vector3();
   readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -114,7 +120,7 @@ export class Live {
       },
       { reducedMotion: reduced },
     );
-    (window as unknown as { __live: LiveHook }).__live = this.hook;
+    if (this.testing) (window as unknown as { __live: LiveHook }).__live = this.hook;
     this.watchBand();
     this.setStart(choice);
   }
@@ -278,7 +284,8 @@ export class Live {
 
   // ---- every frame ----
 
-  private frame(f: SceneFrame): void {
+  /** The read-only test hook (only when a test asked for it): reused arrays and vectors, nothing per frame. */
+  private updateHook(f: SceneFrame): void {
     const h = this.hook;
     h.frames++;
     h.state = this.state;
@@ -286,23 +293,32 @@ export class Live {
     h.aglM = f.aglM;
     h.shot = f.shot;
     h.paused = this.hud.paused;
-    const c = this.scene.camera.position;
-    h.camera = [c.x, c.y, c.z];
-    const t = this.scene.balloon.mesh.position;
-    h.target = [t.x, t.y, t.z];
+    this.scene.camera.position.toArray(h.camera);
+    this.scene.balloon.mesh.position.toArray(h.target);
     h.fact = this.hud.fact;
     h.over = this.over;
-    h.route = f.released ? { altM: f.point.altM, groundM: f.point.groundM, tSec: f.point.tSec } as LiveHook["route"] : null;
+    if (f.released) {
+      h.route = this.hookRoute;
+      this.hookRoute.altM = f.point.altM;
+      this.hookRoute.groundM = f.point.groundM;
+      this.hookRoute.tSec = f.point.tSec;
+    } else h.route = null;
     h.groundM = f.groundM;
+    h.feetM = f.feetM;
     const person = this.scene.person;
     if (f.waiting && person?.root.visible) {
       const cam = this.scene.camera;
       const px = (v: Vector3) => ((1 - v.project(cam).y) / 2) * window.innerHeight;
-      const top = this.scene.balloon.mesh.getWorldPosition(new Vector3());
+      const top = this.scene.balloon.mesh.getWorldPosition(this.v1);
       top.y += 0.2;
-      h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
+      this.subject[0] = px(top);
+      this.subject[1] = px(person.root.getWorldPosition(this.v2));
+      h.subjectPx = this.subject;
     } else h.subjectPx = null;
-    h.feetM = f.feetM;
+  }
+
+  private frame(f: SceneFrame): void {
+    if (this.testing) this.updateHook(f);
 
     this.scene.measurePaused = this.state === 'launch';
     if (this.state === 'launch' && f.released && f.settled) {

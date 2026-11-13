@@ -3,6 +3,7 @@ import type { Route, RoutePoint } from '../../src/flight/route';
 import {
   announcement,
   clockText,
+  clockFor,
   dayLine,
   heightText,
   midnightTicks,
@@ -96,6 +97,13 @@ describe('stats', () => {
   test('speed in km/h', () => {
     expect(speedText(8.6)).toBe('31 km/h');
     expect(speedText(0.1)).toBe('0 km/h');
+  });
+  test('the clock is worked out once a minute (time zone lookups are not per frame)', () => {
+    const clock = clockFor();
+    const t = Date.parse('2026-11-13T15:07:10Z');
+    expect(clock(t, { lat: 51.5, lon: -0.12 })).toBe('15:07');
+    expect(clock(t + 20_000, { lat: 35.68, lon: 139.76 })).toBe('15:07'); // same minute: kept
+    expect(clock(t + 60_000, { lat: 35.68, lon: 139.76 })).toBe('00:08'); // next minute: read again
   });
   test('clock is the local 24-hour time at the place', () => {
     expect(clockText(Date.parse('2026-11-13T15:07:00Z'), { lat: 51.5, lon: -0.12 })).toBe('15:07');
