@@ -218,13 +218,22 @@ describe('DetailBudget and frame time', () => {
     expect(d.scale).toBeLessThanOrEqual(s);
   });
 
-  it('a 30 Hz phone (33 ms frames) is quick enough to step back up', () => {
+  it('a 30 Hz phone (frames of about 33.3 ms, some 34-36 ms) is quick enough to step back up', () => {
     expect(QUICK_FRAME_MS).toBeGreaterThanOrEqual(40);
+    // a 30 Hz phone's frames as the clock sees them: 33.3 ms on average, jittered, some late
+    const JITTER = [33, 31, 34, 33, 36, 32, 33, 35, 31, 34, 32, 35.6];
+    const mean = JITTER.reduce((a, b) => a + b, 0) / JITTER.length;
+    expect(mean).toBeCloseTo(33.3, 1);
+    expect(JITTER.filter((ms) => ms >= 34).length).toBeGreaterThanOrEqual(3);
     const d = new DetailBudget({ high: 400 });
-    let t = 0;
-    for (; t < 500; t += 33) d.update(500, t, 33);
+    let t = 0, k = 0;
+    const frame = (view: number) => {
+      const ms = JITTER[k++ % JITTER.length];
+      d.update(view, (t += ms), ms);
+    };
+    while (t < 500) frame(500);
     expect(d.scale).toBe(DETAIL_STEPS[1]);
-    for (; t < 6000; t += 33) d.update(100, t, 33);
+    while (t < 6000) frame(100);
     expect(d.scale).toBe(1);
   });
 });
