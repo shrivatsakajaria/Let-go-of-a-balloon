@@ -45,7 +45,7 @@ test('near Parliament Square the Westminster landmarks load, stand on the ground
   expect(tower.rotation.y).toBeCloseTo((-site.headingDeg * Math.PI) / 180, 6);
   // the shared Contour materials: walls with windows, plain stone and roofs, and the dials' glow
   const meshes: THREE.Mesh[] = [];
-  tower.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
+  for (const g of shown) g.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
   const walls = meshes.find((m) => m.userData.bucket === 'walls')!;
   const plain = meshes.find((m) => m.userData.bucket === 'plain')!;
   expect(walls.material).toBe(stream.materials.solid.buildings);

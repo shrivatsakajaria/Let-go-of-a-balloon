@@ -16,7 +16,8 @@ const S = 6;
 /** Clock dial: radius and centre height, m. */
 const DIAL_R = 3.5;
 const DIAL_Y = 57.5;
-const DIAL_Z = -(S + 1.1);
+/** The dial's plane: just proud of its frame on the clock stage. */
+const DIAL_Z = -(S + 1.32);
 
 type Hands = { hour: THREE.Object3D[]; minute: THREE.Object3D[]; hourKey: number; offsetMs: number };
 
@@ -44,12 +45,19 @@ function hand(length: number, width: number): Kit {
 /** Everything drawn on one face of the tower (the -z face of the current frame). */
 function face(k: Kit): void {
   const z = -S;
-  // panelling: two tall ribs on the shaft, and a third on the base
+  // Perpendicular panelling: two tall ribs, and tall pointed panels in three tiers between them
   for (const x of [-2.2, 2.2]) k.box('plain', C.chalkShade, x, 3, z - 0.2, 0.6, 49, 0.5, { top: false });
-  k.box('plain', C.stoneDeep, 0, 3, z - 0.1, 3.2, 12, 0.3, { top: false });
-  // the clock: a gilt frame, the opal dial (glow), a stone pediment over it with two pinnacles
-  k.box('plain', C.gilt, 0, DIAL_Y - 4.4, z - 1.0, 8.8, 8.8, 0.4, { top: false });
-  k.disc('glow', C.chalk, 0, DIAL_Y, DIAL_Z - 0.02, DIAL_R, 24, [0, 0, -1]);
+  for (const [y0, y1] of [[3.6, 15.4], [16.8, 32.4], [33.8, 51.2]]) {
+    for (const x of [-3.7, 0, 3.7]) {
+      const w = x === 0 ? 2.4 : 1.5;
+      k.box('plain', C.stoneDeep, x, y0, z - 0.08, w, y1 - y0 - w * 0.6, 0.16, { top: false });
+      k.tri('plain', C.stoneDeep, x - w / 2, y1 - w * 0.6, z - 0.16, x + w / 2, y1 - w * 0.6, z - 0.16, x, y1, z - 0.16, 0, 0, -1);
+    }
+  }
+  // the clock: a stone frame, a gilt ring, the opal dial (glow) and its boss; a pediment over it with two pinnacles
+  k.box('plain', C.chalkShade, 0, DIAL_Y - 4.4, z - 1.0, 8.8, 8.8, 0.4, { top: false });
+  k.disc('plain', C.gilt, 0, DIAL_Y, DIAL_Z + 0.06, DIAL_R + 0.45, 24, [0, 0, -1]);
+  k.disc('glow', C.chalk, 0, DIAL_Y, DIAL_Z, DIAL_R, 24, [0, 0, -1]);
   k.disc('plain', C.iron, 0, DIAL_Y, DIAL_Z - 0.06, 0.35, 6, [0, 0, -1]);
   k.push(0, 63, z - 0.4, 90);
   k.gable('plain', C.chalk, 0, 0, 0, 1.6, 9.2, 3.2, { ends: C.stone });
@@ -77,7 +85,7 @@ export const model: LandmarkModel = {
     const k = new Kit();
     // plinth, shaft, belt courses, clock stage, belfry, parapets
     k.box('plain', C.stoneDeep, 0, -4, 0, 2 * S + 1.4, 7, 2 * S + 1.4, { topColour: C.paving });
-    k.box('walls', C.stone, 0, 3, 0, 2 * S, 49.2, 2 * S, { top: false });
+    k.box('plain', C.stone, 0, 3, 0, 2 * S, 49.2, 2 * S, { top: false });
     for (const y of [16, 33]) k.box('plain', C.chalk, 0, y, 0, 2 * S + 0.7, 0.6, 2 * S + 0.7);
     k.box('plain', C.stone, 0, 52, 0, 2 * S + 1.6, 11, 2 * S + 1.6);
     k.box('plain', C.chalk, 0, 51.6, 0, 2 * S + 2.0, 0.8, 2 * S + 2.0, { top: false });
