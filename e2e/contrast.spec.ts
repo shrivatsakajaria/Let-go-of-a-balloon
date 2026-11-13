@@ -20,7 +20,9 @@ async function measure(page: Page): Promise<Sample[]> {
       range.selectNodeContents(el);
       const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
       // items running into the faded right edge of a scrolling row are off screen in practice
-      if (!rects.length || rects.some((r) => r.right > vw - 28 || r.left < 0)) continue;
+      // (only the scrolling rows have a faded edge; everything else is measured whenever it is on screen)
+      const faded = el.closest('.cities, .mine') ? 28 : 0;
+      if (!rects.length || rects.some((r) => r.right > vw - faded || r.left < 0)) continue;
       out.push({
         what: `${el.className}: ${el.textContent?.trim().slice(0, 24)}`,
         color: getComputedStyle(el).color,

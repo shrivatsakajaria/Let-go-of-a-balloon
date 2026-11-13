@@ -270,7 +270,7 @@ a.link, .small a { color: var(--paper); }
   text-wrap: pretty;
 }
 .notice { flex: 1 1 0; min-width: 0; max-width: 62ch; text-align: left; }
-.map-credit { flex: 0 1 auto; min-width: min-content; max-width: 40%; text-align: right; } /* never narrower than its longest link */
+.map-credit { flex: 0 1 auto; min-width: min-content; max-width: 40%; text-align: right; } /* the 40% cap yields to the min-content floor (min-width beats max-width): never narrower than its longest link */
 .small a {
   white-space: nowrap;
   text-decoration: underline;

@@ -57,6 +57,18 @@ test.describe('start screen', () => {
     }
   });
 
+  test('at 360x640 the notice and the map credit are still one row', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 640 });
+    await offline(page);
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
+    const n = (await page.locator('.notice').boundingBox())!;
+    const c = (await page.locator('.map-credit').boundingBox())!;
+    expect(n.x + n.width).toBeLessThanOrEqual(c.x);
+    expect(Math.min(n.y + n.height, c.y + c.height)).toBeGreaterThan(Math.max(n.y, c.y));
+    expect(Math.abs(n.y + n.height - (c.y + c.height))).toBeLessThan(2);
+  });
+
   test('at 320 px the small print stays inside the gutters with no horizontal overflow', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await offline(page);
