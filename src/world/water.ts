@@ -92,7 +92,11 @@ export function waterLevels(list: AreaFeature[], g: GroundGrid): number[] {
 }
 
 /** Water bodies and their shoreline bands for one tile. `levels` from waterLevels (NaN = drape). */
-export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid, out: MeshBuilder): void {
+/**
+ * Water bodies and shore bands for one tile. Flat water is faceted into triangles no longer than
+ * the tile width / `facetsAcross` (20 by default; far tiles, deep in the haze, use fewer).
+ */
+export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid, out: MeshBuilder, facetsAcross = 20): void {
   const W = g.frame.widthM, H = g.frame.heightM;
   const onBorder = borderTest(g);
   const band = bandWidth(W);
@@ -117,7 +121,7 @@ export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid,
     const flatY = Number.isFinite(level);
     const y = flatY ? () => level : draped;
     // flat water facets can be large; draped ones follow the ground cells
-    const maxLen = flatY ? W / 20 : cell;
+    const maxLen = flatY ? W / facetsAcross : cell;
     // body
     const flat: number[] = [];
     const holes: number[] = [];

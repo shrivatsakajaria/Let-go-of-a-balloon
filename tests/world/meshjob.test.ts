@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { decodeVectorTile, emptyFeatures, type Polygon } from '../../src/world/vector';
-import { buildTileMeshes, packMeshes, transferables, type TileMeshes } from '../../src/world/meshjob';
+import { buildTileMeshes, cellIndex, packMeshes, transferables, type TileMeshes } from '../../src/world/meshjob';
 import { DEFAULT_REGION, CONTOUR, parseHex } from '../../src/world/palette';
 import { tileFrame } from '../../src/world/frame';
 import { groundGrid, groundHeightAt, type MeshBuffers } from '../../src/world/terrain';
@@ -659,15 +659,16 @@ test('simplifyRing drops vertices within the tolerance and keeps the corners', a
   expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toEqual([0, 0, 1, 0, 0, 1]); // a triangle is left alone
 });
 
-test('split: buildings, roofs and roads sorted by tile quarter, the same triangles in another order', () => {
+test('split: buildings, roofs and roads sorted by tile cell, quarters together, the same triangles in another order', () => {
   const s = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, { split: true });
   const key = (b: MeshBuffers, t: number) => Array.from(b.position.subarray(t * 9, t * 9 + 9), (v) => v.toFixed(3)).join(',') + Array.from(b.color.subarray(t * 9, t * 9 + 9), (v) => v.toFixed(3)).join(',');
   for (const k of ['buildings', 'roofs', 'roads'] as const) {
     const a = m[k], b = s[k] as MeshBuffers & { parts?: Uint32Array };
     expect(b.parts).toBeDefined();
     const parts = b.parts!;
+    expect(parts).toHaveLength(17);
     expect(parts[0]).toBe(0);
-    expect(parts[4]).toBe(b.position.length / 3);
+    expect(parts[16]).toBe(b.position.length / 3);
     const tris = a.position.length / 9;
     expect(b.position.length).toBe(a.position.length);
     const want = new Map<string, number>();
@@ -676,15 +677,25 @@ test('split: buildings, roofs and roads sorted by tile quarter, the same triangl
       const kk = key(b, t);
       expect(want.get(kk)).toBeGreaterThan(0);
       want.set(kk, want.get(kk)! - 1);
-      // each triangle's centre lies in its quarter
+      // each triangle's centre lies in its cell, and its quarter is parts[4q] .. parts[4q + 4]
       const v = t * 3;
-      const q = parts.findIndex((p, i) => i < 4 && v >= p && v < parts[i + 1]);
+      const k = parts.findIndex((p, i) => i < 16 && v >= p && v < parts[i + 1]);
       const o = t * 9;
       const cx = (b.position[o] + b.position[o + 3] + b.position[o + 6]) / 3, cz = (b.position[o + 2] + b.position[o + 5] + b.position[o + 8]) / 3;
-      expect(q).toBe((cx > frame.widthM / 2 ? 1 : 0) + (cz < -frame.heightM / 2 ? 2 : 0));
+      expect(k).toBe(cellIndex(cx, cz, frame.widthM, frame.heightM));
+      expect(k >> 2).toBe((cx > frame.widthM / 2 ? 1 : 0) + (cz < -frame.heightM / 2 ? 2 : 0));
     }
-    for (let q = 0; q < 4; q++) expect(parts[q + 1] - parts[q]).toBeGreaterThan(0); // the Town Hall tile has buildings everywhere
+    for (let q = 0; q < 4; q++) expect(parts[4 * q + 4] - parts[4 * q]).toBeGreaterThan(0); // the Town Hall tile has buildings everywhere
   }
+  // cells: 4 x 4, quarters SW SE NW NE, the same order inside
+  const W = frame.widthM, H = frame.heightM;
+  expect(cellIndex(1, -1, W, H)).toBe(0);
+  expect(cellIndex(W * 0.3, -1, W, H)).toBe(1);
+  expect(cellIndex(1, -H * 0.3, W, H)).toBe(2);
+  expect(cellIndex(W * 0.6, -1, W, H)).toBe(4);
+  expect(cellIndex(1, -H * 0.6, W, H)).toBe(8);
+  expect(cellIndex(W - 1, -H + 1, W, H)).toBe(15);
+  expect(cellIndex(-50, 50, W, H)).toBe(0); // outside the tile: the nearest cell
   expect(s.ground.position).toEqual(m.ground.position);
   expect((s.ground as { parts?: Uint32Array }).parts).toBeUndefined();
   // packing keeps the quarters, and they travel with the transfer

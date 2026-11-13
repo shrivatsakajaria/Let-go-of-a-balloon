@@ -2,12 +2,17 @@
  * Level of detail: which map tiles the world needs around a camera (spec 12). Full detail near the
  * camera's ground point, simpler ground further out, coarse land to the horizon:
  *
- *   z14 within 1.5 km   everything (buildings with roofs, gap-fill houses, trees, all roads)
- *   z13 to 5 km         flat simplified buildings, streets, trees, rivers (OpenMapTiles has buildings
+ *   z14 within 1.5 km   everything (buildings with roofs, gap-fill houses, trees, lamps, all roads);
+ *                       the only level that casts shadows
+ *   z13 to 5 km         flat simplified buildings, streets, rivers (OpenMapTiles has buildings
  *                       only at z13 and z14, so the city must not vanish from 1.5 km up)
- *   z12 to 10 km        ground, water, land use, rivers, main roads
+ *   z12 to 10 km        ground, water, land use, rivers, motorways and trunk roads
  *   z10 to 40 km        ground, water, land use
  *   z7 to the haze      ground, water, land use
+ *
+ * z14 and z13 sort buildings, roofs and roads by tile cell (meshjob splitCells) so they are culled a
+ * quarter at a time in view and a sixteenth at a time in the shadow pass. Far levels facet their
+ * water more coarsely (the haze takes the detail anyway).
  *
  * Levels overlap (each covers its whole disc): a coarse tile stays under the finer ones, so moving
  * on never opens a hole, and the coverage map (coverage.ts) hides it where a finer tile is drawn.
@@ -44,15 +49,16 @@ export type LodLevel = {
 const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false };
 
 /**
- * Per-tile triangle budgets measured on central Manchester (the densest tiles we have): z14 about
- * 82k, z13 about 50k, z12 about 20k, z10 and z7 about 11-14k.
+ * Triangles per tile, measured in the world page (central Manchester and Westminster, the densest
+ * tiles tried): z14 60-90k, z13 15-40k, z12 10-20k, z10 3-8k, z7 8-15k. The ground grid alone is
+ * 2 lcSize^2 plus skirts.
  */
 export const LOD_LEVELS: LodLevel[] = [
   { z: 14, radiusM: 1500, lcSize: 64, detail: { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true }, skirtM: 25, dropM: 0, castShadow: true, split: true },
   { z: 13, radiusM: 5000, lcSize: 48, detail: { buildings: 'lite', roadMinRank: 2, waterways: true, trees: false, lamps: false }, skirtM: 40, dropM: 2, castShadow: false, split: true },
-  { z: 12, radiusM: 10000, lcSize: 48, detail: { ...NONE, roadMinRank: 3, waterways: true }, skirtM: 120, dropM: 6, castShadow: false, split: false },
-  { z: 10, radiusM: 40000, lcSize: 32, detail: NONE, skirtM: 400, dropM: 25, castShadow: false, split: false },
-  { z: 7, radiusM: Infinity, lcSize: 64, detail: NONE, skirtM: 800, dropM: 80, castShadow: false, split: false },
+  { z: 12, radiusM: 10000, lcSize: 64, detail: { ...NONE, roadMinRank: 4, waterways: true, waterFacets: 10 }, skirtM: 120, dropM: 6, castShadow: false, split: false },
+  { z: 10, radiusM: 40000, lcSize: 48, detail: { ...NONE, waterFacets: 6 }, skirtM: 400, dropM: 25, castShadow: false, split: false },
+  { z: 7, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 4 }, skirtM: 800, dropM: 80, castShadow: false, split: false },
 ];
 const COARSEST = LOD_LEVELS[LOD_LEVELS.length - 1].z;
 

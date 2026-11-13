@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { lerpHex, type Light } from './palette';
+import { SHADOW_LAYER } from './tileview';
 
 export const SUN_GAIN = 2.0;
 export const SKY_LIGHT = 2.2;
@@ -52,6 +53,8 @@ export class SunLight {
     this.sun.shadow.mapSize.set(box.mapSize, box.mapSize);
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.8;
+    // shadow-only meshes (tileview.ts: near tiles cast a sixteenth of a tile at a time)
+    this.sun.shadow.camera.layers.enable(SHADOW_LAYER);
     this.hemi = new THREE.HemisphereLight();
     this.setLight(light);
     this.fitBox();

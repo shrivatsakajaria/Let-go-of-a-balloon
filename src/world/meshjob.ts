@@ -45,7 +45,15 @@ export type TileMeshes<B = MeshBuffers> = {
  *  - roads: the lowest road rank drawn (lines.ts: 4 motorway, 3 primary, 2 streets, 0 rail), or
  *    Infinity for none.
  */
-export type Detail = { buildings: 'full' | 'lite' | 'none'; roadMinRank: number; waterways: boolean; trees: boolean; lamps: boolean };
+export type Detail = {
+  buildings: 'full' | 'lite' | 'none';
+  roadMinRank: number;
+  waterways: boolean;
+  trees: boolean;
+  lamps: boolean;
+  /** Flat water facets across the tile (water.ts buildWater); default 20. */
+  waterFacets?: number;
+};
 export const FULL_DETAIL: Detail = { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true };
 /** 'lite' buildings: footprints under this many m2 are left out unless at least LITE_KEEP_M tall. */
 export const LITE_MIN_AREA_M2 = 120;
@@ -60,8 +68,8 @@ export type BuildOptions = {
   /** Skirts this deep on the ground's edges (terrain.ts withSkirts); none by default. */
   skirtM?: number;
   /**
-   * Sort buildings, roofs and roads into the tile's four quarters (splitQuarters), so a near tile
-   * is culled a quarter at a time, in view and in the shadow pass.
+   * Sort buildings, roofs and roads by tile cell (splitCells), so a near tile is culled a quarter at
+   * a time in view and a sixteenth at a time in the shadow pass.
    */
   split?: boolean;
 };
@@ -100,7 +108,7 @@ export function buildTileMeshes(
   const ground = opts.skirtM ? withSkirts(g, flatGround, opts.skirtM) : flatGround;
 
   const water = new MeshBuilder(4096);
-  buildWater(features.water, levels, g, water);
+  buildWater(features.water, levels, g, water, detail.waterFacets ?? 20);
 
   const roads = new MeshBuilder(16384);
   const roadInfo = buildRoads(Number.isFinite(detail.roadMinRank) ? features.transportation : [], g, z, roads, waterLevelAt, detail.roadMinRank);
@@ -160,7 +168,7 @@ export function buildTileMeshes(
     ...(p.rank !== undefined ? { rank: p.rank } : {}),
   }));
 
-  const q = (b: MeshBuffers) => (opts.split ? splitQuarters(b, frame.widthM, frame.heightM) : b);
+  const q = (b: MeshBuffers) => (opts.split ? splitCells(b, frame.widthM, frame.heightM) : b);
   return {
     ground,
     water: water.build(),
@@ -177,31 +185,41 @@ export function buildTileMeshes(
   };
 }
 
-/** Buffers sorted by quarter: vertices parts[i] .. parts[i + 1] lie in quarter i (SW, SE, NW, NE). */
+/**
+ * Buffers sorted by cell of a 4 x 4 grid over the tile, the four cells of each quarter together
+ * (quarters SW, SE, NW, NE; the same order inside each). Vertices parts[i] .. parts[i + 1] lie in
+ * cell i, so quarter q is parts[4q] .. parts[4q + 4].
+ */
 export type Quartered = { parts?: Uint32Array };
 
+/** Cell index (0..15) of a point in local metres: quarter * 4 + the cell inside the quarter. */
+export function cellIndex(x: number, z: number, widthM: number, heightM: number): number {
+  const c = Math.min(3, Math.max(0, Math.floor((x / widthM) * 4)));
+  const r = Math.min(3, Math.max(0, Math.floor((-z / heightM) * 4))); // 0 = south
+  return ((c >> 1) + 2 * (r >> 1)) * 4 + (c & 1) + 2 * (r & 1);
+}
+
 /**
- * Reorder whole triangles by the quarter of the tile their centre falls in (x east of width / 2,
- * z north of -height / 2), keeping their order within a quarter. Returns new buffers with `parts`.
+ * Reorder whole triangles by the cell their centre falls in (cellIndex), keeping their order
+ * within a cell. Returns new buffers with `parts` (17 vertex offsets).
  */
-export function splitQuarters(b: MeshBuffers, widthM: number, heightM: number): MeshBuffers & Quartered {
+export function splitCells(b: MeshBuffers, widthM: number, heightM: number): MeshBuffers & Quartered {
   const tris = b.position.length / 9;
-  const quarter = new Uint8Array(tris);
-  const count = [0, 0, 0, 0];
+  const cell = new Uint8Array(tris);
+  const count = new Uint32Array(16);
   const p = b.position;
   for (let t = 0; t < tris; t++) {
     const o = t * 9;
-    const cx = (p[o] + p[o + 3] + p[o + 6]) / 3, cz = (p[o + 2] + p[o + 5] + p[o + 8]) / 3;
-    const q = (cx > widthM / 2 ? 1 : 0) + (cz < -heightM / 2 ? 2 : 0);
-    quarter[t] = q;
-    count[q]++;
+    const k = cellIndex((p[o] + p[o + 3] + p[o + 6]) / 3, (p[o + 2] + p[o + 5] + p[o + 8]) / 3, widthM, heightM);
+    cell[t] = k;
+    count[k]++;
   }
-  const parts = new Uint32Array(5);
-  for (let q = 0; q < 4; q++) parts[q + 1] = parts[q] + count[q] * 3;
-  const at = [parts[0] / 3, parts[1] / 3, parts[2] / 3, parts[3] / 3];
+  const parts = new Uint32Array(17);
+  for (let k = 0; k < 16; k++) parts[k + 1] = parts[k] + count[k] * 3;
+  const at = Array.from(parts.subarray(0, 16), (v) => v / 3);
   const out = { position: new Float32Array(p.length), normal: new Float32Array(p.length), color: new Float32Array(p.length), parts };
   for (let t = 0; t < tris; t++) {
-    const d = at[quarter[t]]++ * 9, o = t * 9;
+    const d = at[cell[t]]++ * 9, o = t * 9;
     out.position.set(p.subarray(o, o + 9), d);
     out.normal.set(b.normal.subarray(o, o + 9), d);
     out.color.set(b.color.subarray(o, o + 9), d);

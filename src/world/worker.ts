@@ -30,7 +30,7 @@ export type BuildRequest = {
   lcSize?: number;
   detail?: Partial<Detail>;
   skirtM?: number;
-  /** Sort buildings, roofs and roads by tile quarter (meshjob splitQuarters). */
+  /** Sort buildings, roofs and roads by tile cell (meshjob splitCells). */
   split?: boolean;
   /** Reply with packed buckets (meshjob packBuffers): smaller to send and to upload. */
   pack?: boolean;
