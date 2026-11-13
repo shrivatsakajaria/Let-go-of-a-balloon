@@ -13,21 +13,32 @@ async function measure(page: Page): Promise<Sample[]> {
   const targets = await page.evaluate(() => {
     const vw = innerWidth;
     const out: { what: string; color: string; rects: { x: number; y: number; w: number; h: number }[]; need: number }[] = [];
-    const sel = '.title, .explainer, .from, .locate, .credits-link, .city, .mine-label, .mine .link, .notice, .map-credit a, .letgo';
-    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-      if (el.closest('[hidden]')) continue;
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
-      // items running into the faded right edge of a scrolling row are off screen in practice
-      // (only the scrolling rows have a faded edge; everything else is measured whenever it is on screen)
-      const faded = el.closest('.cities, .mine') ? 28 : 0;
-      if (!rects.length || rects.some((r) => r.right > vw - faded || r.left < 0)) continue;
+    // every visible element of the start screen with text of its own, measured per text node
+    const root = document.querySelector('.start') ?? document.body;
+    for (const el of [root, ...root.querySelectorAll<HTMLElement>('*')] as HTMLElement[]) {
+      if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
+      const cs = getComputedStyle(el);
+      // a scrolling row fades its last 28 px into the shading only while the mask applies (not on wide screens)
+      const faded = (el.closest('.cities, .mine') && getComputedStyle(el.closest('.cities, .mine')!).maskImage !== 'none') ? 28 : 0;
+      const rects: { x: number; y: number; w: number; h: number }[] = [];
+      for (const node of el.childNodes) {
+        if (node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const r of range.getClientRects()) {
+          if (r.width <= 0 || r.height <= 0) continue;
+          if (r.right > vw - faded || r.left < 0 || r.bottom <= 0 || r.top >= innerHeight) { rects.length = 0; break; }
+          rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+        }
+      }
+      if (!rects.length) continue;
+      const size = parseFloat(cs.fontSize);
+      const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
       out.push({
         what: `${el.className}: ${el.textContent?.trim().slice(0, 24)}`,
-        color: getComputedStyle(el).color,
-        rects: rects.map((r) => ({ x: r.left, y: r.top, w: r.width, h: r.height })),
-        need: el.classList.contains('letgo') ? 3 : 4.5,
+        color: cs.color,
+        rects,
+        need: large ? 3 : 4.5,
       });
     }
     return out;
@@ -82,7 +93,7 @@ for (const size of [{ width: 390, height: 660 }, { width: 390, height: 844 }, { 
       const samples = await measure(page);
       const low = samples.filter((s) => s.ratio < s.need);
       const body = samples.filter((s) => s.need === 4.5);
-      console.log(`${backdrop} ${size.width}x${size.height}: text min ${Math.min(...body.map((s) => s.ratio))} over ${body.length} (${[...body].sort((a, b) => a.ratio - b.ratio)[0].what}); Let go ${samples.find((s) => s.need === 3)?.ratio}`);
+      console.log(`${backdrop} ${size.width}x${size.height}: text min ${Math.min(...body.map((s) => s.ratio))} over ${body.length} (${[...body].sort((a, b) => a.ratio - b.ratio)[0].what}); large text min ${Math.min(...samples.filter((s) => s.need === 3).map((s) => s.ratio))}`);
       expect(low, JSON.stringify(low)).toEqual([]);
     });
   }
