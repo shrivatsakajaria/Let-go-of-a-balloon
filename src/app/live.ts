@@ -23,6 +23,7 @@ import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
+import { playReplay, replayNames, type ReplayName } from '../ui/replay';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
@@ -64,6 +65,10 @@ export type LiveHook = {
   routeError: string | null;
   groundM: number;
   feetM: number;
+  /** The whole-trip replay is on, its trail is in the scene, and the time the scene shows (UTC ms). */
+  replay: boolean;
+  trail: boolean;
+  now: number;
 };
 
 export class Live {
@@ -87,11 +92,19 @@ export class Live {
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
+  private readonly reduced: boolean;
+  /** The whole-trip replay on screen (aborted by Back to live), and its names worked out in the background. */
+  private replayRun: AbortController | null = null;
+  private replayPrep: { route: Route; names: Promise<ReplayName[]> } | null = null;
+  private overLine = '';
+  /** Where the whole-trip replay ends (it then holds on the landing): by default, back to live. */
+  onReplayEnd: (route: Route) => void = () => this.backToLive();
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0 };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.reduced = reduced;
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'world';
     this.canvas.setAttribute('role', 'img');
@@ -111,6 +124,8 @@ export class Live {
         onView: (m: DirectorMode) => this.scene.setView(m),
         onPause: (p) => this.scene.setPaused(p),
         onAgain: () => this.backToStart(),
+        onTrip: () => this.showTrip(),
+        onBack: () => this.backToLive(),
       },
       { reducedMotion: reduced },
     );
@@ -221,6 +236,7 @@ export class Live {
   // ---- a balloon from a link or from "Your balloons" ----
 
   async open(b: SavedBalloon): Promise<void> {
+    this.backToLive();
     this.clearNotice();
     this.state = 'flight';
     this.deps.setView('link');
@@ -240,7 +256,15 @@ export class Live {
   }
 
   private beginFlight(route: Route, home: Flight['home'], own: boolean): void {
+    this.backToLive();
     this.flight = { route, home, own };
+    // the replay's names, worked out now in the background so "Show me the whole trip" never waits
+    const names = landingPlace(route)
+      .catch(() => null)
+      .then((l) => replayNames(route, { home: home.name, landing: l?.name }))
+      .catch(() => [] as ReplayName[]);
+    this.replayPrep = { route, names };
+    this.hud.setTrip(true);
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
     this.lastCountry = null;
@@ -253,6 +277,8 @@ export class Live {
   }
 
   backToStart(): void {
+    this.backToLive();
+    this.hud.setTrip(false);
     this.opening++;
     this.clearNotice();
     this.flight = null;
@@ -265,6 +291,47 @@ export class Live {
     this.scene.setStart(this.choice, landmarkHeading(this.choice.cityId));
     this.askWind(this.choice);
     this.canvas.setAttribute('aria-label', `A person in ${this.choice.kind === 'gps' ? 'your location' : this.choice.name} holding a red balloon`);
+  }
+
+  // ---- the whole trip ----
+
+  /** "Show me the whole trip": the forecast route in 20 seconds, then the landing (spec 6.4). */
+  showTrip(): void {
+    const fl = this.flight;
+    if (!fl || this.replayRun || this.state !== 'flight') return;
+    const ctl = new AbortController();
+    this.replayRun = ctl;
+    // names arrive in the background; the first is not due until the climb is over
+    const names: ReplayName[] = [];
+    if (this.replayPrep?.route === fl.route) this.replayPrep.names.then((n) => this.replayRun === ctl && names.push(...n));
+    const landing = this.landingFor === fl.route && this.landing ? { name: this.landing.name, kind: this.landing.kind } : null;
+    this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
+    const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
+    void playReplay(fl.route, {
+      host: {
+        scene: this.scene,
+        hud: this.hud,
+        layer: this.deps.sceneEl,
+        band: () => ({ top: (top?.getBoundingClientRect().bottom ?? 120) + 16, bottom: (bottom?.getBoundingClientRect().top ?? innerHeight - 220) - 16 }),
+        reducedMotion: this.reduced,
+        exit: () => this.backToLive(),
+      },
+      names,
+      landing,
+      home: fl.home.name,
+      signal: ctl.signal,
+      onEnd: () => this.onReplayEnd(fl.route),
+    });
+  }
+
+  /** Back to live from the replay (or nothing, if none is on): the live clock and view, at now. */
+  backToLive(): void {
+    const run = this.replayRun;
+    if (!run) return;
+    this.replayRun = null;
+    run.abort();
+    this.hud.setOver(this.overLine);
+    this.placeAt = -Infinity; // the facts, the label and "Over ..." for now, straight away
   }
 
   // ---- every frame ----
@@ -294,6 +361,9 @@ export class Live {
       h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
     } else h.subjectPx = null;
     h.feetM = f.feetM;
+    h.replay = this.replayRun !== null;
+    h.trail = !!this.scene.scene.getObjectByName('replay-trail');
+    h.now = f.now;
 
     this.scene.measurePaused = this.state === 'launch';
     if (this.state === 'launch' && f.released && f.settled) {
@@ -302,7 +372,7 @@ export class Live {
     }
     if (this.state === 'start' || this.state === 'error') return;
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });
-    if (!this.flight) return;
+    if (!this.flight || this.replayRun) return;
 
     // the sun crossing the horizon is a film event
     const up = f.sunElevationDeg > 0;
@@ -339,10 +409,11 @@ export class Live {
         landed ? Promise.resolve(null) : townAhead(here).catch(() => null),
         nearestPlace(here).catch(() => null),
       ]);
-      if (this.flight !== fl) return;
+      if (this.flight !== fl || this.replayRun) return;
       this.over = over;
       const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
-      this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
+      this.overLine = landed ? landedOver(landing ?? null) : over ? overText(over) : '';
+      this.hud.setOver(this.overLine);
       this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
 
       // film events: a coast crossed, a town reached

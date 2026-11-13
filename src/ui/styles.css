@@ -627,6 +627,49 @@ a.link, .small a { color: var(--paper); }
   .notice-layer { max-width: 560px; }
 }
 
+/* ---- the whole-trip replay (spec 6.4, 7.3): its names take the fact line's place; Back to live is the main action ---- */
+
+.replay-slot { display: none; }
+.hud.is-replay .replay-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 116px;
+  margin-bottom: 12px;
+  opacity: 0;
+}
+.hud.is-replay .replay-slot.is-still { display: none; }
+.hud.is-replay .fact,
+.hud.is-replay .views,
+.hud.is-replay .pause,
+.hud.is-replay .stats { display: none; }
+.replay-slot p { margin: 0; }
+.replay-kicker, .replay-when { font-size: 13px; font-weight: 500; }
+.replay-kicker { margin-bottom: 4px !important; }
+.replay-when { margin-top: 6px !important; font-variant-numeric: tabular-nums; }
+.replay-kicker:empty, .replay-when:empty { display: none; }
+.replay-name {
+  max-width: 14ch;
+  font-size: 44px;
+  line-height: 1.02;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 62;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+/* reduced motion: the route drawn in place over the dimmed scene (no box: the whole view dims) */
+.replay-map { position: absolute; inset: 0; background: rgba(var(--ink), 0.66); pointer-events: none; }
+.replay-map svg { position: absolute; left: 0; overflow: visible; }
+.replay-line { fill: none; stroke: var(--paper); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.replay-mark { opacity: 0; }
+.replay-mark.on { opacity: 1; }
+.replay-mark circle { fill: var(--paper); }
+.replay-mark circle.ring { fill: none; stroke: var(--paper); stroke-width: 1.5; }
+.replay-mark text { fill: var(--paper); font-size: 13px; font-weight: 500; }
+.replay-mark text.strong { font-size: 16px; font-weight: 600; }
+.replay-balloon { fill: var(--accent); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
