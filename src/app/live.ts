@@ -45,6 +45,8 @@ type Flight = { route: Route; home: { name: string; lat: number; lon: number }; 
 
 const PLACE_EVERY_MS = 6000;
 const HOLD_MS = 1200;
+/** The landing card comes up this long after touchdown, once the balloon has settled. */
+const CARD_AFTER_MS = 1500;
 
 /** What the page's test hooks can read (no state of the page is changed through it). */
 export type LiveHook = {
@@ -313,12 +315,14 @@ export class Live {
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });
     if (!this.flight) return;
 
-    // down: the landing card, once per flight (a landed link opens on it too)
+    // down: the landing card, once per flight (a landed link opens on it too), a moment after touchdown
     if (f.landed && !this.flight.carded) {
-      this.flight.carded = true;
-      const route = this.flight.route;
-      this.hud.setCard(() => void this.showCard(route));
-      void this.showCard(route);
+      const fl = this.flight;
+      fl.carded = true;
+      this.hud.setCard(() => void this.showCard(fl.route));
+      setTimeout(() => {
+        if (this.flight === fl) void this.showCard(fl.route);
+      }, CARD_AFTER_MS);
     }
 
     // the sun crossing the horizon is a film event

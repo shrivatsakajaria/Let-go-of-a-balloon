@@ -9,7 +9,7 @@ import { eastward, linkTo, liveWorld, SWIFTSHADER } from './fixtures';
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 240_000 });
 
-type CardHook = { state: string; sentence: string; kicker: string; shareText: string; headline: { size: number; lines: string[]; widths: number[] }; frame: string; bytes: number; inApp: boolean };
+type CardHook = { renders: number; startedAt: number; state: string; sentence: string; kicker: string; shareText: string; headline: { size: number; lines: string[]; widths: number[] }; frame: string; bytes: number; inApp: boolean };
 const card = (page: Page) => page.evaluate(() => (window as unknown as { __card?: CardHook }).__card ?? null);
 const opened = async (page: Page) => {
   await expect.poll(async () => (await card(page))?.state, { timeout: 120_000 }).toBe('open');
@@ -39,8 +39,10 @@ test('a link opened after 72 hours opens on the card: a 1080x1350 postcard of th
   await expect(dialog).toHaveCount(0);
   const again = page.getByRole('button', { name: 'Show the card' });
   await expect(again).toBeVisible();
+  // made once per landed route: it reopens at once, without a new render
   await again.click();
-  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 2000 });
+  expect((await card(page))!.renders).toBe(1);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(again).toBeFocused();
@@ -61,7 +63,8 @@ test('the card shows when a balloon comes down while it is being watched', async
   expect((await card(page))?.state ?? 'idle').toBe('idle');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const c = await opened(page);
-  expect(Date.now()).toBeGreaterThanOrEqual(landsAt);
+  // made a moment after touchdown, not on it
+  expect(c.startedAt).toBeGreaterThanOrEqual(landsAt + 1400);
   expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
 });
 

@@ -7,11 +7,12 @@
 import { encodeBalloon, linkFor, type SavedBalloon } from '../flight/codec';
 import type { Route } from '../flight/route';
 import { nearestPlace, type Place } from '../geo/gazetteer';
-import { cardFacts, cardWords, startName, type CardLayout, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
+import { cardFacts, cardWords, startName, type CardLayout, type CardWords, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
 import { showCardView, type CardView } from '../ui/cardview';
 import { COPY } from '../ui/copy';
 import { cardScene } from './cardshot';
 import type { LiveScene } from './scene';
+import { landedAt } from './data';
 
 /** Read-only state for the page's tests. */
 export type CardHook = {
@@ -24,9 +25,13 @@ export type CardHook = {
   bytes: number;
   inApp: boolean;
   waitedMs: number;
+  /** How many cards have been rendered (a card is made once per landed route and kept). */
+  renders: number;
+  /** When the last card was asked for (UTC ms). */
+  startedAt: number;
 };
 
-export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0 };
+export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0 };
 (globalThis as unknown as { __card: CardHook }).__card = cardHook;
 
 /** A "Use my location" start goes by the place it is in (startName), never "Your location". */
@@ -63,6 +68,10 @@ export type PresentOpts = {
 
 let latest = 0;
 
+/** A card made for a route: kept, so "Show the card" opens it again at once. */
+type Made = { blob: Blob; words: CardWords; link: string; layout: CardLayout; frame: 'scene' | 'sketch'; landed: boolean };
+const made = new WeakMap<Route, Made>();
+
 export async function presentCard(o: PresentOpts): Promise<CardView | null> {
   const id = ++latest;
   // the visitor moved on: nothing opens, and the hook says so (unless a newer card is on its way)
@@ -71,16 +80,27 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
     return null;
   };
   cardHook.state = 'waiting';
+  cardHook.startedAt = Date.now();
   try {
-    const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
-    const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
-    cardHook.waitedMs = await settled(o.live, o.waitMs ?? 8000, o.isCurrent);
+    let card = made.get(o.route);
+    // a card made before the balloon was down says "Expected to"; once landed it is made again
+    if (card && card.landed !== Date.now() >= landedAt(o.route)) card = undefined;
+    if (!card) {
+      const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
+      const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
+      cardHook.waitedMs = await settled(o.live, o.waitMs ?? 8000, o.isCurrent);
+      if (!o.isCurrent()) return abort();
+      const facts = cardFacts(o.route, { home, landing, own: o.own, now: Date.now() });
+      const words = cardWords(facts);
+      const drawn = await drawCard(o.route, cardScene(o.live), words);
+      cardHook.renders++;
+      const blob = await toPng(drawn.canvas);
+      const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
+      card = { blob, words, link, layout: drawn.layout, frame: drawn.frame, landed: facts.landed };
+      made.set(o.route, card);
+    }
     if (!o.isCurrent()) return abort();
-    const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: Date.now() }));
-    const drawn = await drawCard(o.route, cardScene(o.live), words);
-    const blob = await toPng(drawn.canvas);
-    const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
-    if (!o.isCurrent()) return abort();
+    const { blob, words, link } = card;
     const ua = navigator.userAgent;
     const inApp = isInAppBrowser(ua);
     const view = await showCardView({
@@ -97,10 +117,10 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
       },
     });
     if (!view) return abort();
-    const L = drawn.layout;
+    const L = card.layout;
     const heads = L.headline.lines.map((l) => l.map((s) => s.text).join(''));
     const widths = L.headline.lines.map((_, i) => lineWidthOf(L, i));
-    Object.assign(cardHook, { state: 'open', sentence: words.sentence, kicker: words.kicker, shareText: words.shareText, headline: { size: L.headline.size, lines: heads, widths }, frame: drawn.frame, bytes: blob.size, inApp });
+    Object.assign(cardHook, { state: 'open', sentence: words.sentence, kicker: words.kicker, shareText: words.shareText, headline: { size: L.headline.size, lines: heads, widths }, frame: card.frame, bytes: blob.size, inApp });
     return view;
   } catch (e) {
     cardHook.state = 'failed';
