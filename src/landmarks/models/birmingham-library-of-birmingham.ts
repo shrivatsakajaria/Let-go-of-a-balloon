@@ -74,9 +74,10 @@ export const model: LandmarkModel = {
     for (let x = -26; x <= 27; x += 5.3) k.box('plain', C.chalk, x, 0, -25.15, 0.4, 12.5, 0.3, { top: false });
     // the silver box over the square (cantilevered 10 m at the front)
     clad(k, silver, C.slate, -2.25, 12.5, -3, 61.5, 12.5, 64, 3.1);
-    // a glazed band, the gold box, the Discovery Terrace on the silver box in front of it
+    // a glazed band, the gold box, the Discovery Terrace on the silver box in front of it; the gold
+    // box is a light sand body under gilt rings (a gilt body reads muddy olive in shade)
     k.box('plain', C.slate, 2.5, 25, 5.5, 52, 4, 46, { top: false });
-    clad(k, gold, C.clay, 2.5, 29, 5.5, 53, 15, 47, 3.3);
+    clad(k, C.sand, gold, 2.5, 29, 5.5, 53, 15, 47, 3.3);
     beds(k, 25, -30, 26, -32, -21);
     k.box('plain', C.chalk, -2.25, 25, -35.1, 61.5, 1.2, 0.3, { top: false });
     // the upper silver box, the Secret Garden beside it on the gold box
