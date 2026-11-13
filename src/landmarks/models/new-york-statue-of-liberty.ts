@@ -18,7 +18,7 @@ import type { LandmarkBucket, LandmarkModel } from '../types';
 type P3 = [number, number, number];
 
 /** Verdigris: the copper's pale green-blue patina (Contour's shallow-water colour, CONTOUR.waterShallow). */
-const COPPER: Color = '#8fd3cf';
+const COPPER: Color = C.copper;
 /** Top of the pedestal (m): the figure stands on it. */
 const PT = 46.9;
 

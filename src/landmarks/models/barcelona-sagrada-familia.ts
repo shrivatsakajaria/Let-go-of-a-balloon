@@ -17,7 +17,7 @@ import type { LandmarkModel } from '../types';
 import type { Color } from '../../world/palette';
 
 /** The Nativity cypress: Contour's deepest sage (CONTOUR.land[4]). */
-const CYPRESS: Color = '#76a063';
+const CYPRESS: Color = C.cypress;
 
 /** Everything stands on this (below the street). */
 const B = -4;
@@ -59,6 +59,8 @@ function crane(k: Kit, x: number, z: number, h: number, jib: number, name: strin
   t.spire('plain', C.slate, 0, 1.8, 0, 1.4, 6, 4, 45);
   const top = t.mesh('plain', name)!;
   top.position.set(x, h, z);
+  // it slews, and the camera's tops are worked out once: the jib is not a top (types.ts noTops)
+  top.userData.noTops = true;
   return top;
 }
 

@@ -59,6 +59,10 @@ export const LANDMARK_COLOURS = {
   /** Lawn and planting: the Contour sages. */
   grass: CONTOUR.land[2],
   sage: CONTOUR.land[3],
+  /** Dark trees (cypress, forest): the Contour deepest sage (#76a063). */
+  cypress: CONTOUR.land[4],
+  /** Bronze-brown paint (the Eiffel Tower): the deeper Contour clay roof (#c9ad92). */
+  bronze: CONTOUR.roof[1],
 } satisfies Record<string, Color>;
 
 /** Every colour a landmark may use: the Contour palette, the region's walls and roofs, and the landmark palette. */
