@@ -9,6 +9,10 @@ import type { LatLon } from '../geo/coords';
  * Note on the interface: the brief's `update(b, dtSec, groundAt)` became `deps.groundAt`.
  * The scene-to-LatLon inverse needed for the ground and building clamps is derived locally
  * from `toScene` (a linearisation around the balloon), so it is not part of the deps.
+ *
+ * The balloon is real size (about 0.15 m radius within 20 m, spec 6.2), so Ride hangs the camera about
+ * a string's length (1.2 m) below and behind it. The app's camera near plane must be well under that
+ * (0.05 m works).
  */
 export type DirectorMode = 'film' | 'ride' | 'above' | 'side' | 'launch' | 'replay';
 export type ShotName = 'launch' | 'ride' | 'circling' | 'side' | 'down' | 'replay';
@@ -17,6 +21,7 @@ export type DirectorEvent = 'coast' | 'sunset' | 'sunrise' | 'city' | 'landmark'
 export type DirectorDeps = {
   toScene(p: LatLon): { x: number; z: number };
   groundAt(p: LatLon): number;
+  /** Highest building top (absolute, like groundAt) within radiusM; ground or less where there is none. */
   buildingTopAt?(p: LatLon, radiusM: number): number;
   balloonRadius(distM: number): number;
   reducedMotion?: boolean;
@@ -25,6 +30,8 @@ export type DirectorDeps = {
 /** Spring smooth time: error falls like (1 + 2t/T) e^(-2t/T), so about 1% after 4 s. */
 export const SMOOTH_TIME_S = 1.2;
 export const LAUNCH = { holdS: 1.2, tiltEndS: 8, handOverS: 20 } as const;
+/** Ride: the balloon fills this share of the viewport height (spec 8: 18-35%). */
+export const RIDE_FRACTION = 0.22; // of the radius model; the drawn teardrop and knot read about 1.28x taller (~28%)
 const FILM_CYCLE: [ShotName, number][] = [['ride', 40], ['circling', 30], ['side', 30], ['down', 20]];
 const FILM_CYCLE_REDUCED: [ShotName, number][] = [['ride', 40], ['circling', 30]];
 const EVENT_SHOT: Record<DirectorEvent, ShotName> = {
@@ -34,6 +41,13 @@ const MIN_EVENT_GAP_S = 15;
 const PENDING_EXPIRY_S = 30;
 const EYE_M = 1.6;
 const RAD = Math.PI / 180;
+/** Launch, street phase: how far the camera may rise while it tilts up (0-8 s). */
+const STREET_RISE_M = 0.9;
+/** Launch, pull-back: the crane sits a few metres behind the balloon on the landmark line, a little below it. */
+const CRANE_M = 6;
+const CRANE_EL = 8 * RAD;
+/** No building within this radius of the camera's ground point, or the camera goes over its roof. */
+const STREET_CLEAR_M = 1.5;
 
 /** The interface curve cubic-bezier(0.22, 1, 0.36, 1), x -> y, no overshoot. */
 export function easeOut(x: number): number {
@@ -52,8 +66,28 @@ const smoothstep = (a: number, b: number, x: number) => {
   const u = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return u * u * (3 - 2 * u);
 };
+/** Slow in, slow out over [a, b]: camera moves are physical moves, not interface motion. */
+const inOut = (a: number, b: number, x: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, (x - a) / (b - a))));
+const mix = (a: number, b: number, f: number) => a + (b - a) * f;
+const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+type V3 = { x: number; y: number; z: number };
+const finite3 = (v: V3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 
-type Target = { pos: THREE.Vector3; look: THREE.Vector3; fov: number; anchor: 'world' | 'balloon' };
+/**
+ * pos: where the camera wants to be. y0: where the balloon sits in the frame (NDC y, horizontally centred);
+ * the camera is aimed from wherever it actually is (after smoothing and clamps), so the framing holds even
+ * while the position catches up, which matters a string's length from a 30 cm balloon.
+ * anchor: per axis, how much of pos moves with the balloon (1) or stays put in the world (0).
+ */
+type Target = { pos: THREE.Vector3; y0: number; fov: number; anchor: V3 };
+const pitchOf = (v: THREE.Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z));
+/** The NDC height of the balloon B for a camera at pos looking at `look` (both in one vertical plane). */
+function frameY(pos: THREE.Vector3, look: THREE.Vector3, B: THREE.Vector3, fovDeg: number): number {
+  const a = pitchOf(B.clone().sub(pos)) - pitchOf(look.clone().sub(pos));
+  return Math.max(-0.9, Math.min(0.9, Math.tan(a) / Math.tan((fovDeg * RAD) / 2)));
+}
+const BALLOON: V3 = { x: 1, y: 1, z: 1 };
+const WORLD: V3 = { x: 0, y: 0, z: 0 };
 
 export class Director {
   mode: DirectorMode = 'ride';
@@ -70,13 +104,17 @@ export class Director {
   private orbit = 0;
   private launchT = 0;
   private launchOpts: { personAt: LatLon; landmarkHeadingDeg: number; startUtcMs: number } | null = null;
+  /** Street camera position for this launch (world), chosen on the first launch frame. */
+  private street: THREE.Vector3 | null = null;
+  /** Which way the pull-back swings round the balloon (chosen once, so it never flips mid-move). */
+  private swing: [number, number] = [0, 0];
   private afterLaunch: DirectorMode = 'film';
   private ready = false;
   private prevB = new THREE.Vector3();
   private pos = new THREE.Vector3();
-  private look = new THREE.Vector3();
+  private y0 = 0.5;
   private posV = new THREE.Vector3();
-  private lookV = new THREE.Vector3();
+  private y0V = 0;
   private fov = 50;
   private fovV = 0;
 
@@ -148,23 +186,29 @@ export class Director {
     this.afterLaunch = 'film';
     this.mode = 'launch';
     this._shot = 'launch';
+    this.street = null;
+    this.swing = [0, 0];
     this.ready = false; // first frame snaps to the street position
   }
 
-  update(b: RoutePoint, dtSec: number): void {
+  /**
+   * One frame. `target` (optional) is the balloon's drawn scene position (its mesh's world position), which
+   * the camera frames instead of the route position; without it (or if it is not finite) the route is used.
+   */
+  update(b: RoutePoint, dtSec: number, target?: V3): void {
     const dtFull = Number.isFinite(dtSec) ? Math.max(0, dtSec) : 0;
     const bs = this.deps.toScene(b);
     if (!Number.isFinite(bs.x) || !Number.isFinite(bs.z) || !Number.isFinite(b.altM)) return; // skip the frame, state untouched
-    const B = new THREE.Vector3(bs.x, b.altM, bs.z);
+    const B0 = new THREE.Vector3(bs.x, b.altM, bs.z); // route position: the base for scene-to-LatLon
+    const B = target && finite3(target) ? new THREE.Vector3(target.x, target.y, target.z) : B0.clone();
     // Choreography clocks take small steps (a backgrounded tab must not skip shots); the spring gets the full dt to catch up.
     const dt = this.paused ? 0 : Math.min(dtFull, 1);
 
     if (this.paused && this.ready) {
       const shift = B.clone().sub(this.prevB);
       this.pos.add(shift);
-      this.look.add(shift);
       this.prevB.copy(B);
-      this.apply(b, B);
+      this.apply(b, B, B0);
       return;
     }
     this.clock += dt;
@@ -191,35 +235,37 @@ export class Director {
     if (Number.isNaN(this.orbit)) this.orbit = (b.headingDeg + 100) * RAD;
     this.orbit += 0.035 * scale * (1 + 0.45 * Math.sin((2 * Math.PI * this.clock) / 47)) * dt;
 
-    const tg = this.target(b, B);
+    const tg = this.target(b, B, B0);
 
     if (!this.ready) {
       this.pos.copy(tg.pos);
-      this.look.copy(tg.look);
+      this.y0 = tg.y0;
       this.fov = tg.fov;
       this.posV.set(0, 0, 0);
-      this.lookV.set(0, 0, 0);
+      this.y0V = 0;
       this.fovV = 0;
       this.ready = true;
-    } else if (tg.anchor === 'balloon') {
+    } else {
+      // Smooth in the moving frame: what is anchored to the balloon follows it with no lag.
       const shift = B.clone().sub(this.prevB);
-      this.pos.add(shift);
-      this.look.add(shift);
+      this.pos.x += shift.x * tg.anchor.x;
+      this.pos.y += shift.y * tg.anchor.y;
+      this.pos.z += shift.z * tg.anchor.z;
     }
     this.prevB.copy(B);
 
     spring3(this.pos, this.posV, tg.pos, this.tau, dtFull);
-    spring3(this.look, this.lookV, tg.look, this.tau, dtFull);
+    [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, this.tau, dtFull);
     [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, this.tau, dtFull);
-    this.apply(b, B);
+    this.apply(b, B, B0);
   }
 
-  private apply(b: RoutePoint, B: THREE.Vector3): void {
+  private apply(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
     const out = this.pos.clone();
-    this.clamp(out, b, B);
+    this.clamp(out, b, B, B0);
     this.camera.position.copy(out);
     this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(this.look);
+    this.camera.lookAt(this.aim(out, B, this.y0, this.fov));
     if (Math.abs(this.camera.fov - this.fov) > 1e-6) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
@@ -235,12 +281,25 @@ export class Director {
     return Math.min(max, Math.max(min, d));
   }
 
-  private target(b: RoutePoint, B: THREE.Vector3): Target {
+  /** A point to look at that puts the balloon at NDC (0, y0) for a camera at pos (fov in degrees). */
+  private aim(pos: THREE.Vector3, B: THREE.Vector3, y0: number, fovDeg: number): THREE.Vector3 {
+    const v = B.clone().sub(pos);
+    const dist = v.length();
+    if (!(dist > 1e-6)) return B.clone().add(new THREE.Vector3(0, -1, -1));
+    const yaw = Math.atan2(v.x, -v.z);
+    const pitchB = Math.atan2(v.y, Math.hypot(v.x, v.z));
+    // keep off the pole so lookAt's up vector stays defined
+    const pitch = Math.min(1.45, Math.max(-1.45, pitchB - Math.atan(y0 * Math.tan((fovDeg * RAD) / 2))));
+    const d = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+    return pos.clone().addScaledVector(d, dist);
+  }
+
+  private target(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): Target {
     const h = b.headingDeg * RAD;
     const dir = new THREE.Vector3(Math.sin(h), 0, -Math.cos(h)); // where the wind carries it
     const right = new THREE.Vector3(-dir.z, 0, dir.x);
     switch (this._shot) {
-      case 'launch': return this.launchTarget(B, dir);
+      case 'launch': return this.launchTarget(b, B, B0, dir, right);
       case 'circling': return this.circling(B);
       case 'side': return this.side(B, dir, right);
       case 'down': return this.down(B, dir);
@@ -249,24 +308,25 @@ export class Director {
     }
   }
 
-  /** Just below and behind, balloon large near the top of the frame, looking forward and down. */
+  /**
+   * A camera tied to the string: just below and behind, the balloon large at the top of the frame, looking
+   * forward and down. The distance comes from the projected-height target with the balloon's real radius
+   * (about 1.2 m for the real-size balloon, roughly the string's length); it is only kept outside the
+   * balloon and its string here and above ground and buildings by the clamp.
+   */
   private ride(B: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): Target {
     const fov = 50;
-    const d = this.distFor(0.26, fov, 6, 400);
+    const d = this.distFor(RIDE_FRACTION, fov, 0.9, 400);
     const e = 8 * RAD; // balloon is 8 deg above the camera
     const pos = B.clone().addScaledVector(dir, -d * Math.cos(e));
     pos.y -= d * Math.sin(e);
     if (!this.reduced) {
-      // slow bob, off in reduced motion so the framing is fixed
-      pos.addScaledVector(right, Math.sin(this.clock * 0.3) * 0.8);
-      pos.y += Math.sin(this.clock * 0.5) * 0.4;
+      // slow sway, off in reduced motion so the framing is fixed; scaled with the distance (a hanging camera)
+      pos.addScaledVector(right, Math.sin(this.clock * 0.3) * Math.min(0.8, 0.08 * d));
+      pos.y += Math.sin(this.clock * 0.5) * Math.min(0.4, 0.04 * d);
     }
-    // Put the balloon centre at NDC y = 0.52: tilt the view down by that angle below the line to it.
-    const phi = Math.atan(0.52 * Math.tan((fov * RAD) / 2));
-    const p = e - phi;
-    const look = pos.clone().addScaledVector(dir, Math.cos(p) * 200);
-    look.y += Math.sin(p) * 200;
-    return { pos, look, fov, anchor: 'balloon' };
+    // The balloon centre at NDC y = 0.52 (top edge well inside the frame), aimed from where the camera hangs.
+    return { pos, y0: 0.52, fov, anchor: BALLOON };
   }
 
   private circling(B: THREE.Vector3): Target {
@@ -276,7 +336,7 @@ export class Director {
     const pos = B.clone().add(new THREE.Vector3(Math.sin(this.orbit) * d * Math.cos(el), d * Math.sin(el), -Math.cos(this.orbit) * d * Math.cos(el)));
     const look = B.clone();
     look.y -= 0.15 * d;
-    return { pos, look, fov, anchor: 'balloon' };
+    return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
   private side(B: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): Target {
@@ -287,7 +347,7 @@ export class Director {
     pos.y += 0.03 * d;
     const look = B.clone();
     look.y -= 0.1 * d; // slight look-down keeps the horizon in the upper frame, land or sea below
-    return { pos, look, fov, anchor: 'balloon' };
+    return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
   private down(B: THREE.Vector3, dir: THREE.Vector3): Target {
@@ -296,7 +356,7 @@ export class Director {
     const pos = B.clone().addScaledVector(dir, -0.1 * d);
     pos.y += d;
     const look = B.clone().addScaledVector(dir, 0.1 * d);
-    return { pos, look, fov, anchor: 'balloon' };
+    return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
   /** High wide follow shot. Task 18 refines it. */
@@ -307,59 +367,133 @@ export class Director {
     pos.y += 0.7 * d;
     const look = B.clone().addScaledVector(dir, 0.1 * d);
     look.y -= 0.05 * d;
-    return { pos, look, fov, anchor: 'balloon' };
+    return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
-  private launchTarget(B: THREE.Vector3, dir: THREE.Vector3): Target {
+  /**
+   * Street camera, chosen once per launch: eye height a few metres upwind of the person and a little to one
+   * side, so the balloon drifts away from it, never over it, and the person stays in the bottom of a narrow
+   * portrait frame while it tilts up. The first spot with no building on it wins.
+   */
+  private streetPos(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): THREE.Vector3 {
+    if (this.street) return this.street;
+    const o = this.launchOpts!;
+    const ps = this.deps.toScene(o.personAt);
+    const P = new THREE.Vector3(ps.x, 0, ps.z);
+    const offsets: [number, number][] = [[-4.2, 0.9], [-4.2, -0.9], [-4, 2.5], [-4, -2.5], [-1, 2.8], [-1, -2.8], [-2.5, 1.2], [-2.5, -1.2]];
+    let pick: THREE.Vector3 | null = null;
+    for (const [back, side] of offsets) {
+      const c = P.clone().addScaledVector(dir, back).addScaledVector(right, side);
+      const ll = this.fromScene(c.x, c.z, b, B0);
+      const g = this.deps.groundAt(ll);
+      if (this.deps.buildingTopAt && this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) continue;
+      pick = c.setY(g + EYE_M);
+      break;
+    }
+    if (!pick) pick = P.clone().addScaledVector(dir, -1.5).setY(this.deps.groundAt(o.personAt) + EYE_M);
+    this.street = pick;
+    return pick;
+  }
+
+  /**
+   * Spec 8 launch. 0-1.2 s: low at street level beside the person, the person and the balloon in the shot.
+   * 1.2-8 s: the camera stays at eye height (rising under a metre) and tilts up with the balloon, past the
+   * rooftops. 8-20 s: it climbs and catches up, swinging round to a few metres behind the balloon on the
+   * landmark line (the crane, a little below it, so the landmark sits under it as the view widens to show
+   * the place), and from 14.5 s closes in to the Ride framing, which it reaches at 19 s, so the hand-over
+   * at 20 s is seamless. Horizontal moves interpolate round the balloon (distance and bearing), never
+   * through it. The balloon stays in the frame throughout (the camera is aimed at it every frame).
+   */
+  private launchTarget(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): Target {
     const o = this.launchOpts!;
     const t = this.launchT;
-    const ps = this.deps.toScene(o.personAt);
-    const g = this.deps.groundAt(o.personAt);
+    const S = this.streetPos(b, B0, dir, right);
+    const k = inOut(LAUNCH.holdS, LAUNCH.tiltEndS, t);
+    const street = S.clone();
+    street.y += STREET_RISE_M * k;
+    const fovStreet = 38 + 4 * k;
+    const yStreet = 0.6 - 0.4 * k; // balloon high in the frame over the person, then nearer the middle
+    if (t < LAUNCH.tiltEndS) {
+      return { pos: street, y0: yStreet, fov: fovStreet, anchor: WORLD };
+    }
+    const av = inOut(8, 12.5, t); // climb first
+    const ah = inOut(8.5, 14, t); // and catch up, swinging round to the landmark side
+    const c = inOut(14.5, 19, t); // then close in to ride
     const lh = o.landmarkHeadingDeg * RAD;
     const Ld = new THREE.Vector3(Math.sin(lh), 0, -Math.cos(lh));
-    const Rd = new THREE.Vector3(-Ld.z, 0, Ld.x);
-    // Beside the person, a few metres off, eye height 1.6 m, looking toward the landmark side.
-    const street = new THREE.Vector3(ps.x, g + EYE_M, ps.z).addScaledVector(Ld, -4).addScaledVector(Rd, 2.5);
-    const rise = 16.4 * easeOut((t - LAUNCH.holdS) / (LAUNCH.tiltEndS - LAUNCH.holdS));
-    const high = street.clone();
-    high.y += rise;
-    const ride = this.ride(B, dir, new THREE.Vector3(-dir.z, 0, dir.x));
-    const fovStart = 38;
-    if (t < LAUNCH.tiltEndS) {
-      // 0-1.2 s hold on the hand; 1.2-8 s the view tilts up with the balloon past the rooftops.
-      return { pos: high, look: B.clone(), fov: fovStart, anchor: 'world' };
-    }
-    // 8-20 s pull back and widen, landmark swings into view, converging on ride at 20 s.
-    const u = easeOut((t - LAUNCH.tiltEndS) / (LAUNCH.handOverS - LAUNCH.tiltEndS));
-    const bell = Math.sin(Math.PI * u);
-    const pos = high.clone().lerp(ride.pos, u).addScaledVector(Ld, -80 * bell);
-    pos.y += 30 * bell;
-    const landmark = new THREE.Vector3(ps.x, g, ps.z).addScaledVector(Ld, 2500);
-    const base = B.clone().lerp(ride.look, u);
-    const look = base.clone().addScaledVector(landmark.sub(base), 0.4 * bell);
-    return { pos, look, fov: fovStart + (ride.fov - fovStart) * u, anchor: 'balloon' };
+    const crane = Ld.clone().multiplyScalar(-CRANE_M * Math.cos(CRANE_EL));
+    crane.y = -CRANE_M * Math.sin(CRANE_EL);
+    const ride = this.ride(B, dir, right);
+    const off1 = this.polarMix(street.clone().sub(B), crane, ah, av, 0);
+    const off = this.polarMix(off1, ride.pos.clone().sub(B), c, c, 1);
+    const pos = B.clone().add(off);
+    const fov = mix(mix(fovStreet, 50, ah), ride.fov, c);
+    const y0 = mix(mix(yStreet, 0.3, ah), 0.52, c);
+    const wh = ah + (1 - ah) * c, wv = av + (1 - av) * c;
+    return { pos, y0, fov, anchor: { x: wh, y: wv, z: wh } };
   }
 
-  /** Never inside terrain or buildings: ground + 8 m, building tops (30 m radius) + 3 m. Looser at street level during launch. */
-  private clamp(p: THREE.Vector3, b: RoutePoint, B: THREE.Vector3): void {
-    const ll = this.fromScene(p.x, p.z, b, B);
+  /** Blend two balloon-relative offsets by horizontal distance (log), bearing and height. */
+  private polarMix(a: THREE.Vector3, b: THREE.Vector3, wh: number, wv: number, slot: 0 | 1): THREE.Vector3 {
+    if (wh <= 0 && wv <= 0) return a.clone();
+    const ra = Math.max(0.05, Math.hypot(a.x, a.z)), rb = Math.max(0.05, Math.hypot(b.x, b.z));
+    const aza = Math.atan2(a.x, a.z), azb = Math.atan2(b.x, b.z);
+    let dAz = wrapPi(azb - aza);
+    // the swing direction is chosen once, so a near half-turn never flips sides from frame to frame
+    if (this.swing[slot] === 0) this.swing[slot] = dAz >= 0 ? 1 : -1;
+    else if (Math.sign(dAz) !== this.swing[slot] && Math.abs(dAz) > Math.PI / 2) dAz += 2 * Math.PI * this.swing[slot];
+    const r = Math.exp(mix(Math.log(ra), Math.log(rb), wh));
+    const az = aza + dAz * wh;
+    return new THREE.Vector3(r * Math.sin(az), mix(a.y, b.y, wv), r * Math.cos(az));
+  }
+
+  /**
+   * Applied after smoothing. Outside the balloon and its string; then never inside terrain or buildings:
+   * ground + 8 m, building tops within 30 m + 3 m, and always at least 1 m over any building within 1.5 m
+   * (never inside one; the same radius the street camera's spot is checked with). During the launch the
+   * street phase is exempt from the 8 m and 30 m rules (the camera stands on the street beside the person):
+   * the 8 m rule fades in over 8-12.5 s while the camera climbs, and the 30 m rule over 8-20 s, so a camera
+   * catching up with a balloon still below the rooftops is not lifted over it to look down on it.
+   */
+  private clamp(p: THREE.Vector3, b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
+    // balloon: a sphere a little bigger than it, and a narrow column below it where the string hangs
+    const v = p.clone().sub(B);
+    const dist = v.length();
+    const gap = 0.6 + 2 * this.deps.balloonRadius(dist);
+    if (dist < gap) {
+      if (dist > 1e-6) p.copy(B).addScaledVector(v, gap / dist);
+      else p.copy(B).add(new THREE.Vector3(0, -gap, 0));
+    }
+    const below = B.y - p.y;
+    const hr = Math.hypot(p.x - B.x, p.z - B.z);
+    if (below > 0 && below < 2 && hr < 0.4) {
+      if (hr > 1e-6) {
+        p.x = B.x + ((p.x - B.x) * 0.4) / hr;
+        p.z = B.z + ((p.z - B.z) * 0.4) / hr;
+      } else p.x = B.x + 0.4;
+    }
+
+    const ll = this.fromScene(p.x, p.z, b, B0);
     let clearance = 8;
     let wBuild = 1;
     if (this._shot === 'launch') {
-      const w = smoothstep(4, 12, this.launchT);
-      clearance = 1.2 + (8 - 1.2) * w;
-      wBuild = w;
+      clearance = 1.2 + (8 - 1.2) * smoothstep(LAUNCH.tiltEndS, 12.5, this.launchT);
+      wBuild = smoothstep(LAUNCH.tiltEndS, LAUNCH.handOverS, this.launchT);
     }
     let floor = this.deps.groundAt(ll) + clearance;
-    if (this.deps.buildingTopAt && wBuild > 0) {
-      const top = this.deps.buildingTopAt(ll, 30) + 3;
-      if (top > floor) floor += (top - floor) * wBuild;
+    if (this.deps.buildingTopAt) {
+      if (wBuild > 0) {
+        const top = this.deps.buildingTopAt(ll, 30) + 3;
+        if (top > floor) floor += (top - floor) * wBuild;
+      }
+      floor = Math.max(floor, this.deps.buildingTopAt(ll, STREET_CLEAR_M) + 1);
     }
     if (p.y < floor) p.y = floor;
   }
 
   /** Inverse of toScene near the balloon, from a finite-difference Jacobian. */
   private fromScene(x: number, z: number, b: RoutePoint, B: THREE.Vector3): LatLon {
+    // B is the route's own scene position (not a drawn-balloon override)
     const h = 0.001;
     const dN = this.deps.toScene({ lat: b.lat + h, lon: b.lon });
     const dE = this.deps.toScene({ lat: b.lat, lon: b.lon + h });

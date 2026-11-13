@@ -4,7 +4,8 @@ import { CONTOUR, lerpHex } from '../world/palette';
 
 /**
  * The person who lets go (spec 6.2): simple, stylised, anonymous. Capsule body, sphere head with no
- * face, two-part arms, faceted like the rest of Contour, dressed in its chalk and clay tones.
+ * face, two-part arms, faceted like the rest of Contour. Slate coat; head and hands in grey chalk, a
+ * neutral non-skin tone, and the hair (a hood-like cap) in the coat colour: no identifying detail.
  *
  *   const person = new Person(scene, at, facingDeg, feet);   // feet: scene position of the feet
  *   balloon.hold(person.hand);                               // person.hand is updated every frame
@@ -96,12 +97,13 @@ export class Person {
       this.materials.push(m);
       return m;
     };
-    // cool slate coat, darker slate trousers, chalk skin: calm, and nothing near the balloon's hue
+    // cool slate coat, darker slate trousers: calm, and nothing near the balloon's hue
     const coat = mat(CONTOUR.roof[2]);
     const trousers = mat(lerpHex(CONTOUR.roof[2], '#3a3f46', 0.5));
     const shoes = mat(lerpHex(CONTOUR.roof[2], '#2a2d33', 0.75));
-    const skin = mat(CONTOUR.building[1]); // chalk: a mannequin, not a portrait
-    const hair = mat(lerpHex(CONTOUR.roof[1], '#3e3832', 0.65));
+    // grey chalk (chalk wall toward slate roof): a mannequin, not a portrait; no skin or hair colour
+    const skin = mat(lerpHex(CONTOUR.building[1], CONTOUR.roof[2], 0.6));
+    const hair = coat;
     const capsule = (r: number, len: number, m: THREE.Material) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 3, 10), m);
 
     // legs and shoes
@@ -298,7 +300,12 @@ export class Person {
     this.right.hand.getWorldPosition(this.hand);
   }
 
+  /** Removes the person; any running launch is cancelled (a late route or timeout never calls back). */
   dispose(): void {
+    this.token++;
+    this.onRelease = null;
+    this.onTimeout = null;
+    this.state = 'idle';
     this.scene.remove(this.root);
     this.root.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();

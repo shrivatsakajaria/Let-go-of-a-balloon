@@ -135,4 +135,36 @@ describe('person', () => {
     p.dispose();
     expect(scene.children.length).toBe(0);
   });
+
+  test('head, hands and hair are a neutral non-skin tone: no identifying detail', () => {
+    const { p } = mk();
+    const hsl = { h: 0, s: 0, l: 0 };
+    let n = 0;
+    p.root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const m = o.material as THREE.MeshStandardMaterial;
+      m.color.getHSL(hsl, THREE.SRGBColorSpace);
+      expect(hsl.s).toBeLessThan(0.15); // greys and slates only, nothing that reads as a skin or hair colour
+      n++;
+    });
+    expect(n).toBeGreaterThan(8);
+  });
+
+  test('dispose cancels the launch: a late route never releases', async () => {
+    const { p } = mk();
+    let fired = 0, timeouts = 0;
+    let ready!: () => void;
+    const readyAt = new Promise<void>((r) => (ready = r));
+    p.play(() => fired++, { readyAt, onTimeout: () => timeouts++ });
+    for (let i = 0; i < 60; i++) p.update(DT);
+    p.dispose();
+    expect(p.state).toBe('idle');
+    ready();
+    await flush();
+    for (let i = 0; i < 600; i++) p.update(DT);
+    await flush();
+    expect(fired).toBe(0);
+    expect(timeouts).toBe(0);
+    expect(p.state).toBe('idle');
+  });
 });
