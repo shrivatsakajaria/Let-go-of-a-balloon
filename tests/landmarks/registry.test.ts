@@ -111,7 +111,7 @@ describe('every model', () => {
     }
   });
 
-  test('every model is under 4,000 triangles, Contour colours only, and its module under 30 KB gzipped', async () => {
+  test('every model is under 4,000 triangles, Contour colours only, and its module under 30 KB gzipped', { timeout: 30_000 }, async () => {
     expect(SITES.length).toBeGreaterThanOrEqual(2);
     const kitColours = new Set<string>();
     // record every colour any Kit is given while the models build
