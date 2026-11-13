@@ -33,12 +33,12 @@ import { destination, type LatLon } from '../geo/coords';
 import { regionStyle } from '../world/palette';
 import { WorkerPool } from '../world/workerpool';
 import type { BuildReply, BuildRequest } from '../world/worker';
-import { createRenderer } from '../world/render';
+import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
 import { Clouds } from '../world/clouds';
 import { WorldStream } from '../world/stream';
-import { DetailBudget, hazeFarM } from '../world/lod';
-import { FRAME_BUDGET, shadowBudget, TREE_SHADOW_M, VIEW_CAP } from '../world/sunlight';
+import { hazeFarM } from '../world/lod';
+import { FrameBudget } from '../world/framebudget';
 import { StatsOverlay } from './overlay';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -126,11 +126,8 @@ const clouds = CLOUDS
   : null;
 stream.onRecentre = (e) => clouds?.shift(e.dx, e.dz);
 
-const detail = new DetailBudget();
-/** What the view alone drew last frame, and the last shadow pass (every frame redraws on a slow machine). */
-const view = { triangles: 0, calls: 0 };
-let shadowPass = { triangles: 0, calls: 0 };
-let viewOther = 0;
+/** The live scene's frame budget (world/framebudget.ts); budget=0 leaves it off. */
+const budget = new FrameBudget(stream, sky.light, { frameTimes: !isSoftwareRenderer(renderer), enabled: params.get('budget') !== '0' });
 let shadowAsked = 0;
 stream.onChange = () => {
   shadowAsked = performance.now();
@@ -301,7 +298,7 @@ function frame(now: number) {
   focus.set(pos.x + Math.sin(h) * ahead, groundS, pos.z - Math.cos(h) * ahead);
   // aiming at something: the shadows go round it (halfway there, if it is far)
   if (AIM) focus.set(pos.x + (aimAt.x - pos.x) * 0.6, groundS, pos.z + (aimAt.z - pos.z) * 0.6);
-  let viewTiles = stream.fitView(camera, params.get('budget') !== '0' ? VIEW_CAP - viewOther : Infinity);
+  budget.fitView(camera);
   let redraw = sky.place(focus);
   // tiles arrived or settled: redraw the shadows, at most four times a second
   if (shadowAsked > shadowDrawnAt && now - shadowDrawnAt > 250) redraw = true;
@@ -312,11 +309,8 @@ function frame(now: number) {
   if (redraw) {
     renderer.shadowMap.needsUpdate = true;
     shadowDrawnAt = now;
-    // the live scene's shadow budget (scene.ts): trees near the focus, a smaller disc in a dense city
-    stream.setShadowFocus(focus.x, focus.z, TREE_SHADOW_M);
-    shadowPass = params.get('budget') !== '0' ? sky.light.fit(scene, shadowBudget({ triangles: viewTiles + viewOther, calls: view.calls })) : sky.light.casters(scene);
-    const over = viewTiles + viewOther + shadowPass.triangles - FRAME_BUDGET.triangles;
-    if (over > 0 && params.get('budget') !== '0') viewTiles = stream.fitView(camera, viewTiles - over);
+    // the live scene's shadow budget: trees near the focus, a smaller disc in a dense city
+    budget.fitShadows(scene, focus);
   }
 
   for (const t of stream.tiles()) {
@@ -328,13 +322,10 @@ function frame(now: number) {
   if (redraw) hook.shadowDraws = byCall;
   else hook.draws = byCall;
   const info = renderer.info.render;
-  view.triangles = info.triangles - (redraw ? shadowPass.triangles : 0);
-  view.calls = info.calls - (redraw ? shadowPass.calls : 0);
-  viewOther = Math.max(0, view.triangles - viewTiles);
-  hook.view = { ...view };
+  budget.afterRender(info, redraw, now, dt * 1000);
+  hook.view = { ...budget.view };
   hook.peak.triangles = Math.max(hook.peak.triangles, info.triangles);
   hook.peak.calls = Math.max(hook.peak.calls, info.calls);
-  if (params.get('budget') !== '0') stream.detailScale = detail.update(view.triangles, now);
   if (redraw) hook.shadow = { calls: info.calls, triangles: info.triangles };
   else hook.plain = { calls: info.calls, triangles: info.triangles };
   if (hook.frames === 0) canvas.classList.add('on');

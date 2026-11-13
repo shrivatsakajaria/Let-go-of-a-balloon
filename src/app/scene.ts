@@ -14,7 +14,8 @@
  */
 import * as THREE from 'three';
 import { Balloon, displayScale } from '../balloon/balloon';
-import { MAX_HOLD_S, Person } from '../balloon/person';
+import { Person } from '../balloon/person';
+import { keepHolding, MAX_HOLD_MS } from './hold';
 import { Director, type DirectorMode, type WaitFrame } from '../camera/director';
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
@@ -24,11 +25,11 @@ import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
 import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
-import { DetailBudget, hazeFarM } from '../world/lod';
+import { hazeFarM } from '../world/lod';
+import { FrameBudget } from '../world/framebudget';
 import { regionStyle } from '../world/palette';
 import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
-import { FRAME_BUDGET, shadowBudget, TREE_SHADOW_M, VIEW_CAP, type PassCount } from '../world/sunlight';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
 import { WorkerPool } from '../world/workerpool';
@@ -37,8 +38,6 @@ import type { BuildReply, BuildRequest } from '../world/worker';
 
 const D2R = Math.PI / 180;
 const H = 3600e3;
-/** The longest a launch holds on when its winds are in but the route is still being worked out. */
-const LONG_HOLD_MS = 20000;
 /** A landed balloon rests on its string just off the ground. */
 const LANDED_M = 0.6;
 
@@ -115,17 +114,8 @@ export class LiveScene {
   onLuminance: ((top: number, bottom: number) => void) | null = null;
   /** Skip measuring the brightness behind the text (the launch: only the clock shows). */
   measurePaused = false;
-  /** What the view alone drew last frame (the shadow pass gets the rest of the budget). */
-  private readonly plain: PassCount = { triangles: 0, calls: 0 };
-  /** What the last shadow redraw's pass drew (SunLight.fit counts it before the redraw). */
-  private readonly shadowPass: PassCount = { triangles: 0, calls: 0 };
-  private readonly detail = new DetailBudget();
-  /** This frame's view: the tiles' part (stream.fitView), the rest of the scene (as last frame), and the two together. */
-  private viewTiles = 0;
-  private other = 0;
-  private readonly viewEst: PassCount = { triangles: 0, calls: 0 };
-  /** Frame times count toward the detail budget (not on a software renderer, where they mean nothing). */
-  private readonly frameTimes: boolean;
+  /** The frame budget (world/framebudget.ts): the view's tiles to their cap, the shadow pass to its share, the detail. */
+  private readonly budget: FrameBudget;
   /** The last frame drawn redrew the shadow map (for the performance checks). */
   shadowDrawn = false;
   /** The first frame has been drawn. */
@@ -181,7 +171,7 @@ export class LiveScene {
     this.reduced = opts.reducedMotion;
     this.start = { lat: start.lat, lon: start.lon };
     this.renderer = createRenderer(canvas);
-    this.frameTimes = !isSoftwareRenderer(this.renderer);
+
     this.sky = new Sky(this.scene, { shadow: { radius: 700, mapSize: 2048, snap: 100, upM: 60, downM: 40 } });
     this.sky.update(Date.now(), start);
     this.pool = new WorkerPool<BuildRequest, BuildReply>(
@@ -197,6 +187,7 @@ export class LiveScene {
       hidden: hiddenFootprints(),
     });
     this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
+    this.budget = new FrameBudget(this.stream, this.sky.light, { frameTimes: !isSoftwareRenderer(this.renderer) });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
     this.stream.onRecentre = (e) => this.clouds.shift(e.dx, e.dz);
     this.stream.onChange = this.landmarks.onChange = () => {
@@ -263,17 +254,17 @@ export class LiveScene {
       this.holdUntil = null;
       onTimeout();
     };
-    // the 6 s are counted in real time by the frame loop (performance.now, which a backgrounded tab
-    // does not skip), not in the person's frame time. Past them, a launch whose winds are in and whose
-    // route is still being worked out (a slow phone, slow terrain) keeps holding, up to LONG_HOLD_MS:
-    // the winds error is for winds that did not come (spec 7.2)
+    // the hold is counted in real time by the frame loop (performance.now, which a backgrounded tab
+    // does not skip), not in the person's frame time (app/hold.ts: 6 s, or 20 s while the winds are in
+    // and the route is being worked out; never while a route that came waits for the next frame)
     const t0 = performance.now();
     this.holdUntil = {
-      at: t0 + MAX_HOLD_S * 1000,
+      at: t0 + MAX_HOLD_MS,
       expire: () => {
         if (person.state !== 'holding') return;
-        if (working() && performance.now() < t0 + LONG_HOLD_MS && this.holdUntil) {
-          this.holdUntil.at = performance.now() + 250;
+        const now = performance.now();
+        if (this.holdUntil && keepHolding(now - t0, { routeReady: ready !== null, windsIn: working() })) {
+          this.holdUntil.at = now + 250;
           return;
         }
         person.holdIdle();
@@ -564,11 +555,9 @@ export class LiveScene {
       this.stream.materials.setGroundTint(L.groundTint);
     }
 
-    // the frame budget: what the view will draw of the tiles, the farthest buildings left out of this
-    // frame if that is over (the rest of the scene counted as it was last frame)
-    this.viewTiles = this.stream.fitView(this.camera, rp ? Infinity : VIEW_CAP - this.other);
-    this.viewEst.triangles = this.viewTiles + this.other;
-    this.viewEst.calls = this.plain.calls;
+    // the frame budget: what the view will draw of the tiles, the farthest buildings left out past the
+    // cap (none in the replay)
+    this.budget.fitView(this.camera, !rp);
 
     // live shadows round the balloon, a little ahead of it
     // over a landmark's terrace where it is higher than the drawn ground (in the hand on Corcovado:
@@ -592,16 +581,7 @@ export class LiveScene {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
       // the shadow pass's budget: trees cast near the balloon only, and a dense city gets a smaller disc
-      if (!rp) {
-        this.stream.setShadowFocus(this.focus.x, this.focus.z, TREE_SHADOW_M);
-        const fit = this.sky.light.fit(this.scene, shadowBudget(this.viewEst));
-        this.shadowPass.triangles = fit.triangles;
-        this.shadowPass.calls = fit.calls;
-        // the smallest disc can still be over its share (a dense centre under a low sun): the view
-        // gives up the difference this frame
-        const over = this.viewEst.triangles + fit.triangles - FRAME_BUDGET.triangles;
-        if (over > 0) this.viewTiles = this.stream.fitView(this.camera, this.viewTiles - over);
-      }
+      if (!rp) this.budget.fitShadows(this.scene, this.focus);
     }
 
     if (rp && route) {
@@ -616,15 +596,9 @@ export class LiveScene {
 
     this.shadowDrawn = this.renderer.shadowMap.needsUpdate;
     this.renderer.render(this.scene, this.camera);
-    if (!rp) {
-      // what the view drew (on a slow device every frame can redraw shadows: their pass is taken off)
-      const info = this.renderer.info.render;
-      this.plain.triangles = info.triangles - (this.shadowDrawn ? this.shadowPass.triangles : 0);
-      this.plain.calls = info.calls - (this.shadowDrawn ? this.shadowPass.calls : 0);
-      this.other = Math.max(0, this.plain.triangles - this.viewTiles);
-      // over budget in a dense city: the buildings levels come nearer (the replay streams its own way)
-      this.stream.detailScale = this.detail.update(this.plain.triangles, t, this.frameTimes ? dt * 1000 : undefined);
-    }
+    // what the view drew; over budget in a dense city the buildings levels come nearer (the replay
+    // streams its own way)
+    this.budget.afterRender(this.renderer.info.render, this.shadowDrawn && !rp, t, dt * 1000, !rp);
     if (this.frames++ === 0) this.onFirstFrame?.();
     // reading pixels back stalls the pipeline: only when text sits over the scene and nothing is being
     // worked out (not during the launch, when only the clock shows)

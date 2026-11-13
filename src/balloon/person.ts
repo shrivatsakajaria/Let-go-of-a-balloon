@@ -37,7 +37,7 @@ const MAX_LOOK = 1.15;
 
 export type PersonState = 'idle' | 'holding' | 'released' | 'timedOut';
 export type PlayOpts = {
-  /** Resolves when the route is ready; the hand opens at max(1.2 s, ready), never after 6 s. */
+  /** Resolves when the route is ready; the hand opens at max(1.2 s, ready), never after holdS. */
   readyAt?: Promise<unknown>;
   onTimeout?: () => void;
   /**

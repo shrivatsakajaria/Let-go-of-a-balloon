@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { destination, lonLatToTile, tileBounds, type LatLon } from '../../src/geo/coords';
-import { DETAIL_STEPS, DetailBudget, LOD_LEVELS, MAX_TILES, hazeFarM, tileKey, tilesFor, type LodCamera, type TileKey } from '../../src/world/lod';
+import { DETAIL_STEPS, DetailBudget, QUICK_FRAME_MS, LOD_LEVELS, MAX_TILES, hazeFarM, tileKey, tilesFor, type LodCamera, type TileKey } from '../../src/world/lod';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
 const cruise = (p: LatLon, headingDeg = 70, altM = 1500): LodCamera => ({ ...p, altM, headingDeg });
@@ -121,31 +121,83 @@ describe('tilesFor with a smaller detail scale', () => {
     for (let km = 0; km < 12; km += 0.25) expect(finestAt(less, destination(MANCHESTER, 70, km))).toBeDefined();
     expect(finestAt(less, destination(MANCHESTER, 70, 3.5))!.z).toBeLessThanOrEqual(12);
   });
+
+  it('the first step down sends alive tiles away too (their keep slack shrinks with the reach)', () => {
+    const cam = cruise(MANCHESTER, 70, 450);
+    const alive = new Set(tilesFor(cam).map(tileKey));
+    const count = (set: TileKey[], z: number) => set.filter((t) => t.z === z).length;
+    const kept = tilesFor(cam, MAX_TILES, { keep: alive });
+    const stepped = tilesFor(cam, MAX_TILES, { keep: alive, scale: DETAIL_STEPS[1] });
+    expect(count(stepped, 13)).toBeLessThan(count(kept, 13));
+    expect(count(stepped, 13) + count(stepped, 14)).toBeLessThan(count(kept, 13) + count(kept, 14));
+  });
 });
 
+/** Feed `d` the same view every `every` ms from t0 to t1; returns t1. */
+function feed(d: DetailBudget, view: number, t0: number, t1: number, o: { every?: number; frameMs?: number; settled?: boolean } = {}): number {
+  for (let t = t0; t < t1; t += o.every ?? 100) d.update(view, t, o.frameMs, o.settled ?? true);
+  return t1;
+}
+
 describe('DetailBudget', () => {
-  it('steps the detail down at once when the view draws too much, a step at a time', () => {
+  it('steps down at once when over, and again only once the stream has settled (or after 4 s)', () => {
     const d = new DetailBudget({ high: 400 });
     expect(d.update(300, 0)).toBe(1);
-    expect(d.update(500, 100)).toBe(DETAIL_STEPS[1]);
-    // the tiles need a moment to go: no second step straight away
-    expect(d.update(500, 200)).toBe(DETAIL_STEPS[1]);
-    expect(d.update(500, 1000)).toBe(DETAIL_STEPS[2]);
-    for (let t = 2000; t < 10000; t += 1000) d.update(900, t);
-    expect(d.scale).toBe(DETAIL_STEPS[DETAIL_STEPS.length - 1]);
+    expect(d.update(500, 100, undefined, false)).toBe(DETAIL_STEPS[1]);
+    // still over while the tiles the step sent away are leaving: no second step yet
+    feed(d, 500, 200, 2000, { settled: false });
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    // settled: the step had its effect and the view is still over: the next step
+    d.update(500, 2100, undefined, true);
+    expect(d.scale).toBe(DETAIL_STEPS[2]);
+    // a stream that never settles still steps after 4 s
+    const e = new DetailBudget({ high: 400 });
+    e.update(500, 0, undefined, false);
+    feed(e, 500, 100, 4000, { settled: false });
+    expect(e.scale).toBe(DETAIL_STEPS[1]);
+    e.update(500, 4200, undefined, false);
+    expect(e.scale).toBe(DETAIL_STEPS[2]);
   });
 
-  it('steps back up only after a quiet spell, and only when the finer step would still fit', () => {
-    const d = new DetailBudget({ high: 400 });
-    d.update(500, 0);
+  it('a view just over the limit (Manchester start, 437k of 430k) goes one step down, never to x0.5', () => {
+    const d = new DetailBudget();
+    d.update(437_000, 0, undefined, false);
     expect(d.scale).toBe(DETAIL_STEPS[1]);
-    // would come back to 300 * (1 / 0.8)^2 = 469 > 400 * 0.85: stays
-    for (let t = 1000; t < 20000; t += 500) d.update(300, t);
+    // one step down the view is 340k: under the limit, so no further step; above 3/4 of it, so no flip back up
+    feed(d, 340_000, 100, 60_000);
     expect(d.scale).toBe(DETAIL_STEPS[1]);
-    // the view emptied (the balloon left the city): back to full detail after a few seconds
-    d.update(100, 20000);
-    expect(d.update(100, 21000)).toBe(DETAIL_STEPS[1]);
-    expect(d.update(100, 25000)).toBe(1);
+  });
+
+  it('recovers in a real city: a view measured well under the limit at this step, for a quiet spell, steps back up', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    feed(d, 500_000, 100, 1000);
+    expect(d.scale).toBe(DETAIL_STEPS[2]);
+    // the balloon has left the dense centre: the view at x0.5 is 280k (a city's view, not just ground and water)
+    let t = feed(d, 280_000, 1000, 4500);
+    expect(d.scale).toBe(DETAIL_STEPS[2]); // not yet: 4 s of quiet
+    // the step up comes at 5 s; its tiles then keep the stream busy until 12 s
+    t = feed(d, 280_000, t, 12000, { settled: false });
+    expect(d.scale).toBe(DETAIL_STEPS[1]); // not while the step's tiles are still coming in
+    t = feed(d, 280_000, t, 16000);
+    expect(d.scale).toBe(DETAIL_STEPS[1]); // quiet counts from when it settled
+    t = feed(d, 280_000, t, 16200);
+    expect(d.scale).toBe(1);
+  });
+
+  it('a step up that has to be undone makes the next one wait twice as long (no flip-flop)', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    let t = feed(d, 280_000, 100, 5000);
+    expect(d.scale).toBe(1); // up after 4 s of quiet
+    // full reach is over again: down, and the next step up waits 8 s
+    t = feed(d, 450_000, t, 5200);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    expect(d.upWaitMs).toBe(8000);
+    t = feed(d, 280_000, t, 5200 + 7000);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    t = feed(d, 280_000, t, 5200 + 9000);
+    expect(d.scale).toBe(1);
   });
 });
 
@@ -164,5 +216,15 @@ describe('DetailBudget and frame time', () => {
     const s = d.scale;
     for (; t < 20000; t += 70) d.update(10, t, 70);
     expect(d.scale).toBeLessThanOrEqual(s);
+  });
+
+  it('a 30 Hz phone (33 ms frames) is quick enough to step back up', () => {
+    expect(QUICK_FRAME_MS).toBeGreaterThanOrEqual(40);
+    const d = new DetailBudget({ high: 400 });
+    let t = 0;
+    for (; t < 500; t += 33) d.update(500, t, 33);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    for (; t < 6000; t += 33) d.update(100, t, 33);
+    expect(d.scale).toBe(1);
   });
 });

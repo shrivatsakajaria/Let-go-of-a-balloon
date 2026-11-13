@@ -96,31 +96,50 @@ type Scored = TileKey & { ratio: number };
 const SCALED_FROM_Z = 13;
 
 /** The reach of the buildings levels, step by step, while the view draws more than its share. */
-export const DETAIL_STEPS = [1, 0.8, 0.65, 0.5];
+export const DETAIL_STEPS = [1, 0.7, 0.5];
+/**
+ * Below full reach the buildings levels keep their tiles only this much past the reach (KEEP_SLACK
+ * otherwise), so a step down really sends tiles away: at x0.7 everything past 0.77 of the full reach.
+ */
+const SCALED_KEEP_SLACK = 1.1;
 /** The view (no shadow pass) should draw no more than this, leaving the shadow pass its share (sunlight.ts FRAME_BUDGET). */
 export const VIEW_TRIANGLES = 430_000;
-/** A step down waits this long after the last change (tiles leaving take a moment); a step up much longer. */
+/**
+ * A step down waits DOWN_AFTER_MS after the last change and for the stream to settle (the tiles the
+ * last step sent away gone, its new ones in), or DOWN_FORCE_MS when it never settles (a flight keeps
+ * loading).
+ */
 const DOWN_AFTER_MS = 700;
+const DOWN_FORCE_MS = 4000;
+/**
+ * A step up when the view, as measured at the present step, has stayed under UP_SHARE of the limit
+ * for UP_AFTER_MS with the stream settled. A step up undone within BOUNCE_MS doubles the next wait
+ * (up to UP_MAX_MS), so a view that sits between the two never flips back and forth.
+ */
+const UP_SHARE = 0.75;
 const UP_AFTER_MS = 4000;
-/** Frames slower than this (smoothed), for SLOW_FOR_MS, are over budget too (under 20 fps); a step up wants them under QUICK_FRAME_MS. */
+const UP_MAX_MS = 32000;
+const BOUNCE_MS = 10000;
+/** Frames slower than this (smoothed), for SLOW_FOR_MS, are over budget too (under 20 fps); a step up wants them under QUICK_FRAME_MS (a 30 Hz phone is quick enough). */
 const SLOW_FRAME_MS = 50;
 const SLOW_FOR_MS = 3000;
-const QUICK_FRAME_MS = 33;
+export const QUICK_FRAME_MS = 40;
 const SLOW_SMOOTH_MS = 1000;
-/** A step up only when the finer step's view (scaled by area) would stay this far under the limit. */
-const UP_MARGIN = 0.85;
 
 /**
  * Level of detail by budget (spec 12: lower the detail when the frame is over budget). Fed the
  * triangles the view drew each frame, it gives the reach scale for the buildings levels (tilesFor
- * `scale`): a step down at once when over, a step back up after a quiet spell when the finer step's
- * view, scaled by area, would still fit. Frame times, where they mean something, count too: frames
- * slower than 50 ms for 3 s step the detail down (spec 12: lower the detail when the frame time is
- * over budget). Dense city centres get a nearer city; everywhere else full detail.
+ * `scale`): a step down at once when over (the next only once the stream has settled), a step back
+ * up after a quiet spell well under the limit. Frame times, where they mean something, count too:
+ * frames slower than 50 ms for 3 s step the detail down (spec 12: lower the detail when the frame
+ * time is over budget). Dense city centres get a nearer city; everywhere else full detail.
  */
 export class DetailBudget {
   private step = 0;
   private changedAt = -Infinity;
+  private lastUpAt = -Infinity;
+  private upWait = UP_AFTER_MS;
+  private settledSince = true;
   private quietSince = NaN;
   private frameMs = NaN;
   private slowSince = NaN;
@@ -134,12 +153,18 @@ export class DetailBudget {
     return DETAIL_STEPS[this.step];
   }
 
+  /** How long a step up now waits for quiet (doubled by each step up that had to be undone). */
+  get upWaitMs(): number {
+    return this.upWait;
+  }
+
   /**
-   * Once a frame: what the view drew (the shadow pass left out), the clock, and how long the frame
-   * took (ms; leave it out where frame times mean nothing, as on a software renderer). Returns the
-   * scale to stream with.
+   * Once a frame: what the view drew (the shadow pass left out), the clock, how long the frame took
+   * (ms; leave it out where frame times mean nothing, as on a software renderer), and whether the
+   * stream has settled (nothing loading or leaving). Returns the scale to stream with.
    */
-  update(viewTriangles: number, nowMs: number, frameMs?: number): number {
+  update(viewTriangles: number, nowMs: number, frameMs?: number, settled = true): number {
+    if (settled) this.settledSince = true;
     // frame time, smoothed over about a second: a phone that stays slow is over budget too
     if (frameMs !== undefined && Number.isFinite(frameMs)) {
       const k = Math.min(1, Math.max(0, frameMs) / SLOW_SMOOTH_MS);
@@ -149,29 +174,43 @@ export class DetailBudget {
       } else this.slowSince = NaN;
     }
     const slow = !Number.isNaN(this.slowSince) && nowMs - this.slowSince >= SLOW_FOR_MS;
-    if (viewTriangles > this.high || slow) {
-      // (a slow phone steps down at most every SLOW_FOR_MS: the smoothing lags the change)
-      if (slow && viewTriangles <= this.high && nowMs - this.changedAt < SLOW_FOR_MS) return this.scale;
+    const over = viewTriangles > this.high;
+    if (over || slow) {
       this.quietSince = NaN;
-      if (this.step < DETAIL_STEPS.length - 1 && nowMs - this.changedAt >= DOWN_AFTER_MS) {
-        this.step++;
-        this.changedAt = nowMs;
+      const since = nowMs - this.changedAt;
+      // the last step has had its effect: its tiles gone and in (or it has had long enough)
+      const ready = since >= DOWN_AFTER_MS && (this.settledSince || since >= DOWN_FORCE_MS);
+      // a slow phone steps at most every SLOW_FOR_MS: the smoothing lags the change
+      if (!over && since < SLOW_FOR_MS) return this.scale;
+      if (this.step < DETAIL_STEPS.length - 1 && ready) {
+        // a step up undone soon after: the next one waits twice as long
+        if (nowMs - this.lastUpAt < BOUNCE_MS) this.upWait = Math.min(UP_MAX_MS, this.upWait * 2);
+        this.change(1, nowMs);
       }
       return this.scale;
     }
-    if (this.step === 0) return 1;
-    const up = DETAIL_STEPS[this.step - 1] / this.scale;
-    if (viewTriangles * up * up >= this.high * UP_MARGIN || this.frameMs > QUICK_FRAME_MS) {
+    if (this.step === 0) {
+      if (nowMs - this.changedAt > BOUNCE_MS * 3) this.upWait = UP_AFTER_MS; // calm for a while: forgiven
+      return 1;
+    }
+    const quick = Number.isNaN(this.frameMs) || this.frameMs <= QUICK_FRAME_MS;
+    if (viewTriangles > this.high * UP_SHARE || !quick || !this.settledSince) {
       this.quietSince = NaN;
       return this.scale;
     }
     if (Number.isNaN(this.quietSince)) this.quietSince = nowMs;
-    if (nowMs - this.quietSince >= UP_AFTER_MS && nowMs - this.changedAt >= UP_AFTER_MS) {
-      this.step--;
-      this.changedAt = nowMs;
-      this.quietSince = NaN;
+    if (nowMs - this.quietSince >= this.upWait && nowMs - this.changedAt >= this.upWait) {
+      this.change(-1, nowMs);
+      this.lastUpAt = nowMs;
     }
     return this.scale;
+  }
+
+  private change(by: 1 | -1, nowMs: number): void {
+    this.step += by;
+    this.changedAt = nowMs;
+    this.quietSince = NaN;
+    this.settledSince = false;
   }
 }
 
@@ -195,7 +234,7 @@ export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: S
   for (const lvl of LOD_LEVELS) {
     const radius = lvl.z >= SCALED_FROM_Z ? lvl.radiusM * scale : lvl.radiusM;
     const reach = lvl.z === COARSEST ? far * 1.15 : Math.min(radius, far * 1.05);
-    const reachKeep = reach * KEEP_SLACK;
+    const reachKeep = reach * (radius < lvl.radiusM ? SCALED_KEEP_SLACK : KEEP_SLACK);
     if (lift >= reachKeep) continue;
     const z = lvl.z, n = 2 ** z;
     const dLat = reachKeep / M_PER_DEG, dLon = Math.min(180, reachKeep / mLon);

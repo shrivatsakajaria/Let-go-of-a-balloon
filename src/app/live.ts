@@ -304,13 +304,11 @@ export class Live {
     });
     this.hud.setFlight({ release: t0 + HOLD_MS, ticks: [], own: true });
     // the winds came: a route still being worked out after 6 s is a slow phone, not a wind failure
-    let winds = false;
-    windsIn(c, t0).then(() => (winds = true), () => {});
     this.scene.launch(
       ready,
       (r) => this.released(r, c),
       () => this.windError(),
-      () => winds,
+      () => windsIn(c, t0),
     );
   }
 

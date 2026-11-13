@@ -64,6 +64,8 @@ export function shadowBudget(view: PassCount, frame: PassCount = FRAME_BUDGET): 
 
 /** Each step of `fit` takes this share off the disc's radius. */
 const FIT_STEP = 0.8;
+/** The disc grows back a step only when the bigger one would use no more than this share of the budget. */
+const GROW_SHARE = 0.85;
 
 export class SunLight {
   readonly sun: THREE.DirectionalLight;
@@ -74,13 +76,19 @@ export class SunLight {
   private want: number;
   /** `fit` never goes below this radius (m). */
   readonly minRadius: number;
-  private readonly casterList: { o: THREE.Mesh; tris: number }[] = [];
+  /** The casters `fit` and `casters` collect (parallel arrays, kept between redraws), and their reused results. */
+  private readonly casterMesh: THREE.Mesh[] = [];
+  private readonly casterTris: number[] = [];
+  private readonly counted: PassCount = { triangles: 0, calls: 0 };
+  private readonly fitted = { triangles: 0, calls: 0, radius: 0 };
+  /** `fit` has been called: from then on the disc drawn is fit's, which setRadius only shrinks at once. */
+  private fitting = false;
   private readonly centre = new THREE.Vector3(NaN, NaN, NaN);
   private readonly lastDir = new THREE.Vector3();
 
   constructor(light: Light, dir: THREE.Vector3, box: ShadowBox = { radius: 1150, mapSize: 2048, snap: 0 }) {
     this.dir = dir.clone().normalize();
-    this.box = box;
+    this.box = { ...box };
     this.want = box.radius;
     this.minRadius = Math.min(box.radius, 200);
     this.sun = new THREE.DirectionalLight();
@@ -135,8 +143,8 @@ export class SunLight {
   setRadius(radius: number): boolean {
     if (Math.abs(radius - this.want) < 1) return false;
     this.want = radius;
-    this.box = { ...this.box, radius };
-    this.fitBox();
+    // once fitted, a smaller disc asked for takes effect at once; a bigger one waits for fit's room
+    this.setBox(this.fitting ? Math.min(this.box.radius, radius) : radius);
     return true;
   }
 
@@ -152,39 +160,69 @@ export class SunLight {
   }
 
   /**
-   * Before a redraw: the disc asked for, made smaller step by step (never below minRadius) until the
-   * shadow pass fits `budget`. Returns the radius used and what the pass will draw.
+   * Before a redraw: fit the shadow pass to `budget`. From the disc drawn last time, it shrinks a step
+   * at a time (x0.8, never below minRadius) while the pass is over, and grows back toward the disc
+   * asked for (setRadius) only while the bigger one would use at most 85% of the budget, so the radius
+   * does not flip between steps. Returns the radius used and what the pass will draw (one reused object).
    */
   fit(scene: THREE.Object3D, budget: PassCount): PassCount & { radius: number } {
+    this.fitting = true;
     this.collect(scene);
-    let r = this.want;
-    for (;;) {
-      this.setBox(r);
-      const c = this.count();
-      if ((c.triangles <= budget.triangles && c.calls <= budget.calls) || r <= this.minRadius) return { ...c, radius: r };
-      r = Math.max(this.minRadius, Math.round(r * FIT_STEP));
+    const over = (c: PassCount, share = 1) => c.triangles > budget.triangles * share || c.calls > budget.calls * share;
+    // from the disc drawn last time (hysteresis: it shrinks only when over, grows only with room to spare)
+    let r = Math.max(Math.min(this.box.radius, this.want), Math.min(this.minRadius, this.want));
+    this.setBox(r);
+    let c = this.count();
+    if (over(c)) {
+      while (over(c) && r > this.minRadius) {
+        r = Math.max(this.minRadius, Math.round(r * FIT_STEP));
+        this.setBox(r);
+        c = this.count();
+      }
+    } else {
+      while (r < this.want) {
+        const bigger = Math.min(this.want, Math.round(r / FIT_STEP));
+        this.setBox(bigger);
+        const cb = this.count();
+        if (over(cb, GROW_SHARE)) {
+          this.setBox(r);
+          c = this.count();
+          break;
+        }
+        r = bigger;
+        c = cb;
+      }
     }
+    const out = this.fitted;
+    out.triangles = c.triangles;
+    out.calls = c.calls;
+    out.radius = r;
+    return out;
   }
 
   private setBox(radius: number): void {
     if (radius === this.box.radius) return;
-    this.box = { ...this.box, radius };
+    this.box.radius = radius;
     this.fitBox();
   }
 
   /** Every shadow caster in the scene, as the shadow pass walks it (an invisible group hides its children). */
   private collect(scene: THREE.Object3D): void {
-    const list = this.casterList;
-    list.length = 0;
-    const layers = this.sun.shadow.camera.layers;
-    const walk = (o: THREE.Object3D) => {
-      if (!o.visible) return;
-      if ((o as THREE.Mesh).isMesh && o.castShadow && o.layers.test(layers)) list.push({ o: o as THREE.Mesh, tris: drawTriangles(o as THREE.Mesh) });
-      for (const c of o.children) walk(c);
-    };
-    walk(scene);
+    this.casterMesh.length = this.casterTris.length = 0;
+    this.walk(scene, this.sun.shadow.camera.layers);
   }
 
+  private walk(o: THREE.Object3D, layers: THREE.Layers): void {
+    if (!o.visible) return;
+    if ((o as THREE.Mesh).isMesh && o.castShadow && o.layers.test(layers)) {
+      this.casterMesh.push(o as THREE.Mesh);
+      this.casterTris.push(drawTriangles(o as THREE.Mesh));
+    }
+    const ch = o.children;
+    for (let i = 0; i < ch.length; i++) this.walk(ch[i], layers);
+  }
+
+  /** What the shadow pass draws of the collected casters with the box as it is (one reused object). */
   private count(): PassCount {
     const shadow = this.sun.shadow;
     this.sun.updateMatrixWorld();
@@ -192,12 +230,17 @@ export class SunLight {
     shadow.updateMatrices(this.sun);
     const frustum = shadow.getFrustum();
     let triangles = 0, calls = 0;
-    for (const { o, tris } of this.casterList) {
-      if (tris === 0 || (o.frustumCulled && !o.intersectsFrustum(frustum))) continue;
-      triangles += tris;
+    const meshes = this.casterMesh, tris = this.casterTris;
+    for (let i = 0; i < meshes.length; i++) {
+      const o = meshes[i];
+      if (tris[i] === 0 || (o.frustumCulled && !o.intersectsFrustum(frustum))) continue;
+      triangles += tris[i];
       calls++;
     }
-    return { triangles, calls };
+    const out = this.counted;
+    out.triangles = triangles;
+    out.calls = calls;
+    return out;
   }
 
   /** A low sun sees the ground disc as wide and short: a tall thin box (about 1 m x 0.3 m per texel). */

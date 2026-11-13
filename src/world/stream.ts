@@ -121,6 +121,9 @@ export type StreamStats = {
   arriveMsMax: number;
 };
 
+/** A mesh the frame budget left out stays out this many frames at least, and comes back only with this many triangles (at most 4% of the budget) to spare. */
+const BENCH_FRAMES = 30;
+const BENCH_MARGIN = 20_000;
 /** What fitView may leave out of a frame: never the ground or the water. */
 const BENCHABLE = new Set(['buildings', 'roofs', 'roads', 'trees', 'waterways', 'boats']);
 
@@ -178,12 +181,21 @@ export class WorldStream {
   private started = false;
   private readonly shadowFocus = { x: 0, z: 0, r: -1 };
   private scale = 1;
-  /** Meshes fitView left out of this frame (shown again at the next fitView). */
-  private readonly benched: THREE.Mesh[] = [];
-  private readonly fitList: { mesh: THREE.Mesh; tris: number; d2: number }[] = [];
+  /** Meshes the frame budget has left out (fitView), their tiles, and the frame each went. */
+  private readonly benchMesh: THREE.Mesh[] = [];
+  private readonly benchView: TileView[] = [];
+  private readonly benchFrame: number[] = [];
+  /** fitView's working lists, kept between frames (parallel arrays: no object per mesh). */
+  private readonly candMesh: THREE.Mesh[] = [];
+  private readonly candView: TileView[] = [];
+  private readonly candTris: number[] = [];
+  private readonly candD2: number[] = [];
+  private readonly candIdx: number[] = [];
+  private fitFrame = 0;
   private readonly fitFrustum = new THREE.Frustum();
   private readonly fitMatrix = new THREE.Matrix4();
   private readonly fitV = new THREE.Vector3();
+  private readonly fitCam = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -264,48 +276,134 @@ export class WorldStream {
     return this.scale;
   }
 
+  /** Nothing loading or leaving: the tiles wanted are in (the detail budget waits for this between steps). */
+  get settled(): boolean {
+    for (const e of this.entries.values()) if (e.state !== 'live') return false;
+    return true;
+  }
+
   /**
    * The frame budget, before a frame is drawn: what `camera` will draw of the tiles (the renderer's own
    * test: visible, layers, box in frustum). Over `budget`, the farthest buildings, roofs, roads and
-   * trees in view are left out of this frame only, until it fits; the ground and water always stay, so
-   * nothing opens. The detail budget (lod.ts DetailBudget) brings the tiles themselves nearer a moment
-   * later. Returns the triangles left. Call once a frame (it shows last frame's left-outs again first).
+   * trees in view are left out (with their shadow-only cells), until it fits; the ground and water
+   * always stay, so nothing opens. A mesh left out stays out for at least BENCH_FRAMES frames and comes
+   * back, nearest first, only when it fits with BENCH_MARGIN to spare, so a view sitting at the cap
+   * never blinks. The detail budget (lod.ts DetailBudget) brings the tiles themselves nearer meanwhile.
+   * `budget` Infinity shows everything again at once (the replay, the card's picture). Returns the
+   * triangles drawn. Call once a frame; nothing is allocated when the view fits.
    */
   fitView(camera: THREE.Camera, budget: number): number {
-    for (const m of this.benched) m.visible = true;
-    this.benched.length = 0;
+    const frame = ++this.fitFrame;
+    // left-outs whose tile has gone are forgotten; with no budget, everything is shown again
+    const bm = this.benchMesh, bv = this.benchView, bf = this.benchFrame;
+    for (let i = bm.length - 1; i >= 0; i--) {
+      if (!bv[i].gone && budget !== Infinity) continue;
+      if (!bv[i].gone) bv[i].show(bm[i], true);
+      this.unbenchAt(i);
+    }
     camera.updateMatrixWorld();
     const frustum = this.fitFrustum.setFromProjectionMatrix(this.fitMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    const cam = this.fitV.setFromMatrixPosition(camera.matrixWorld);
-    const cx = cam.x, cy = cam.y, cz = cam.z;
-    const list = this.fitList;
-    list.length = 0;
+    const layers = camera.layers;
+    // what is drawn now
     let total = 0;
     for (const e of this.entries.values()) {
       const view = e.view;
       if (!view || !view.group.visible) continue;
-      for (const { mesh, bucket } of view.parts) {
-        if (!mesh.visible || !mesh.layers.test(camera.layers)) continue;
+      const parts = view.parts;
+      for (let k = 0; k < parts.length; k++) {
+        const mesh = parts[k].mesh;
+        if (!mesh.visible || !mesh.layers.test(layers)) continue;
         if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
-        const tris = drawTriangles(mesh);
-        total += tris;
-        if (tris === 0 || !BENCHABLE.has(bucket)) continue;
-        const g = mesh.geometry;
-        const c = g.boundingBox ? g.boundingBox.getCenter(this.fitV) : g.boundingSphere ? this.fitV.copy(g.boundingSphere.center) : this.fitV.set(0, 0, 0);
-        c.applyMatrix4(mesh.matrixWorld);
-        list.push({ mesh, tris, d2: (c.x - cx) ** 2 + (c.y - cy) ** 2 + (c.z - cz) ** 2 });
+        total += drawTriangles(mesh);
       }
     }
-    if (total <= budget) return total;
-    list.sort((a, b) => b.d2 - a.d2);
-    for (const it of list) {
-      if (total <= budget) break;
-      it.mesh.visible = false;
-      this.benched.push(it.mesh);
-      total -= it.tris;
+    if (total <= budget && bm.length === 0) return total;
+    this.fitCam.setFromMatrixPosition(camera.matrixWorld);
+    const d2Of = this.d2Of;
+    if (total > budget) {
+      // over: the farthest drawn buildings, roofs, roads and trees go, until it fits
+      const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
+      cm.length = cv.length = ct.length = cd.length = idx.length = 0;
+      for (const e of this.entries.values()) {
+        const view = e.view;
+        if (!view || !view.group.visible) continue;
+        const parts = view.parts;
+        for (let k = 0; k < parts.length; k++) {
+          const mesh = parts[k].mesh;
+          if (!BENCHABLE.has(parts[k].bucket) || !mesh.visible || !mesh.layers.test(layers)) continue;
+          if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+          const tris = drawTriangles(mesh);
+          if (tris === 0) continue;
+          idx.push(cm.length);
+          cm.push(mesh);
+          cv.push(view);
+          ct.push(tris);
+          cd.push(d2Of(mesh));
+        }
+      }
+      idx.sort(this.farthestFirst);
+      for (let k = 0; k < idx.length && total > budget; k++) {
+        const i = idx[k];
+        cv[i].show(cm[i], false);
+        bm.push(cm[i]);
+        bv.push(cv[i]);
+        bf.push(frame);
+        total -= ct[i];
+      }
+      return total;
+    }
+    // under: left-outs come back, nearest first, once they have sat out a while and fit with room to spare
+    const idx = this.candIdx, cd = this.candD2;
+    idx.length = cd.length = 0;
+    for (let i = 0; i < bm.length; i++) {
+      idx.push(i);
+      cd.push(d2Of(bm[i]));
+    }
+    idx.sort(this.nearestFirst);
+    const back = this.candMesh;
+    back.length = 0;
+    for (const i of idx) {
+      if (frame - bf[i] < BENCH_FRAMES) continue;
+      const mesh = bm[i];
+      const inView = !mesh.frustumCulled || mesh.intersectsFrustum(frustum);
+      const tris = inView && mesh.layers.test(layers) ? drawTriangles(mesh) : 0;
+      if (total + tris > budget - Math.min(BENCH_MARGIN, budget * 0.04)) continue;
+      total += tris;
+      back.push(mesh);
+    }
+    for (const mesh of back) {
+      const i = bm.indexOf(mesh);
+      bv[i].show(mesh, true);
+      this.unbenchAt(i);
     }
     return total;
   }
+
+  /** Show every mesh the frame budget left out (before a picture that must have everything). */
+  showAll(): void {
+    for (let i = this.benchMesh.length - 1; i >= 0; i--) {
+      if (!this.benchView[i].gone) this.benchView[i].show(this.benchMesh[i], true);
+      this.unbenchAt(i);
+    }
+  }
+
+  private unbenchAt(i: number): void {
+    const last = this.benchMesh.length - 1;
+    this.benchMesh[i] = this.benchMesh[last];
+    this.benchView[i] = this.benchView[last];
+    this.benchFrame[i] = this.benchFrame[last];
+    this.benchMesh.length = this.benchView.length = this.benchFrame.length = last;
+  }
+
+  /** Squared distance from the camera (fitCam) to the middle of a mesh's bounds. */
+  private readonly d2Of = (mesh: THREE.Mesh): number => {
+    const g = mesh.geometry;
+    const c = g.boundingBox ? g.boundingBox.getCenter(this.fitV) : g.boundingSphere ? this.fitV.copy(g.boundingSphere.center) : this.fitV.set(0, 0, 0);
+    return c.applyMatrix4(mesh.matrixWorld).distanceToSquared(this.fitCam);
+  };
+
+  private readonly farthestFirst = (a: number, b: number): number => this.candD2[b] - this.candD2[a];
+  private readonly nearestFirst = (a: number, b: number): number => this.candD2[a] - this.candD2[b];
 
   // ---- queries ----
 
@@ -634,7 +732,6 @@ export class WorldStream {
     console.warn(`tile ${e.key}: ${message}`);
   }
 
-  /** The first z14 reply still wanted, if any, arrives this frame. */
   /**
    * Built tiles join the scene a few at a time: one z14 tile a frame, or coarse ones up to about
    * ARRIVE_TRIANGLES, so their GPU uploads are spread over frames instead of landing on one.

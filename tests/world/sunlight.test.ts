@@ -54,10 +54,11 @@ describe('SunLight shadow budget', () => {
     const scene = city();
     const s = new SunLight(lightFor(8), sunDirection(8, 250), box);
     s.place(new THREE.Vector3(0, 0, 0));
-    const full = s.casters(scene);
-    const r = s.fit(scene, { triangles: full.triangles / 3, calls: 1e9 });
+    // (the results are reused objects: copied)
+    const full = { ...s.casters(scene) };
+    const r = { ...s.fit(scene, { triangles: full.triangles * 0.6, calls: 1e9 }) };
     expect(r.radius).toBeLessThan(900);
-    expect(r.triangles).toBeLessThanOrEqual(full.triangles / 3);
+    expect(r.triangles).toBeLessThanOrEqual(full.triangles * 0.6);
     expect(s.casters(scene)).toEqual({ triangles: r.triangles, calls: r.calls });
     // by draw calls too
     const c = s.fit(scene, { triangles: 1e9, calls: 100 });
@@ -65,6 +66,22 @@ describe('SunLight shadow budget', () => {
     // an impossible budget: the smallest disc
     const tiny = s.fit(scene, { triangles: 1, calls: 1 });
     expect(tiny.radius).toBe(s.minRadius);
+  });
+
+  it('the fitted disc holds steady when the budget wobbles round it, and grows back when there is room', () => {
+    const scene = city();
+    const s = new SunLight(lightFor(8), sunDirection(8, 250), box);
+    s.place(new THREE.Vector3(0, 0, 0));
+    const full = s.casters(scene).triangles;
+    const first = { ...s.fit(scene, { triangles: full / 2, calls: 1e9 }) };
+    expect(first.radius).toBeLessThan(900);
+    // a budget that wobbles between just what the disc draws and 10% more: no flipping between steps
+    for (let i = 0; i < 20; i++) {
+      const r = s.fit(scene, { triangles: first.triangles * (i % 2 ? 1.1 : 1), calls: 1e9 });
+      expect(r.radius).toBe(first.radius);
+    }
+    // plenty of room: back to the disc asked for
+    expect(s.fit(scene, { triangles: 1e9, calls: 1e9 }).radius).toBe(900);
   });
 
   it('asking for a new disc is a redraw; fitting again to the same disc is not', () => {

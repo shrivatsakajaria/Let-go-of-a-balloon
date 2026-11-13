@@ -48,6 +48,20 @@ test('newest run 404 falls back to previous run', async () => {
   expect(w.sample(AROUND, 1500, ISSUED + 6 * HOUR).u).toBeCloseTo(7, 5);
 });
 
+test('has() says whether the winds at a place and time are in, and loads nothing', async () => {
+  const files: Files = twoRuns();
+  await addCruise(files, NEW, LATS, LONS, [0], cell(7));
+  const m = mockFetch(files);
+  const w = new WindField(await loadManifest(BASE, m.fn, ISSUED + 10 * HOUR), m.fn, BASE);
+  const asked = m.requests.length;
+  expect(w.has(AROUND, ISSUED + 6 * HOUR)).toBe(false);
+  expect(m.requests.length).toBe(asked);
+  await w.prepare(AROUND, [ISSUED + 6 * HOUR, ISSUED + 9 * HOUR]);
+  expect(w.has(AROUND, ISSUED + 6 * HOUR)).toBe(true);
+  expect(w.has({ lat: -60, lon: 100 }, ISSUED + 6 * HOUR)).toBe(false);
+  expect(w.runId).toBe(NEW);
+});
+
 test('newest run tiles served as HTML (Pages fallback) are treated as missing', async () => {
   const files: Files = twoRuns();
   await addCruise(files, OLD, LATS, LONS, [0], cell(7));

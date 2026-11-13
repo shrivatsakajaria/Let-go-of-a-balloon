@@ -249,6 +249,19 @@ export class WindField {
     return t ? sampleTileLevels(t, forecastHour, p) : null;
   }
 
+  /**
+   * Whether the cruise winds at p for utcMs are in already (loaded, not missing). Only reads: it never
+   * loads a tile nor moves to another run.
+   */
+  has(p: LatLon, utcMs: number): boolean {
+    try {
+      this.cruiseTile(p, (utcMs - this.runIssuedMs) / HOUR_MS);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Synchronous wind sample from prepared tiles. Throws TileNotReadyError if one is missing. */
   sample(p: LatLon, altAslM: number, utcMs: number): { u: number; v: number } {
     const h = (utcMs - this.runIssuedMs) / HOUR_MS;

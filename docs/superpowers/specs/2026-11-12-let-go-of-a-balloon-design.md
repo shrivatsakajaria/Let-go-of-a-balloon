@@ -208,7 +208,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 ### 7.2 Waiting and loading
 
 - 0 to 2 s: the golden-hour (or current) sky gradient and the title paint first. Map tiles fade in from the haze outwards, never as grey squares.
-- If the route is not ready when the hand would open (at 1.2 s), the person keeps holding the balloon with an idle sway for up to 6 s, then the wind error appears.
+- If the route is not ready when the hand would open (at 1.2 s), the person keeps holding the balloon with an idle sway for up to 6 s, then the wind error appears. If the winds have arrived but the route is still being worked out, the person keeps holding for up to 20 s.
 - Search shows "Searching" inline in the dropdown. While location is being found, the location link reads "Finding you".
 
 ### 7.3 Accessibility

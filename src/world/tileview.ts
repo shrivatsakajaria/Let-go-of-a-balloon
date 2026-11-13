@@ -92,13 +92,13 @@ function boxInFrustum(this: THREE.Mesh, frustum: THREE.Frustum): boolean {
   return frustum.intersectsBox(worldBox.copy(b).applyMatrix4(this.matrixWorld));
 }
 
-/** Geometries over the non-empty ranges of a parts list taken `step` cells at a time. */
-function ranges(g: THREE.BufferGeometry, parts: Uint32Array, step: number, bounds?: Float32Array): THREE.BufferGeometry[] {
-  const out: THREE.BufferGeometry[] = [];
+/** Geometries over the non-empty ranges of a parts list taken `step` cells at a time, with the first cell of each. */
+function ranges(g: THREE.BufferGeometry, parts: Uint32Array, step: number, bounds?: Float32Array): { geo: THREE.BufferGeometry; cell: number }[] {
+  const out: { geo: THREE.BufferGeometry; cell: number }[] = [];
   for (let i = 0; i + step < parts.length; i += step) {
     if (parts[i + step] <= parts[i]) continue;
     const box = bounds && bounds.length === (parts.length - 1) * 6 ? unionBox(bounds, i, i + step) : undefined;
-    out.push(rangeOf(g, parts[i], parts[i + step] - parts[i], box));
+    out.push({ geo: rangeOf(g, parts[i], parts[i + step] - parts[i], box), cell: i });
   }
   return out;
 }
@@ -126,6 +126,8 @@ export class TileView {
   private treeData: Float32Array | null = null;
   private treeShadow: THREE.InstancedMesh | null = null;
   private readonly casts: boolean;
+  /** A quarter mesh's shadow-only cell meshes (they show and hide with it). */
+  private readonly casters = new Map<THREE.Mesh, THREE.Mesh[]>();
   private clipped: boolean;
   private disposed = false;
 
@@ -159,11 +161,21 @@ export class TileView {
       const parts = (b[bucket] as Quartered).parts;
       const bounds = (b[bucket] as Partial<PackedBuffers>).bounds;
       const shadows = o.castShadow && casts;
-      const quarterGeos = parts?.length === 17 ? ranges(g, parts, 4, bounds) : [g];
+      const quarterGeos = parts?.length === 17 ? ranges(g, parts, 4, bounds) : [{ geo: g, cell: 0 }];
       const shadowGeos = parts?.length === 17 && shadows ? ranges(g, parts, 1, bounds) : [];
       if (o.freeArrays) freeAfterUpload(g);
-      for (const geo of quarterGeos) this.add(geo, set[bucket], bucket, shadows && shadowGeos.length === 0);
-      for (const geo of shadowGeos) this.add(geo, set[bucket], bucket, true).layers.set(SHADOW_LAYER);
+      const quarters = quarterGeos.map(({ geo, cell }) => ({ mesh: this.add(geo, set[bucket], bucket, shadows && shadowGeos.length === 0), quarter: cell >> 2 }));
+      for (const { geo, cell } of shadowGeos) {
+        const caster = this.add(geo, set[bucket], bucket, true);
+        caster.layers.set(SHADOW_LAYER);
+        // a quarter left out of a frame (show) takes its shadow-only cells with it
+        const q = quarters.find((x) => x.quarter === cell >> 2);
+        if (q) {
+          const list = this.casters.get(q.mesh) ?? [];
+          list.push(caster);
+          this.casters.set(q.mesh, list);
+        }
+      }
     }
     const count = b.trees.length / 16;
     if (count > 0) {
@@ -279,7 +291,7 @@ export class TileView {
     for (let i = 0; i < n; i++) {
       const dx = (data[i * 16 + 12] - lx) * g.scale.x, dz = data[i * 16 + 14] - lz;
       if (dx * dx + dz * dz > r2) continue;
-      out.set(data.subarray(i * 16, i * 16 + 16), k * 16);
+      for (let j = 0; j < 16; j++) out[k * 16 + j] = data[i * 16 + j];
       y0 = Math.min(y0, data[i * 16 + 13]);
       y1 = Math.max(y1, data[i * 16 + 13]);
       k++;
@@ -292,6 +304,17 @@ export class TileView {
     // trees stand up to ~15 m tall and ~5 m wide round their point
     mesh.boundingSphere!.center.set(lx, k ? (y0 + y1) / 2 : 0, lz);
     mesh.boundingSphere!.radius = Math.max(rx, r) + (k ? (y1 - y0) / 2 : 0) + 20;
+  }
+
+  /** Show or hide one of the tile's meshes for the frame budget (stream.ts fitView), its shadow-only cells with it. */
+  show(mesh: THREE.Mesh, visible: boolean): void {
+    mesh.visible = visible;
+    const cells = this.casters.get(mesh);
+    if (cells) for (const c of cells) c.visible = visible;
+  }
+
+  get gone(): boolean {
+    return this.disposed;
   }
 
   /** The tile's meshes with their buckets (the frame budget walks them; stream.ts fitView). */
@@ -333,6 +356,7 @@ export class TileView {
       if (bucket === 'trees' || bucket === 'boats') (mesh as THREE.InstancedMesh).dispose(); // instance matrices and colours
     }
     this.meshes.length = 0;
+    this.casters.clear();
     this.lamps?.geometry.dispose();
     this.lamps = null;
     this.materials.slots.release(this.slot);

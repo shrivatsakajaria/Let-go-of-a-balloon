@@ -97,6 +97,12 @@ describe('TileView', () => {
     expect(inView.some((m) => m.castShadow)).toBe(false);
     expect(shadowOnly.every((m) => m.castShadow)).toBe(true);
     expect(v.triangles).toBe(2 + 3);
+    // a quarter left out of a frame (the frame budget) takes its own shadow-only cells with it, no others
+    v.show(inView[0], false);
+    expect(inView[0].visible).toBe(false);
+    expect(shadowOnly.map((m) => m.visible)).toEqual([false, false, true]);
+    v.show(inView[0], true);
+    expect(shadowOnly.every((m) => m.visible)).toBe(true);
     v.dispose();
     // a tile that casts no shadows gets no shadow-only meshes
     const quiet = new TileView({ ...buffers, roads: empty(), trees: new Float32Array(0), buildings: { ...walls, position: position.slice(), color: walls.color.slice() } }, mats, { zoom: 13, castShadow: false, clip: false });
