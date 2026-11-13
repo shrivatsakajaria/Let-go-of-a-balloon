@@ -77,6 +77,9 @@ const CRANE_SWING_S = 2.5;
 const CRANE_BACK = 1.4;
 const CRANE_MAX_M = 20;
 const CRANE_UP = 0.5;
+/** ...and as it follows the balloon out of the street it closes in to CRANE_END_M and rises to CRANE_UP_END of its height, looking across the rooftops at it. */
+const CRANE_END_M = 14;
+const CRANE_UP_END = 0.85;
 const CRANE_Y0 = 0.33;
 const CRANE_FOV = 54;
 const CRANE_ZOOM_S = 1.5;
@@ -885,7 +888,7 @@ export class Director {
     const w = inOut(rel + CRANE_FOLLOW[0], rel + CRANE_FOLLOW[1], t);
     const az = az0 + wrapPi(Math.atan2(a1.x, -a1.z) - az0) * sw;
     const rise = Math.max(0, hB - this.craneH0);
-    const D = Math.max(D0 * (1 - w), Math.min(Math.max(CRANE_MAX_M, D0), D0 + CRANE_BACK * rise));
+    const D = Math.max(D0 * (1 - w), Math.min(Math.max(mix(CRANE_MAX_M, CRANE_END_M, w), D0 * (1 - w)), D0 + CRANE_BACK * rise));
     return out.set(ps.x + w * (Bx - ps.x) + Math.sin(az) * D, 0, ps.z + w * (Bz - ps.z) - Math.cos(az) * D);
   }
 
@@ -921,7 +924,8 @@ export class Director {
     let g = this.deps.groundAt(ll);
     if (!Number.isFinite(g)) g = gP;
     const lift = Math.max(EYE_M, this.craneFrom.y - gP);
-    let y = g + lift + CRANE_UP * Math.max(0, hB - this.craneH0);
+    const up = mix(CRANE_UP, CRANE_UP_END, w);
+    let y = g + lift + up * Math.max(0, hB - this.craneH0);
     const top = this.deps.buildingTopAt;
     if (top) {
       // over the buildings on its way: where it will be over the next CRANE_AHEAD_S, the balloon drifting
@@ -963,7 +967,7 @@ export class Director {
     tg.x0 = mix(this.craneX0, share, inOut(rel, rel + CRANE_SHARE_S, t));
     tg.x0Now = true;
     tg.anchor.x = tg.anchor.z = w;
-    tg.anchor.y = CRANE_UP * r;
+    tg.anchor.y = up * r;
     tg.snap = false;
     return tg;
   }
