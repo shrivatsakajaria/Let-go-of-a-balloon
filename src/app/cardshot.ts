@@ -66,7 +66,7 @@ const FAR = { horizonY: 0.14, startY: 0.25, landingY: 0.58, skewDeg: 8 };
  * Far: the plain's sea and land, unlit, as the z7 tiles' water and fields come out under the card's
  * golden-hour light (measured off the rendered cards), so the plain and the tiles meet without a seam.
  */
-const PLAIN_SEA = '#3d7f8a';
+const PLAIN_SEA = '#3a7884';
 const PLAIN_LAND = '#8e9a58';
 /** Far: how long the card world may take to draw before the picture is taken anyway. */
 const FAR_WAIT_MS = 20000;
@@ -365,11 +365,11 @@ async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Ca
   const col = new Float32Array(pos.length);
   const nor = new Float32Array(pos.length);
   const sea = new THREE.Color(PLAIN_SEA), land = new THREE.Color(PLAIN_LAND), haze = new THREE.Color(hazeHex);
-  // hazed by distance about as the map tiles are (three's linear fog takes far land to the sky's
-  // colour sooner than the tiles' own haze does, which left the plain's edge showing)
+  // hazed by distance exactly as the map tiles are (Contour's materials: smoothstep from fog near
+  // to fog far toward the horizon's colour)
   const tint = (c: THREE.Color, x: number, z: number, k: number) => {
     const d = Math.hypot(x - camera.position.x, y - camera.position.y, z - camera.position.z);
-    tmp.copy(c).lerp(haze, 0.4 * smooth(shot.fogNear * 0.6, shot.fogFar * 1.1, d)).toArray(col, k);
+    tmp.copy(c).lerp(haze, smooth(shot.fogNear, shot.fogFar, d)).toArray(col, k);
   };
   const tmp = new THREE.Color();
   const jobs: Promise<void>[] = [];
@@ -451,7 +451,10 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
       if (calm >= 2) break;
       await new Promise((r) => setTimeout(r, 100));
     }
+    // twice, a second apart: tiles that came in just now are placed by the first and faded fully in
+    // by the second (a tile still fading shows as haze)
     stream.update(here, performance.now() + 1000);
+    stream.update(here, performance.now() + 2000);
     const st = stream.stats();
     Object.assign(farStats, { tiles: tiles.length, settled: st.settled, failed: st.failed, ms: Math.round(performance.now() - t0) });
     sky.setView(camera, shot.fogFar, h / 2);
