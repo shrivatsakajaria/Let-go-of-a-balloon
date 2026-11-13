@@ -44,6 +44,7 @@ test.describe('start screen', () => {
   test('the notice and the map credit share one row of small print', async ({ page }) => {
     await offline(page);
     await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
     const n = (await page.locator('.notice').boundingBox())!;
     const c = (await page.locator('.map-credit').boundingBox())!;
     expect(n.x + n.width).toBeLessThanOrEqual(c.x);
@@ -54,6 +55,26 @@ test.describe('start screen', () => {
       expect(px).toBeLessThanOrEqual(11);
       expect(px).toBeGreaterThanOrEqual(10);
     }
+  });
+
+  test('at 320 px the small print stays inside the gutters with no horizontal overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await offline(page);
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    for (const sel of ['.notice', '.map-credit']) {
+      const b = (await page.locator(sel).boundingBox())!;
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width).toBeLessThanOrEqual(320);
+    }
+    for (const a of await page.locator('.map-credit a').all()) {
+      const b = (await a.boundingBox())!;
+      expect(b.x + b.width).toBeLessThanOrEqual(320 - 16 + 1);
+    }
+    const n = (await page.locator('.notice').boundingBox())!;
+    const c = (await page.locator('.map-credit').boundingBox())!;
+    expect(n.x + n.width).toBeLessThanOrEqual(c.x);
   });
 
   test('credits list every source and "A Still Signal build", and close with Escape', async ({ page }) => {
