@@ -18,6 +18,11 @@
  * on never opens a hole, and the coverage map (coverage.ts) hides it where a finer tile is drawn.
  * Distances weigh where the camera looks: a point behind counts 2.5 times as far as one ahead, so
  * the budget goes to the view. Pure: no three.js.
+ *
+ * The frame budget (spec 12: under 600,000 triangles and 250 draw calls a frame) is held in three
+ * places: DetailBudget here pulls the buildings levels in while the view draws too much (or frames
+ * stay slow); stream.ts fitView leaves the farthest buildings out of a frame that would still be over
+ * VIEW_CAP; sunlight.ts SunLight.fit gives the shadow pass what the view leaves of FRAME_BUDGET.
  */
 import { lonLatToTile, tileBounds, wrapLon } from '../geo/coords';
 import { M_PER_DEG } from './frame';

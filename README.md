@@ -23,7 +23,7 @@ pytest pipeline/tests -q       # wind pipeline tests (run inside the Python venv
 
 A few speed checks in the unit tests are skipped when the `CI` environment variable is set, because shared runners are too noisy for them.
 
-The browser tests build the site and serve it on port 4173; `E2E_PORT=4391 npm run e2e` uses another port (two copies of the project testing at once must not share one). `e2e/perf.spec.ts` measures the performance budget on a slowed CPU and network, and `e2e/security.spec.ts` runs the site under the security headers from `public/_headers`. Add `?fps=1` to the address to see a frame counter on a real phone.
+The browser tests build the site and serve it on port 4173; `E2E_PORT=4391 npm run e2e` uses another port (two copies of the project testing at once must not share one). `e2e/perf.spec.ts` measures the performance budget on a slowed CPU and network (`PERF_CITIES=1 npx playwright test e2e/perf-cities.spec.ts` checks it in the densest launch cities on the real map, which needs the network), and `e2e/security.spec.ts` runs the site under the security headers from `public/_headers`. Add `?fps=1` to the address to see a frame counter on a real phone.
 
 ## Wind pipeline
 
