@@ -122,7 +122,10 @@ test.describe('start screen', () => {
     await page.goto('/');
     await expect(fromButton(page)).toHaveText('From London');
     await page.getByRole('button', { name: 'Paris', exact: true }).click();
-    expect((await letGo(page)).name).toBe('Paris');
+    await expect(fromButton(page)).toHaveText('From Paris');
+    // Let go still goes, with nowhere to remember the place (offline here, so the winds cannot load)
+    await page.getByRole('button', { name: 'Let go', exact: true }).click();
+    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
   });
 });
 
