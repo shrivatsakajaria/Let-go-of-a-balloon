@@ -278,28 +278,34 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: { na
   const [lx, ly] = at(pts.length - 1);
   const nowF = Math.min(1, Math.max(0, (Date.now() - route.release) / FLIGHT_MS));
   const [bx, by] = atFrac(nowF);
-  const marks = names
-    .map((n) => {
-      const [x, y] = atFrac(n.frac);
-      return `<g class="replay-mark" data-frac="${n.frac.toFixed(4)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5"/>${label(x, y, standalone(n.name))}</g>`;
-    })
-    .join('');
+  const mark = (n: ReplayName) => {
+    const [x, y] = atFrac(n.frac);
+    return `<g class="replay-mark" data-frac="${n.frac.toFixed(4)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5"/>${label(x, y, standalone(n.name))}</g>`;
+  };
   const el = document.createElement('div');
   el.className = 'replay-map';
   el.setAttribute('aria-hidden', 'true');
   el.innerHTML = `<svg width="${W}" height="${h}" viewBox="0 0 ${W} ${h}" style="top:${top}px">
     <path class="replay-line" d="${d}" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1"/>
     <g class="replay-mark" data-frac="0"><circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="3.5"/>${home ? label(sx, sy, home) : ''}</g>
-    ${marks}
+    <g class="names"></g>
     <g class="replay-mark" data-frac="1"><circle class="ring" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5"/>${landing ? label(lx, ly, standalone(withArticle(landing.name, landing.kind)), "strong") : ''}</g>
     <circle class="replay-balloon" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="4.5"/>
   </svg>`;
   host.layer.append(el);
   const path = el.querySelector('path')!;
-  const groups = Array.from(el.querySelectorAll<SVGGElement>('.replay-mark'));
+  const namesEl = el.querySelector('.names')!;
+  let groups: SVGGElement[] = [];
+  let drawn = -1;
   return {
     el,
     draw(frac) {
+      // the names are worked out in the background and may arrive after the drawing has begun
+      if (drawn !== names.length) {
+        drawn = names.length;
+        namesEl.innerHTML = names.map(mark).join('');
+        groups = Array.from(el.querySelectorAll<SVGGElement>('.replay-mark'));
+      }
       path.setAttribute('stroke-dashoffset', String(1 - frac));
       for (const g of groups) g.classList.toggle('on', Number(g.dataset.frac) <= frac + 1e-6);
     },
