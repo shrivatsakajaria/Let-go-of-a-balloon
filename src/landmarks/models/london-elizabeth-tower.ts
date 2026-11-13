@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS as C } from '../kit';
+import { clockState, hourAngle, localMs, minuteAngle, type ClockState } from '../clock';
 import type { LandmarkModel } from '../types';
 
 /** Half the shaft's width, m. */
@@ -19,19 +20,7 @@ const DIAL_Y = 57.5;
 /** The dial's plane: just proud of its frame on the clock stage. */
 const DIAL_Z = -(S + 1.32);
 
-type Hands = { hour: THREE.Object3D[]; minute: THREE.Object3D[]; hourKey: number; offsetMs: number };
-
-/** Last Sunday of a month (0-based), 01:00 UTC: when UK clocks change. */
-function changeUtc(year: number, month: number): number {
-  const last = new Date(Date.UTC(year, month + 1, 0));
-  return last.getTime() - last.getUTCDay() * 864e5 + 3600e3;
-}
-
-/** London's offset from UTC at utcMs: British Summer Time from the last Sunday of March to the last of October. */
-export function londonOffsetMs(utcMs: number): number {
-  const y = new Date(utcMs).getUTCFullYear();
-  return utcMs >= changeUtc(y, 2) && utcMs < changeUtc(y, 9) ? 3600e3 : 0;
-}
+type Hands = ClockState & { hour: THREE.Object3D[]; minute: THREE.Object3D[] };
 
 /** One hand, pointing up (+y) from its pivot, in the dial's plane, facing -z. */
 function hand(length: number, width: number): Kit {
@@ -113,7 +102,7 @@ export const model: LandmarkModel = {
     const g = k.group('london-elizabeth-tower');
     // hands, one pair per dial, turned in animate
     const hourKit = hand(2.2, 0.5), minuteKit = hand(3.1, 0.36);
-    const hands: Hands = { hour: [], minute: [], hourKey: Number.NaN, offsetMs: 0 };
+    const hands: Hands = { ...clockState(), hour: [], minute: [] };
     for (let i = 0; i < 4; i++) {
       const pivot = new THREE.Group();
       pivot.rotation.y = (-i * Math.PI) / 2;
@@ -137,15 +126,8 @@ export const model: LandmarkModel = {
   animate(group, utcMs) {
     const h = group.userData.hands as Hands | undefined;
     if (!h) return;
-    // the UK offset is worked out once an hour
-    const key = Math.floor(utcMs / 3600e3);
-    if (key !== h.hourKey) {
-      h.hourKey = key;
-      h.offsetMs = londonOffsetMs(utcMs);
-    }
-    const t = utcMs + h.offsetMs;
-    const minute = ((((t % 3600e3) + 3600e3) % 3600e3) / 3600e3) * 2 * Math.PI;
-    const hour = ((((t % 43200e3) + 43200e3) % 43200e3) / 43200e3) * 2 * Math.PI;
+    const t = localMs(h, utcMs);
+    const minute = minuteAngle(t), hour = hourAngle(t);
     for (let i = 0; i < 4; i++) {
       h.hour[i].rotation.z = hour;
       h.minute[i].rotation.z = minute;

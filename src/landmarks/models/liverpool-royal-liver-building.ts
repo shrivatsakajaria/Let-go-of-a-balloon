@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS as C } from '../kit';
+import { clockState, hourAngle, localMs, minuteAngle, type ClockState } from '../clock';
 import type { LandmarkModel } from '../types';
 import type { RegionStyle } from '../../world/palette';
 
@@ -30,20 +31,8 @@ const BIRD_Y = 98.2;
 /** Verdigris copper: the Contour pale sea-green. */
 const BIRD = C.copper;
 
-type Hands = { hour: THREE.Object3D[]; minute: THREE.Object3D[]; hourKey: number; offsetMs: number };
+type Hands = ClockState & { hour: THREE.Object3D[]; minute: THREE.Object3D[] };
 type Wings = { left: THREE.Object3D[]; right: THREE.Object3D[] };
-
-/** Last Sunday of a month (0-based), 01:00 UTC: when UK clocks change. */
-function changeUtc(year: number, month: number): number {
-  const last = new Date(Date.UTC(year, month + 1, 0));
-  return last.getTime() - last.getUTCDay() * 864e5 + 3600e3;
-}
-
-/** UK offset from UTC at utcMs (British Summer Time from the last Sunday of March to the last of October). */
-function ukOffsetMs(utcMs: number): number {
-  const y = new Date(utcMs).getUTCFullYear();
-  return utcMs >= changeUtc(y, 2) && utcMs < changeUtc(y, 9) ? 3600e3 : 0;
-}
 
 /** One clock hand, pointing up (+y) from its pivot, facing -z. */
 function hand(length: number, width: number): Kit {
@@ -194,7 +183,7 @@ export const model: LandmarkModel = {
 
     // the clock hands, one pair per dial
     const hourKit = hand(2.1, 0.5), minuteKit = hand(3.0, 0.36);
-    const hands: Hands = { hour: [], minute: [], hourKey: Number.NaN, offsetMs: 0 };
+    const hands: Hands = { ...clockState(), hour: [], minute: [] };
     for (const z of TOWERS) {
       for (let i = 0; i < 4; i++) {
         const pivot = new THREE.Group();
@@ -221,15 +210,8 @@ export const model: LandmarkModel = {
     const h = group.userData.hands as Hands | undefined;
     const w = group.userData.wings as Wings | undefined;
     if (h) {
-      // the UK offset is worked out once an hour
-      const key = Math.floor(utcMs / 3600e3);
-      if (key !== h.hourKey) {
-        h.hourKey = key;
-        h.offsetMs = ukOffsetMs(utcMs);
-      }
-      const t = utcMs + h.offsetMs;
-      const minute = ((((t % 3600e3) + 3600e3) % 3600e3) / 3600e3) * 2 * Math.PI;
-      const hour = ((((t % 43200e3) + 43200e3) % 43200e3) / 43200e3) * 2 * Math.PI;
+      const t = localMs(h, utcMs);
+      const minute = minuteAngle(t), hour = hourAngle(t);
       for (let i = 0; i < h.hour.length; i++) {
         h.hour[i].rotation.z = hour;
         h.minute[i].rotation.z = minute;

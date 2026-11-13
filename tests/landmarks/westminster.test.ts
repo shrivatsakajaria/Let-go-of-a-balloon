@@ -1,8 +1,9 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three';
-import { model as tower, londonOffsetMs } from '../../src/landmarks/models/london-elizabeth-tower';
+import { model as tower } from '../../src/landmarks/models/london-elizabeth-tower';
 import { model as palace } from '../../src/landmarks/models/london-palace-of-westminster';
 import { countTriangles } from '../../src/landmarks/kit';
+import { ukOffsetMs } from '../../src/landmarks/clock';
 import { regionStyle, lightFor } from '../../src/world/palette';
 
 const LONDON = { lat: 51.5007, lon: -0.1246 };
@@ -15,12 +16,12 @@ test('the Elizabeth Tower: 96 m, four lit dials, and hands on London time', () =
   const glow = g.children.find((m) => m.userData.bucket === 'glow') as THREE.Mesh;
   expect(countTriangles(glow)).toBe(4 * 24);
   // UK time: GMT in winter, BST in summer, the change at 01:00 UTC on the last Sundays of March and October
-  expect(londonOffsetMs(Date.UTC(2026, 0, 15, 12))).toBe(0);
-  expect(londonOffsetMs(Date.UTC(2026, 6, 15, 12))).toBe(3600e3);
-  expect(londonOffsetMs(Date.UTC(2026, 2, 29, 0, 59))).toBe(0);
-  expect(londonOffsetMs(Date.UTC(2026, 2, 29, 1, 0))).toBe(3600e3);
-  expect(londonOffsetMs(Date.UTC(2026, 9, 25, 0, 59))).toBe(3600e3);
-  expect(londonOffsetMs(Date.UTC(2026, 9, 25, 1, 0))).toBe(0);
+  expect(ukOffsetMs(Date.UTC(2026, 0, 15, 12))).toBe(0);
+  expect(ukOffsetMs(Date.UTC(2026, 6, 15, 12))).toBe(3600e3);
+  expect(ukOffsetMs(Date.UTC(2026, 2, 29, 0, 59))).toBe(0);
+  expect(ukOffsetMs(Date.UTC(2026, 2, 29, 1, 0))).toBe(3600e3);
+  expect(ukOffsetMs(Date.UTC(2026, 9, 25, 0, 59))).toBe(3600e3);
+  expect(ukOffsetMs(Date.UTC(2026, 9, 25, 1, 0))).toBe(0);
   // 15:45 BST on a summer afternoon: the minute hand at nine, the hour hand just short of four
   tower.animate!(g, Date.UTC(2026, 6, 15, 14, 45), lightFor(30));
   const hands = g.userData.hands as { hour: THREE.Object3D[]; minute: THREE.Object3D[] };
