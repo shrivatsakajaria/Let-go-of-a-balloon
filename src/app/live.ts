@@ -69,6 +69,8 @@ export type LiveHook = {
   replay: boolean;
   trail: boolean;
   now: number;
+  /** The last replay: ms from the tap to its end (onEnd), or null. */
+  replayMs: number | null;
 };
 
 export class Live {
@@ -99,7 +101,7 @@ export class Live {
   private overLine = '';
   /** Where the whole-trip replay ends (it then holds on the landing): by default, back to live. */
   onReplayEnd: (route: Route) => void = () => this.backToLive();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0, replayMs: null };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -301,6 +303,8 @@ export class Live {
     if (!fl || this.replayRun || this.state !== 'flight') return;
     const ctl = new AbortController();
     this.replayRun = ctl;
+    const t0 = performance.now();
+    this.hook.replayMs = null;
     // names arrive in the background; the first is not due until the climb is over
     const names: ReplayName[] = [];
     if (this.replayPrep?.route === fl.route) this.replayPrep.names.then((n) => this.replayRun === ctl && names.push(...n));
@@ -320,7 +324,10 @@ export class Live {
       landing,
       home: fl.home.name,
       signal: ctl.signal,
-      onEnd: () => this.onReplayEnd(fl.route),
+      onEnd: () => {
+        this.hook.replayMs = performance.now() - t0;
+        this.onReplayEnd(fl.route);
+      },
     });
   }
 

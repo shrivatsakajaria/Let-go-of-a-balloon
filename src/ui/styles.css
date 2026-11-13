@@ -644,10 +644,8 @@ a.link, .small a { color: var(--paper); }
 .hud.is-replay .pause,
 .hud.is-replay .stats { display: none; }
 .replay-slot p { margin: 0; }
-.replay-kicker, .replay-when { font-size: 13px; font-weight: 500; }
-.replay-kicker { margin-bottom: 4px !important; }
-.replay-when { margin-top: 6px !important; font-variant-numeric: tabular-nums; }
-.replay-kicker:empty, .replay-when:empty { display: none; }
+.replay-when { margin-top: 6px !important; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.replay-when:empty { display: none; }
 .replay-name {
   max-width: 14ch;
   font-size: 44px;

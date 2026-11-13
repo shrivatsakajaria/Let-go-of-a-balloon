@@ -33,6 +33,8 @@ import {
   nameOpacity,
   pickNames,
   reducedFrame,
+  REDUCED_TOTAL_S,
+  standalone,
   replayFrame,
   type NameCandidate,
   type ReplayName,
@@ -135,8 +137,8 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   host.hud.setReplay(true);
   host.hud.setOver(still ? COPY.replayLabelStill : COPY.replayLabel);
   const slot = host.hud.replaySlot;
-  slot.innerHTML = `<p class="replay-kicker"></p><p class="replay-name"></p><p class="replay-when"></p>`;
-  const [kickerEl, nameEl, whenEl] = Array.from(slot.children) as HTMLElement[];
+  slot.innerHTML = `<p class="replay-name"></p><p class="replay-when"></p>`;
+  const [nameEl, whenEl] = Array.from(slot.children) as HTMLElement[];
   slot.classList.toggle('is-still', still);
   const t0 = clock();
   const t = () => (clock() - t0) / 1000;
@@ -152,11 +154,10 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   }
 
   let shown = '';
-  const write = (kicker: string, name: string, when: string, opacity: number) => {
-    const key = `${kicker}|${name}|${when}`;
+  const write = (name: string, when: string, opacity: number) => {
+    const key = `${name}|${when}`;
     if (key !== shown) {
       shown = key;
-      kickerEl.textContent = kicker;
       nameEl.textContent = name;
       whenEl.textContent = when;
     }
@@ -165,12 +166,14 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
 
   return new Promise<void>((resolve) => {
     let raf = 0;
+    let timer = 0;
     let ended = false;
     let gone = false;
     const finish = () => {
       if (gone) return;
       gone = true;
       cancelAnimationFrame(raf);
+      clearTimeout(timer);
       removeEventListener('keydown', onKey);
       opts.signal?.removeEventListener('abort', finish);
       if (!still) host.scene.stopReplay();
@@ -187,8 +190,17 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
     if (opts.signal?.aborted) return finish();
     opts.signal?.addEventListener('abort', finish);
 
+    const end = () => {
+      if (ended || gone) return;
+      ended = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      map?.draw(1);
+      onEnd();
+      resolve(); // still on screen, holding on the landing, until Back to live
+    };
     const tick = () => {
-      if (gone) return;
+      if (gone || ended) return;
       const s = t();
       let done: boolean;
       if (still) {
@@ -199,23 +211,26 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
         const f = replayFrame(s, total);
         const k = total / 20;
         if (landing && (f.phase === 'descent' || f.phase === 'hold' || f.phase === 'done')) {
-          write(landing.kicker, landing.name, landing.when, easeOut((s - 17 * k) / LANDING_IN_S));
+          write(landing.name, landing.line, easeOut((s - 17 * k) / LANDING_IN_S));
         } else {
           const n = names.find((x) => nameOpacity(s, x.atS) > 0);
-          if (n) write('', n.name, '', nameOpacity(s, n.atS));
+          if (n) write(standalone(n.name), '', nameOpacity(s, n.atS));
           else slot.style.opacity = '0';
         }
         done = f.done;
       }
-      if (done && !ended) {
-        ended = true;
-        onEnd();
-        resolve(); // still on screen, holding on the landing, until Back to live
-        return;
-      }
+      if (done) return end();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+    // the end comes on time even when frames are slow (or the tab is hidden and frames stop)
+    const endS = still ? REDUCED_TOTAL_S : total;
+    const arm = () => {
+      const left = endS * 1000 - (clock() - t0);
+      if (left <= 0) return end();
+      timer = window.setTimeout(arm, Math.min(left, 1000));
+    };
+    arm();
   });
 }
 
@@ -263,7 +278,7 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: { na
   const marks = names
     .map((n) => {
       const [x, y] = atFrac(n.frac);
-      return `<g class="replay-mark" data-frac="${n.frac.toFixed(4)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5"/>${label(x, y, n.name)}</g>`;
+      return `<g class="replay-mark" data-frac="${n.frac.toFixed(4)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5"/>${label(x, y, standalone(n.name))}</g>`;
     })
     .join('');
   const el = document.createElement('div');
@@ -273,7 +288,7 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: { na
     <path class="replay-line" d="${d}" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1"/>
     <g class="replay-mark" data-frac="0"><circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="3.5"/>${home ? label(sx, sy, home) : ''}</g>
     ${marks}
-    <g class="replay-mark" data-frac="1"><circle class="ring" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5"/>${landing ? label(lx, ly, withArticle(landing.name, landing.kind), 'strong') : ''}</g>
+    <g class="replay-mark" data-frac="1"><circle class="ring" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5"/>${landing ? label(lx, ly, standalone(withArticle(landing.name, landing.kind)), "strong") : ''}</g>
     <circle class="replay-balloon" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="4.5"/>
   </svg>`;
   host.layer.append(el);

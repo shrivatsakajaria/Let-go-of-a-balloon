@@ -135,14 +135,14 @@ describe('place names on the way', () => {
 describe('the landing, as the replay ends', () => {
   const at = { lat: 60.39, lon: 5.32 }; // Bergen
   const ms = Date.UTC(2026, 10, 15, 13, 20);
-  test('a town: "Expected to land near", "Bergen", and the local day and time', () => {
-    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, false)).toEqual({ kicker: 'Expected to land near', name: 'Bergen', when: 'Sun 15 Nov, 14:20' });
+  test('a town: "Bergen", then "Expected to land here" and the local day and time under it', () => {
+    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, false)).toEqual({ name: 'Bergen', line: 'Expected to land here · Sun 15 Nov, 14:20' });
   });
-  test('the sea: "Expected to come down in", "the North Sea"', () => {
-    expect(landingLines({ name: 'North Sea', kind: 'sea' }, { lat: 57, lon: 3 }, ms, false)).toMatchObject({ kicker: 'Expected to come down in', name: 'the North Sea' });
+  test('the sea: "The North Sea", "Expected to come down here"', () => {
+    expect(landingLines({ name: 'North Sea', kind: 'sea' }, { lat: 57, lon: 3 }, ms, false)).toMatchObject({ name: 'The North Sea', line: expect.stringMatching(/^Expected to come down here · Sun 15 Nov, \d\d:20$/) });
   });
-  test('after 72 hours: "Landed near"', () => {
-    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, true).kicker).toBe('Landed near');
-    expect(landingLines({ name: 'North Sea', kind: 'sea' }, at, ms, true).kicker).toBe('Came down in');
+  test('after 72 hours: "Landed here", "Came down here"', () => {
+    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, true).line).toMatch(/^Landed here · /);
+    expect(landingLines({ name: 'North Sea', kind: 'sea' }, at, ms, true).line).toMatch(/^Came down here · /);
   });
 });

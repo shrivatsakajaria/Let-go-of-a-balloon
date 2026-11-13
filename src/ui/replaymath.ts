@@ -184,12 +184,18 @@ export function nameOpacity(tS: number, atS: number): number {
   return 1;
 }
 
-/** "Expected to land near" / "Bergen" / "Sun 15 Nov, 14:20" (the local day and time where it comes down). */
-export function landingLines(place: { name: string; kind: string }, at: LatLon, utcMs: number, landed: boolean): { kicker: string; name: string; when: string } {
+/** "The North Sea" from "the North Sea": a name standing on its own starts with a capital. */
+export const standalone = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
+
+/**
+ * The landing as the replay comes down: the place large, and under it what happens there and when
+ * ("Bergen" / "Expected to land here · Sun 15 Nov, 14:20"); no label above the name.
+ */
+export function landingLines(place: { name: string; kind: string }, at: LatLon, utcMs: number, landed: boolean): { name: string; line: string } {
   const sea = place.kind === 'sea';
-  const kicker = landed ? (sea ? 'Came down in' : 'Landed near') : sea ? 'Expected to come down in' : 'Expected to land near';
+  const what = landed ? (sea ? 'Came down here' : 'Landed here') : sea ? 'Expected to come down here' : 'Expected to land here';
   const { tz, label } = localTime(utcMs, at);
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).formatToParts(new Date(utcMs));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return { kicker, name: withArticle(place.name, place.kind), when: `${get('weekday')} ${get('day')} ${get('month')}, ${label.split(' ').pop()}` };
+  return { name: standalone(withArticle(place.name, place.kind)), line: `${what} · ${get('weekday')} ${get('day')} ${get('month')}, ${label.split(' ').pop()}` };
 }
