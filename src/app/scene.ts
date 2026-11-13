@@ -219,6 +219,12 @@ export class LiveScene {
     );
   }
 
+  /** A launch that has not let go yet is called off (another balloon is opening): the hand stays closed. */
+  cancelLaunch(): void {
+    this.holdUntil = null;
+    if (this.person?.state === 'holding') this.person.holdIdle();
+  }
+
   /** The launch failed before the hand opened: back to the start screen's shot, with no cut. */
   rewind(): void {
     this.holdUntil = null;

@@ -156,7 +156,14 @@ if (!route()) setView('start');
 // a link pasted into the address bar of an open page
 window.addEventListener('hashchange', () => {
   broken?.remove();
-  route();
+  broken = null;
+  if (route()) return;
+  // the link was taken out of the address: back to the start screen from a link's screens
+  const v = html.dataset.view;
+  if (v === 'broken' || v === 'link' || v === 'flight') {
+    if (live) live.backToStart();
+    else setView('start');
+  }
 });
 
 // the world loads once the first frame of the chrome is on screen (not under a ?backdrop= test colour,

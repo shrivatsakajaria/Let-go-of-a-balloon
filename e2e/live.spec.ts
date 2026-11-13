@@ -334,3 +334,32 @@ test('if the world cannot be fetched, Let go says so and offers Try again', asyn
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
 });
+
+test('clearing the address on the broken-link screen goes back to the start screen', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto('/#b=AWkBlv4BCk1hbmNoZXN0ZXIKMjAy');
+  await expect(page.getByText('This balloon link is broken.')).toBeVisible();
+  await expect.poll(() => view(page)).toBe('broken');
+  await page.waitForTimeout(1000); // the start chrome has finished hiding
+  await page.evaluate(() => (location.hash = ''));
+  await expect.poll(() => view(page)).toBe('start');
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+  await expect(page.getByText('This balloon link is broken.')).toBeHidden();
+});
+
+test('a link opened while a launch is waiting for its route takes over: the launch never lets go', async ({ context, page }) => {
+  await liveWorld(context, { windDelayMs: 3000 });
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await page.waitForTimeout(800);
+  const link = await linkTo(eastward(14));
+  await page.evaluate((h) => (location.hash = h), link.slice(1));
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
+  await page.waitForTimeout(8000); // past when the launch's route would have arrived
+  await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
+  expect(new URL(page.url()).hash).toBe(link.slice(1));
+  expect(await page.evaluate(() => localStorage.getItem('lgoab.balloons.v1'))).toBeNull();
+});

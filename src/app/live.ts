@@ -191,6 +191,7 @@ export class Live {
   }
 
   private released(route: Route, c: StartChoice): void {
+    if (this.state !== 'launch') return;
     const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
     this.beginFlight(route, home, true, true);
     const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
@@ -221,6 +222,8 @@ export class Live {
   // ---- a balloon from a link or from "Your balloons" ----
 
   async open(b: SavedBalloon): Promise<void> {
+    // a launch still waiting for its route never lets go now: this balloon takes over
+    if (this.state === 'launch' || this.state === 'error') this.scene.cancelLaunch();
     this.clearNotice();
     this.state = 'flight';
     this.deps.setView('link');
