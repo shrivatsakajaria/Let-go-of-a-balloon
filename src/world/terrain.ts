@@ -3,6 +3,7 @@
  */
 import { TERRACE_STEP_M } from '../config';
 import { CONTOUR, lerpHex, parseHex, type Color } from './palette';
+import { frameFromBounds, type Bounds, type TileFrame } from './frame';
 
 export type MeshBuffers = { position: Float32Array; normal: Float32Array; color: Float32Array };
 
@@ -36,7 +37,6 @@ export function terraceHeight(h: number, slope: number): number {
   return h + (snapped - h) * f;
 }
 
-const M_PER_DEG = 111320;
 const CLIFF_SLOPE = 0.6;
 const JITTER = 0.03;
 
@@ -72,57 +72,108 @@ function jitter(i: number, j: number, k: number): number {
   return ((h >>> 0) / 4294967296) * 2 - 1;
 }
 
-/** Bilinear sample of a size x size height grid at fractional pixel coords. */
-function sample(heights: Float32Array, size: number, u: number, v: number): number {
+/**
+ * Bilinear sample of a size x size height grid (row 0 = north) at fractional pixel coords, where
+ * pixel centres are at integers. Within half a pixel outside the grid it extrapolates linearly from
+ * the edge pixels, so a tile's edge meets its neighbour's (exactly so on planar ground).
+ */
+export function heightAt(heights: Float32Array, size: number, u: number, v: number): number {
+  if (size < 2) return heights[0];
   const x0 = Math.min(size - 2, Math.max(0, Math.floor(u)));
   const y0 = Math.min(size - 2, Math.max(0, Math.floor(v)));
-  if (size < 2) return heights[0];
-  const fx = u - x0, fy = v - y0;
+  const fx = Math.max(-0.5, Math.min(1.5, u - x0)), fy = Math.max(-0.5, Math.min(1.5, v - y0));
   const a = heights[y0 * size + x0], b = heights[y0 * size + x0 + 1];
   const c = heights[(y0 + 1) * size + x0], d = heights[(y0 + 1) * size + x0 + 1];
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
 
 /**
- * Build the flat-shaded ground for one tile.
- *
- * The mesh resolution is the land-cover grid: `landcover.size` cells per side, heights sampled
- * bilinearly at the cell corners (heights themselves are `size` x `size`, row 0 = north, as in a
- * map tile). Positions are local metres relative to the tile's south-west corner in three.js
- * convention: x east, y up, z = -north. Metres per degree use the tile's centre latitude.
- * Two triangles per cell, non-indexed; each face has one colour and one (unit) normal.
+ * The ground's vertex grid: (n+1) x (n+1) vertices, i east, j north, evenly spaced in Web Mercator
+ * like the height and vector pixels. Vertex (i, j) sits at tile fraction (i/n, 1 - j/n), i.e. on
+ * pixel edges: u = i/n * size - 0.5 (pixel centres are at integers).
  */
-export function buildGround(
-  heights: Float32Array,
-  size: number,
-  bounds: { west: number; south: number; east: number; north: number },
-  landcover: LandcoverGrid,
-): MeshBuffers {
-  const n = landcover.size;
-  const midLat = (bounds.south + bounds.north) / 2;
-  const widthM = (bounds.east - bounds.west) * M_PER_DEG * Math.cos((midLat * Math.PI) / 180);
-  const heightM = (bounds.north - bounds.south) * M_PER_DEG;
-  const dx = widthM / n;
-  const dy = heightM / n;
+export type GroundGrid = {
+  frame: TileFrame;
+  n: number;
+  /** Local x of vertex column i, local z of vertex row j. */
+  X: Float64Array;
+  Z: Float64Array;
+  /** Untouched heights (decide cliffs) and terraced heights (the drawn surface), index j*(n+1)+i. */
+  raw: Float32Array;
+  terr: Float32Array;
+};
 
+export function groundGrid(heights: Float32Array, size: number, frame: TileFrame, n: number): GroundGrid {
   const V = n + 1;
-  const raw = new Float32Array(V * V); // metres, vertex (i east, j north)
+  const X = new Float64Array(V);
+  const Z = new Float64Array(V);
+  for (let k = 0; k < V; k++) {
+    X[k] = frame.fracToLocal(k / n, 0).x;
+    Z[k] = frame.fracToLocal(0, 1 - k / n).z;
+  }
+  const raw = new Float32Array(V * V);
   for (let j = 0; j < V; j++) {
-    for (let i = 0; i < V; i++) {
-      const u = (i / n) * (size - 1);
-      const v = (1 - j / n) * (size - 1); // row 0 of the image is north
-      raw[j * V + i] = sample(heights, size, u, v);
-    }
+    const v = (1 - j / n) * size - 0.5; // row 0 of the image is north
+    for (let i = 0; i < V; i++) raw[j * V + i] = heightAt(heights, size, (i / n) * size - 0.5, v);
   }
   const at = (i: number, j: number) => raw[Math.min(n, Math.max(0, j)) * V + Math.min(n, Math.max(0, i))];
   const terr = new Float32Array(V * V);
   for (let j = 0; j < V; j++) {
+    const jm = Math.max(0, j - 1), jp = Math.min(n, j + 1);
     for (let i = 0; i < V; i++) {
-      const gx = (at(i + 1, j) - at(i - 1, j)) / ((Math.min(n, i + 1) - Math.max(0, i - 1)) * dx);
-      const gy = (at(i, j + 1) - at(i, j - 1)) / ((Math.min(n, j + 1) - Math.max(0, j - 1)) * dy);
+      const im = Math.max(0, i - 1), ip = Math.min(n, i + 1);
+      const gx = (at(ip, j) - at(im, j)) / (X[ip] - X[im]);
+      const gy = (at(i, jp) - at(i, jm)) / (Z[jm] - Z[jp]);
       terr[j * V + i] = terraceHeight(raw[j * V + i], Math.hypot(gx, gy));
     }
   }
+  return { frame, n, X, Z, raw, terr };
+}
+
+/**
+ * Height of the drawn (terraced, faceted) ground at local (x, z): the same two triangles per cell
+ * that buildGround emits, so anything placed with this sits exactly on the ground.
+ */
+export function groundHeightAt(g: GroundGrid, x: number, z: number): number {
+  const { n, terr } = g;
+  const V = n + 1;
+  const f = g.frame.localToFrac(x, z);
+  const fi = Math.max(0, Math.min(n, f.fx * n));
+  const fj = Math.max(0, Math.min(n, (1 - f.fy) * n));
+  const i = Math.min(n - 1, Math.floor(fi)), j = Math.min(n - 1, Math.floor(fj));
+  const s = fi - i, t = fj - j;
+  const a = terr[j * V + i], b = terr[j * V + i + 1], c = terr[(j + 1) * V + i], d = terr[(j + 1) * V + i + 1];
+  // triangles (a, b, c) and (b, d, c), split along the b-c diagonal
+  return s + t <= 1 ? a + s * (b - a) + t * (c - a) : d + (1 - s) * (c - d) + (1 - t) * (b - d);
+}
+
+const isFrame = (b: Bounds | TileFrame): b is TileFrame => 'toLocal' in b;
+
+/**
+ * Build the flat-shaded ground for one tile.
+ *
+ * The mesh resolution is the land-cover grid: `landcover.size` cells per side, heights sampled
+ * bilinearly at the cell corners (heights themselves are `size` x `size`, row 0 = north, as in a
+ * map tile). Positions are local metres in the tile frame (see frame.ts): x east, y up,
+ * z = -north from the south-west corner. Two triangles per cell, non-indexed; each face has one
+ * colour and one (unit) normal.
+ */
+export function buildGround(
+  heights: Float32Array,
+  size: number,
+  bounds: Bounds | TileFrame,
+  landcover: LandcoverGrid,
+): MeshBuffers {
+  const frame = isFrame(bounds) ? bounds : frameFromBounds(bounds);
+  return buildGroundMesh(groundGrid(heights, size, frame, landcover.size), landcover);
+}
+
+/** buildGround from a precomputed grid (whose n must equal landcover.size). */
+export function buildGroundMesh(g: GroundGrid, landcover: LandcoverGrid): MeshBuffers {
+  const n = landcover.size;
+  if (g.n !== n) throw new Error('ground grid and land cover sizes differ');
+  const V = n + 1;
+  const { X, Z, raw, terr } = g;
 
   const tris = n * n * 2;
   const position = new Float32Array(tris * 9);
@@ -134,9 +185,9 @@ export function buildGround(
   const emit = (cell: number, k: number, i: number, j: number, ia: number[], ja: number[]) => {
     for (let t = 0; t < 3; t++) {
       const vi = i + ia[t], vj = j + ja[t];
-      p[t * 3] = vi * dx;
+      p[t * 3] = X[vi];
       p[t * 3 + 1] = terr[vj * V + vi];
-      p[t * 3 + 2] = -vj * dy;
+      p[t * 3 + 2] = Z[vj];
     }
     // face normal from the terraced geometry
     const e1x = p[3] - p[0], e1y = p[4] - p[1], e1z = p[5] - p[2];

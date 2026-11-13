@@ -10,6 +10,7 @@ import {
 import { overzoomTile, makeRouteGround, makeRouteTileLoader, type TerrainTile } from '../../src/world/terrainsrc';
 import { CONTOUR, parseHex } from '../../src/world/palette';
 import { lonLatToTile } from '../../src/geo/coords';
+import { tileFrame } from '../../src/world/frame';
 import { BALLOON_HEX, ROUTE_GROUND_ZOOM } from '../../src/config';
 
 function saturation(hex: string): number {
@@ -229,4 +230,48 @@ test('route tiles: a planet archive error uses the fallback sources', async () =
     async () => land,
   );
   expect(await load(7, 1, 1)).toBe(land);
+});
+
+// ---- ground vertices sit on pixel edges, so neighbouring tiles meet ----
+
+/** Heights per vertex of the ground mesh, keyed by the vertex's tile fraction along an edge. */
+function edgeHeights(m: { position: Float32Array }, onEdge: (x: number, z: number) => boolean, key: (x: number, z: number) => number) {
+  const out = new Map<string, number>();
+  for (let i = 0; i < m.position.length; i += 3) {
+    const x = m.position[i], y = m.position[i + 1], z = m.position[i + 2];
+    if (onEdge(x, z)) out.set(key(x, z).toFixed(6), y);
+  }
+  return [...out.entries()].sort((a, b) => Number(a[0]) - Number(b[0]));
+}
+
+test('buildGround maps vertices to pixel edges (u = i/n * size - 0.5), not pixel centres', () => {
+  const size = 4;
+  const heights = new Float32Array(size * size);
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) heights[r * size + c] = 10 * c;
+  const frame = tileFrame(14, 8089, 5300);
+  const m = buildGround(heights, size, frame, grid(4));
+  const row = edgeHeights(m, (_x, z) => Math.abs(z) < 1e-6, (x) => x / frame.widthM);
+  // vertex i sits at the edge between pixel i-1 and i: 10*(i - 0.5); outer edges extrapolate
+  expect(row.map(([, y]) => y)).toEqual([-5, 5, 15, 25, 35]);
+});
+
+test('two neighbouring tiles share identical edge heights (east-west and north-south)', () => {
+  const size = 16;
+  const [z, x0, y0] = [14, 8089, 5300];
+  const tile = (tx: number, ty: number) => {
+    const h = new Float32Array(size * size);
+    for (let r = 0; r < size; r++)
+      for (let c = 0; c < size; c++) h[r * size + c] = 2 * (tx * size + c) - (ty * size + r) - 250000; // gentle global plane
+    return buildGround(h, size, tileFrame(z, tx, ty), grid(8));
+  };
+  const a = tileFrame(z, x0, y0), c = tileFrame(z, x0, y0 + 1);
+  const A = tile(x0, y0), B = tile(x0 + 1, y0), C = tile(x0, y0 + 1);
+  const aEast = edgeHeights(A, (x) => Math.abs(x - a.widthM) < 1e-3, (_x, zz) => zz);
+  const bWest = edgeHeights(B, (x) => Math.abs(x) < 1e-6, (_x, zz) => zz);
+  expect(aEast.length).toBe(9);
+  expect(bWest).toEqual(aEast);
+  const aSouth = edgeHeights(A, (_x, zz) => Math.abs(zz) < 1e-6, (x) => x / a.widthM);
+  const cNorth = edgeHeights(C, (_x, zz) => Math.abs(zz + c.heightM) < 1e-3, (x) => x / c.widthM);
+  expect(aSouth.length).toBe(9);
+  expect(cNorth.map((e) => e[1])).toEqual(aSouth.map((e) => e[1]));
 });
