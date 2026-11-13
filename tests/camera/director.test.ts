@@ -710,6 +710,16 @@ describe('launch crane', () => {
     expect(high).toBeLessThan(40.1);
   });
 
+  test('an open square with tall buildings downwind: it does not settle into Ride just before drifting in among them', () => {
+    const ground = 10;
+    const boxes: Box[] = [{ x0: 70, x1: 130, z0: -60, z1: 60, top: ground + 50 }];
+    const shots: [number, string][] = [];
+    const { settledAt } = launch({ boxes, ground, heading: 90, until: 60, each: (t, _c, d) => shots.push([t, d.shot]) });
+    expect(settledAt).toBeLessThan(40.1);
+    // once settled, Film rides on: the balloon is not dropped back among the rooftops a few seconds later
+    for (const [t, s] of shots) if (t >= settledAt && t < settledAt + 15) expect(s, `${t}`).toBe('ride');
+  });
+
   test('a tower it never clears in time: the launch still ends by 40 s, and Film does not choose Ride below the rooftops', () => {
     const ground = 10;
     const boxes: Box[] = [{ x0: -60, x1: 60, z0: 20, z1: 70, top: ground + 200 }];

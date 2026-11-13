@@ -60,15 +60,17 @@ const CLEAR_R_M = 30;
 const CLEAR_M = 6;
 const LOW_M = 3;
 const OPEN_M = 5;
+/** ...looking this far ahead along its drift, so Film does not drop back among the rooftops soon after. */
+const CLEAR_AHEAD_S = 24;
 /**
  * The crane (after the hand opens). Near the ground a balloon drifts faster than it climbs (2-4 m/s across
  * against 1.5 m/s up), so in a portrait frame the person and the balloon only stay together seen from
  * upwind: the crane swings round the person, over CRANE_SWING_S, from the start shot's line (the landmark
- * behind the person) to the line nearest it that is within a few degrees of upwind (the clearest such line:
- * the street). It pulls back CRANE_BACK m for every metre the balloon climbs (out to CRANE_MAX_M, so the
- * real-size balloon never shrinks to a dot) and rises CRANE_UP of it, the balloon at CRANE_Y0 (the upper
- * third), widening to CRANE_FOV. Its base moves from the person to the balloon over CRANE_FOLLOW (s after the
- * release): it rises up over the person and follows the balloon out of the street.
+ * behind the person) to a line within a few degrees of upwind, or a little further round for a street
+ * (craneAxis). It zooms out to CRANE_FOV over CRANE_ZOOM_S, pulls back CRANE_BACK m for every metre the
+ * balloon climbs (out to CRANE_MAX_M, so the real-size balloon never shrinks to a dot) and rises CRANE_UP of
+ * it, the balloon at CRANE_Y0 (the upper third). Its base moves from the person to the balloon over
+ * CRANE_FOLLOW (s after the release): it rises up over the person and follows the balloon out of the street.
  */
 const CRANE_EASE_S = 2;
 const CRANE_SWING_S = 4;
@@ -203,6 +205,9 @@ export class Director {
   private relAt = Number.NaN;
   /** The balloon is below the rooftops round it (with hysteresis); null: judge afresh next frame. */
   private low: boolean | null = null;
+  /** The look ahead for the rooftops (updateLow): when it was last worked out (clock) and whether it was clear. */
+  private aheadAt = -Infinity;
+  private aheadClear = false;
   /** The crane pulls back along this horizontal unit vector (from the person), chosen at the release. */
   private craneDir: THREE.Vector3 | null = null;
   /** The crane starts from here (the camera as the hand opened), with the balloon this high over the ground. */
@@ -292,16 +297,38 @@ export class Director {
   }
 
   /** Is the balloon below the rooftops round it? Only worked out where it matters (Film and the launch). */
-  private updateLow(b: LatLon, B: THREE.Vector3): void {
+  private updateLow(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
     if (this.mode !== 'film' && this._shot !== 'launch') {
       this.low = null;
       return;
     }
     const top = this.roofTop(b);
     if (!Number.isFinite(top)) return;
-    if (this.low === null) this.low = B.y < top + CLEAR_M;
-    else if (this.low) this.low = B.y < top + CLEAR_M;
-    else this.low = B.y < top + LOW_M;
+    if (this.low === false) {
+      this.low = B.y < top + LOW_M;
+      return;
+    }
+    // cleared: above the rooftops round it now, and staying above those round where it drifts over the
+    // next CLEAR_AHEAD_S as it climbs (an open square with tall buildings downwind is not clear); the look
+    // ahead is worked out twice a second
+    if (B.y < top + CLEAR_M) {
+      this.low = true;
+      return;
+    }
+    if (this.clock - this.aheadAt >= 0.5 || this.clock < this.aheadAt) {
+      this.aheadAt = this.clock;
+      this.aheadClear = true;
+      const v = Number.isFinite(b.speedMs) && Number.isFinite(b.headingDeg) ? b.speedMs : 0;
+      const h = b.headingDeg * RAD;
+      const n = 8;
+      for (let k = 1; this.aheadClear && v > 0 && k <= n; k++) {
+        const tau = (CLEAR_AHEAD_S * k) / n;
+        const q = this.fromScene(B0.x + Math.sin(h) * v * tau, B0.z - Math.cos(h) * v * tau, b, B0, this.ll);
+        const T = this.roofTop(q);
+        if (Number.isFinite(T) && B.y + CLIMB_RATE_MS * tau < T + LOW_M + 1) this.aheadClear = false;
+      }
+    }
+    this.low = !this.aheadClear;
   }
 
   /** Film mode only. Switches to a fitting shot, at most about every 15 s; a too-early event waits. */
@@ -348,6 +375,7 @@ export class Director {
 
   private resetCrane(): void {
     this.relAt = Number.NaN;
+    this.aheadAt = -Infinity;
     this.craneFrom = null;
     this.pushPrev.set(Number.NaN, 0, Number.NaN);
     this.pushAt = Number.NaN;
@@ -435,7 +463,7 @@ export class Director {
       return;
     }
     this.clock += dt;
-    this.updateLow(b, B);
+    this.updateLow(b, B, B0);
 
     if (this._shot === 'launch') {
       if (!this.wait) this.launchT += dt;
