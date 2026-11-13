@@ -64,3 +64,11 @@ describe('packed buffers and slots', () => {
     expect(g.getAttribute('aSlot').getX(2)).toBe(7);
   });
 });
+
+it('packed buffers with worker bounds: the box and sphere come from them, not from the vertices', () => {
+  const position = new Float32Array([0, 0, 0, 10, 0, 0, 0, 5, -20]);
+  const g = toGeometry({ position, normal: new Int8Array(12), color: new Uint8Array(12), bounds: new Float32Array([-1, -2, -30, 11, 6, 1]) })!;
+  expect(g.boundingBox!.min.toArray()).toEqual([-1, -2, -30]);
+  expect(g.boundingBox!.max.toArray()).toEqual([11, 6, 1]);
+  expect(g.boundingSphere!.center.toArray()).toEqual([5, 2, -14.5]);
+});

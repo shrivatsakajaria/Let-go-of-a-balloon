@@ -2,7 +2,7 @@
  * Worker mesh buffers to three.js geometry, and the faceted tree cone. Small and pure so they are
  * unit-tested in Node.
  */
-import { BufferAttribute, BufferGeometry, ConeGeometry } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, ConeGeometry, Sphere, Vector3 } from 'three';
 import type { MeshBuffers } from './terrain';
 import type { PackedBuffers } from './meshjob';
 import { srgbToLinear } from './color';
@@ -37,8 +37,33 @@ export function toGeometry(b: MeshBuffers | PackedBuffers, slot?: number): Buffe
     g.setAttribute('color', new BufferAttribute(col, 3));
   }
   if (slot !== undefined) g.setAttribute('aSlot', new BufferAttribute(new Uint8Array(n).fill(slot), 1));
-  g.computeBoundingSphere();
+  const whole = isPacked(b) && b.bounds ? unionBox(b.bounds) : null;
+  if (whole && !whole.isEmpty()) {
+    // the worker measured it: no walk over every vertex here
+    g.boundingBox = whole;
+    g.boundingSphere = sphereOfBox(whole);
+  } else g.computeBoundingSphere();
   return g;
+}
+
+/** The union of 6-float boxes (rangeBounds), skipping empty ones. */
+export function unionBox(bounds: Float32Array, from = 0, to = bounds.length / 6, out = new Box3()): Box3 {
+  out.makeEmpty();
+  for (let k = from; k < to; k++) {
+    const o = k * 6;
+    if (!(bounds[o] <= bounds[o + 3])) continue;
+    out.expandByPoint(new Vector3(bounds[o], bounds[o + 1], bounds[o + 2]));
+    out.expandByPoint(new Vector3(bounds[o + 3], bounds[o + 4], bounds[o + 5]));
+  }
+  return out;
+}
+
+/** The sphere around a box (centre, half its diagonal). */
+export function sphereOfBox(b: Box3): Sphere {
+  const s = new Sphere();
+  b.getCenter(s.center);
+  s.radius = b.min.distanceTo(b.max) / 2;
+  return s;
 }
 
 /** Triangles in a non-indexed geometry (or indexed, by index count). */

@@ -10,6 +10,7 @@
  *   heading=deg    compass heading of the flight and the view (default 78, toward the North Sea)
  *   pitch=deg      view pitch, negative looks down (default by height: the ride camera's look)
  *   fov=deg        vertical field of view (default 50, the ride camera's)
+ *   shadow=metres  radius of the shadowed ground (default by height)
  *   stop=km        stop after flying this far (default: never)
  *   fps=1          numbers panel: frame rate, draw calls and triangles with and without the shadow pass
  *   clean=1        no caption
@@ -72,13 +73,17 @@ const sky = new SkyDome(haze);
 scene.add(sky.mesh);
 
 /**
- * Shadows in a box around the ground just ahead of the camera, moved in 100 m steps: 1,150 m
- * across near the ground, 800 m at cruise (only full-detail tiles within 1.5 km cast them).
+ * Shadows on a disc of ground just ahead of the camera, moved in 100 m steps: 700 m radius at
+ * street level (buildings close the view), 900 m at a few hundred metres, 600 m at cruise (only
+ * full-detail tiles within 1.5 km cast them, and the ride camera looks past them).
  */
 function shadowRadius(aboveGroundM: number): number {
-  return Math.round(Math.min(1150, Math.max(800, 1150 - (aboveGroundM - 450) / 3)));
+  const a = aboveGroundM;
+  const r = a <= 100 ? 700 : a <= 450 ? 700 + ((a - 100) / 350) * 200 : 900 - ((a - 450) / 1050) * 300;
+  return Math.round(Math.min(900, Math.max(600, r)));
 }
-const sun = new SunLight(L, sunDir, { radius: shadowRadius(ALT), mapSize: 2048, snap: 100, upM: 60, downM: 40 });
+const SHADOW_R = params.has('shadow') ? Math.max(100, num('shadow', 800)) : shadowRadius(ALT);
+const sun = new SunLight(L, sunDir, { radius: SHADOW_R, mapSize: 2048, snap: 100, upM: 60, downM: 40 });
 sun.addTo(scene);
 
 const pool = new WorkerPool<BuildRequest, BuildReply>(
@@ -100,13 +105,15 @@ const hook = {
   calls: 0, triangles: 0, plain: { calls: 0, triangles: 0 }, shadow: { calls: 0, triangles: 0 },
   geometries: 0, textures: 0,
   alive: 0, loading: 0, settled: 0, wanted: 0, built: 0, failed: 0, cancelled: 0, recentres: 0, ready: false, stopped: false,
-  tileTriangles: 0, byZoom: {} as Record<number, number>,
+  tileTriangles: 0, arriveMsMax: 0, byZoom: {} as Record<number, number>,
   /** Set to redraw the shadow map on the next frame (to read the shadow pass's numbers). */
   redrawShadows: false,
   /** Triangles in view by zoom and bucket (frustum test on each mesh's bounds, like the renderer's). */
   drawn: {} as Record<string, number>,
   /** The same for the shadow pass. */
   casters: {} as Record<string, number>,
+  /** Triangles of every live tile by zoom and bucket (in view or not). */
+  aliveTris: {} as Record<string, number>,
 };
 (window as unknown as { __world: typeof hook }).__world = hook;
 const overlay = params.get('fps') === '1' ? new StatsOverlay() : null;
@@ -131,7 +138,7 @@ function resize() {
 const frustum = new THREE.Frustum();
 const projView = new THREE.Matrix4();
 const BUCKET_NAMES = ['ground', 'water', 'waterways', 'roads', 'buildings', 'roofs', 'trees'];
-function drawnByZoom(cam: THREE.Camera = camera, casters = false): Record<string, number> {
+function drawnByZoom(cam: THREE.Camera = camera, casters = false, all = false): Record<string, number> {
   cam.updateMatrixWorld();
   projView.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);
@@ -141,7 +148,8 @@ function drawnByZoom(cam: THREE.Camera = camera, casters = false): Record<string
     if (!g || !g.visible) continue;
     const z = t.key.split('/')[0];
     for (const m of g.children as THREE.Mesh[]) {
-      if ((casters && !m.castShadow) || !frustum.intersectsObject(m)) continue;
+      if (casters ? !m.castShadow : !m.layers.isEnabled(0)) continue;
+      if (!all && !m.intersectsFrustum(frustum)) continue;
       const name = (Array.isArray(m.material) ? m.material[0] : m.material).name.split('-')[1] ?? '?';
       const per = Math.min(m.geometry.drawRange.count, m.geometry.getAttribute('position').count) / 3;
       const n = (m as THREE.InstancedMesh).isInstancedMesh ? per * (m as THREE.InstancedMesh).count : per;
@@ -230,6 +238,7 @@ function frame(now: number) {
   hook.ready = s.ready;
   hook.stopped = flown >= STOP_M || SPEED === 0;
   hook.tileTriangles = s.triangles;
+  hook.arriveMsMax = s.arriveMsMax;
   if (hook.frames % 30 === 1) {
     const byZoom: Record<number, number> = {};
     for (const t of stream.tiles()) {
@@ -239,6 +248,7 @@ function frame(now: number) {
     hook.byZoom = byZoom;
     hook.drawn = drawnByZoom();
     hook.casters = drawnByZoom(sun.sun.shadow.camera, true);
+    hook.aliveTris = drawnByZoom(camera, false, true);
   }
   if (s.built === 0 && s.failed >= 6) showStatus('The map did not load. Check the connection and reload the page.');
   else if (s.built > 0) showStatus('');

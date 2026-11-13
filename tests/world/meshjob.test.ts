@@ -702,4 +702,18 @@ test('split: buildings, roofs and roads sorted by tile cell, quarters together, 
   const p = packMeshes(s);
   expect(p.buildings.parts).toBe((s.buildings as { parts?: Uint32Array }).parts);
   expect(transferables(p)).toContain(p.buildings.parts!.buffer);
+  // ... with a box per cell (and one box for a bucket that is not split), so the main thread need
+  // not walk the vertices
+  expect(transferables(p)).toContain(p.buildings.bounds.buffer);
+  expect(p.ground.bounds).toHaveLength(6);
+  const parts = p.buildings.parts!, bounds = p.buildings.bounds, pos = p.buildings.position;
+  expect(bounds).toHaveLength(16 * 6);
+  for (let k = 0; k < 16; k++) {
+    for (let v = parts[k]; v < parts[k + 1]; v++)
+      for (let a = 0; a < 3; a++) {
+        expect(pos[v * 3 + a]).toBeGreaterThanOrEqual(bounds[k * 6 + a]);
+        expect(pos[v * 3 + a]).toBeLessThanOrEqual(bounds[k * 6 + 3 + a]);
+      }
+    if (parts[k + 1] > parts[k]) expect(pos.subarray(parts[k] * 3, parts[k + 1] * 3)).toContain(bounds[k * 6]); // tight
+  }
 });

@@ -102,6 +102,8 @@ export type StreamStats = {
   wanted: number;
   /** Every wanted tile is in and faded in, nothing is loading or leaving: the view is complete. */
   ready: boolean;
+  /** Longest main-thread time taken by one arriving tile (geometry, culling bounds), ms. */
+  arriveMsMax: number;
 };
 
 const ease = (x: number) => 1 - Math.pow(2, -10 * Math.min(1, Math.max(0, x)));
@@ -140,6 +142,7 @@ export class WorldStream {
   private time = 0;
   private counts = { built: 0, cancelled: 0, failed: 0, recentres: 0 };
   private disposed = false;
+  private arriveMsMax = 0;
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -238,7 +241,7 @@ export class WorldStream {
       const e = this.entries.get(tileKey(this.wantedKeys[i]));
       if (!e || !e.settled) ready = false;
     }
-    return { alive: this.entries.size, loading, live, leaving, settled, hidden, failed: this.counts.failed, built: this.counts.built, cancelled: this.counts.cancelled, triangles, recentres: this.counts.recentres, wanted: this.wantedKeys.length, ready };
+    return { alive: this.entries.size, loading, live, leaving, settled, hidden, failed: this.counts.failed, built: this.counts.built, cancelled: this.counts.cancelled, triangles, recentres: this.counts.recentres, wanted: this.wantedKeys.length, ready, arriveMsMax: this.arriveMsMax };
   }
 
   /** Keys of the tiles alive, by state (for debugging and tests). */
@@ -410,6 +413,7 @@ export class WorldStream {
   }
 
   private arrive(e: Entry, reply: Extract<BuildReply, { type: 'built' }>): void {
+    const t0 = performance.now();
     const m = reply.meshes;
     e.ac = null;
     e.dither = this.coarserSettled(e.t);
@@ -436,6 +440,7 @@ export class WorldStream {
     }
     this.failed.delete(e.key);
     this.counts.built++;
+    this.arriveMsMax = Math.max(this.arriveMsMax, performance.now() - t0);
     this.onChange?.();
   }
 

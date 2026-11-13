@@ -231,7 +231,37 @@ export function splitCells(b: MeshBuffers, widthM: number, heightM: number): Mes
  * A bucket packed for the GPU and for transfer: positions as they are, normals as signed bytes and
  * colours as linear bytes, both with a fourth padding component (4-byte aligned attributes).
  */
-export type PackedBuffers = { position: Float32Array; normal: Int8Array; color: Uint8Array } & Quartered;
+export type PackedBuffers = {
+  position: Float32Array;
+  normal: Int8Array;
+  color: Uint8Array;
+  /**
+   * Bounding boxes, 6 floats each (min x, y, z, max x, y, z): one per cell when `parts` is set (an
+   * empty cell has min > max), else one for the whole bucket. Worked out here so the main thread
+   * does not walk every vertex of an arriving tile.
+   */
+  bounds: Float32Array;
+} & Quartered;
+
+/** Bounding boxes of the vertex ranges parts[i] .. parts[i + 1] (or of everything). */
+export function rangeBounds(position: Float32Array, parts?: Uint32Array): Float32Array {
+  const edges = parts ?? Uint32Array.of(0, position.length / 3);
+  const out = new Float32Array((edges.length - 1) * 6);
+  for (let r = 0; r + 1 < edges.length; r++) {
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (let i = edges[r] * 3; i < edges[r + 1] * 3; i += 3) {
+      const x = position[i], y = position[i + 1], z = position[i + 2];
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    out.set([x0, y0, z0, x1, y1, z1], r * 6);
+  }
+  return out;
+}
 
 /** Pack a bucket (colours from sRGB to linear). */
 export function packBuffers(b: MeshBuffers & Quartered): PackedBuffers {
@@ -252,7 +282,8 @@ export function packBuffers(b: MeshBuffers & Quartered): PackedBuffers {
     }
     color[i * 4 + 3] = 255;
   }
-  return b.parts ? { position: b.position, normal, color, parts: b.parts } : { position: b.position, normal, color };
+  const bounds = rangeBounds(b.position, b.parts);
+  return b.parts ? { position: b.position, normal, color, bounds, parts: b.parts } : { position: b.position, normal, color, bounds };
 }
 
 /** A tile with every bucket packed (packBuffers). */
@@ -272,7 +303,7 @@ export function packMeshes(m: TileMeshes): TileMeshes<PackedBuffers> {
 export function transferables(m: TileMeshes<MeshBuffers | PackedBuffers>): ArrayBuffer[] {
   const set = new Set<ArrayBuffer>();
   for (const b of [m.ground, m.water, m.buildings, m.roofs, m.roads, m.waterways])
-    for (const a of [b.position, b.normal, b.color, (b as Quartered).parts]) if (a) set.add(a.buffer as ArrayBuffer);
+    for (const a of [b.position, b.normal, b.color, (b as Quartered).parts, (b as Partial<PackedBuffers>).bounds]) if (a) set.add(a.buffer as ArrayBuffer);
   for (const a of [m.trees, m.lamps, m.grid, m.tops]) set.add(a.buffer as ArrayBuffer);
   return [...set];
 }

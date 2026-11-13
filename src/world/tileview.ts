@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import type { MeshBuffers } from './terrain';
 import type { PackedBuffers, Quartered } from './meshjob';
-import { freeAfterUpload, toGeometry, treeGeometry } from './geometry';
+import { freeAfterUpload, sphereOfBox, toGeometry, treeGeometry, unionBox } from './geometry';
 import type { Bucket, ContourMaterials } from './materials';
 
 /** The Contour tree colours (the prototype's sage treeCols). */
@@ -36,6 +36,7 @@ const MESH_BUCKETS: [Exclude<Bucket, 'trees'>, boolean][] = [
 ];
 
 let sharedTree: THREE.BufferGeometry | null = null;
+let treeColours: THREE.Color[] | null = null;
 
 /**
  * The layer of shadow-only meshes: a sun whose shadow camera has it enabled draws them into the
@@ -44,24 +45,21 @@ let sharedTree: THREE.BufferGeometry | null = null;
 export const SHADOW_LAYER = 1;
 
 /**
- * A geometry over vertices [start, start + count) of g, sharing its attributes, with the bounding
- * sphere of that range only (for culling).
+ * A geometry over vertices [start, start + count) of g, sharing its attributes, with the bounds of
+ * that range only (for culling): from the worker's cell boxes when given, else measured.
  */
-function rangeOf(g: THREE.BufferGeometry, start: number, count: number): THREE.BufferGeometry {
+function rangeOf(g: THREE.BufferGeometry, start: number, count: number, box?: THREE.Box3): THREE.BufferGeometry {
   const sub = new THREE.BufferGeometry();
   for (const name of Object.keys(g.attributes)) sub.setAttribute(name, g.attributes[name]);
   sub.setDrawRange(start, count);
-  const pos = g.getAttribute('position') as THREE.BufferAttribute;
-  const box = new THREE.Box3();
-  const v = new THREE.Vector3();
-  for (let i = start; i < start + count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i));
-  sub.boundingBox = box.clone();
-  const sphere = new THREE.Sphere();
-  box.getCenter(sphere.center);
-  let r2 = 0;
-  for (let i = start; i < start + count; i++) r2 = Math.max(r2, sphere.center.distanceToSquared(v.fromBufferAttribute(pos, i)));
-  sphere.radius = Math.sqrt(r2);
-  sub.boundingSphere = sphere;
+  if (!box || box.isEmpty()) {
+    const pos = g.getAttribute('position') as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    box = new THREE.Box3();
+    for (let i = start; i < start + count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i));
+  }
+  sub.boundingBox = box;
+  sub.boundingSphere = sphereOfBox(box);
   return sub;
 }
 
@@ -78,10 +76,14 @@ function boxInFrustum(this: THREE.Mesh, frustum: THREE.Frustum): boolean {
   return frustum.intersectsBox(worldBox.copy(b).applyMatrix4(this.matrixWorld));
 }
 
-/** Non-empty vertex ranges [start, count] of a parts list taken `step` cells at a time. */
-function ranges(parts: Uint32Array, step: number): [number, number][] {
-  const out: [number, number][] = [];
-  for (let i = 0; i + step < parts.length; i += step) if (parts[i + step] > parts[i]) out.push([parts[i], parts[i + step] - parts[i]]);
+/** Geometries over the non-empty ranges of a parts list taken `step` cells at a time. */
+function ranges(g: THREE.BufferGeometry, parts: Uint32Array, step: number, bounds?: Float32Array): THREE.BufferGeometry[] {
+  const out: THREE.BufferGeometry[] = [];
+  for (let i = 0; i + step < parts.length; i += step) {
+    if (parts[i + step] <= parts[i]) continue;
+    const box = bounds && bounds.length === (parts.length - 1) * 6 ? unionBox(bounds, i, i + step) : undefined;
+    out.push(rangeOf(g, parts[i], parts[i + step] - parts[i], box));
+  }
   return out;
 }
 
@@ -122,9 +124,10 @@ export class TileView {
       // casts, one shadow-only mesh per sixteenth (the low sun's long thin box then takes few).
       // They all share the one set of buffers.
       const parts = (b[bucket] as Quartered).parts;
+      const bounds = (b[bucket] as Partial<PackedBuffers>).bounds;
       const shadows = o.castShadow && casts;
-      const quarterGeos = parts?.length === 17 ? ranges(parts, 4).map(([a, n]) => rangeOf(g, a, n)) : [g];
-      const shadowGeos = parts?.length === 17 && shadows ? ranges(parts, 1).map(([a, n]) => rangeOf(g, a, n)) : [];
+      const quarterGeos = parts?.length === 17 ? ranges(g, parts, 4, bounds) : [g];
+      const shadowGeos = parts?.length === 17 && shadows ? ranges(g, parts, 1, bounds) : [];
       if (o.freeArrays) freeAfterUpload(g);
       for (const geo of quarterGeos) this.add(geo, set[bucket], bucket, shadows && shadowGeos.length === 0);
       for (const geo of shadowGeos) this.add(geo, set[bucket], bucket, true).layers.set(SHADOW_LAYER);
@@ -136,10 +139,10 @@ export class TileView {
       geo.setAttribute('aSlot', new THREE.InstancedBufferAttribute(new Uint8Array(count).fill(slot), 1));
       const trees = new THREE.InstancedMesh(geo, set.trees, count);
       trees.instanceMatrix = new THREE.InstancedBufferAttribute(b.trees, 16);
-      const c = new THREE.Color();
+      treeColours ??= TREE_COLOURS.map((hex) => new THREE.Color(hex));
       for (let i = 0; i < count; i++) {
         const h = Math.abs(Math.sin(b.trees[i * 16 + 12] * 12.9898 + b.trees[i * 16 + 14] * 78.233) * 43758.5453) % 1;
-        trees.setColorAt(i, c.set(TREE_COLOURS[Math.floor(h * TREE_COLOURS.length)]));
+        trees.setColorAt(i, treeColours[Math.floor(h * treeColours.length)]);
       }
       trees.computeBoundingSphere();
       trees.castShadow = o.castShadow;
