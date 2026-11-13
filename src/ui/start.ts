@@ -16,7 +16,12 @@ import { mountSearch, type Place } from './search';
 export type StartKind = 'default' | 'featured' | 'search' | 'gps';
 export type StartChoice = { name: string; lat: number; lon: number; kind: StartKind; cityId?: string };
 
-export type StartHandlers = { onLetGo(start: StartChoice): void; onOpenBalloon(b: SavedBalloon): void };
+export type StartHandlers = {
+  onLetGo(start: StartChoice): void;
+  onOpenBalloon(b: SavedBalloon): void;
+  /** The start place changed (also called once at mount): the live scene moves there. */
+  onStartChange?(start: StartChoice): void;
+};
 
 export type StartScreen = {
   readonly start: StartChoice;
@@ -26,6 +31,8 @@ export type StartScreen = {
    * second by whoever draws the scene; it darkens the shading by up to 0.15 when bright.
    */
   setBackdropLuminance(top: number, bottom: number): void;
+  /** Read "Your balloons" again (a balloon was just saved). */
+  refresh(): void;
   destroy(): void;
 };
 
@@ -91,7 +98,10 @@ export function skyFor(p: LatLon, nowMs: number): { top: string; horizon: string
 /** Solid worst-case backdrops for the contrast check (?backdrop=noon|snow|sand). */
 export const TEST_BACKDROPS: Record<string, string> = { noon: '#d6e8f0', snow: '#f4f6f8', sand: '#e6d6a2' };
 
-/** "Location is off" is said once; after a refusal the link only opens the search. */
+/**
+ * "Location is off" is said once; after a refusal the link only opens the search. A timeout or an
+ * unavailable position is not a refusal: it says so and the next tap asks again.
+ */
 let locationRefused = false;
 const SEARCH_WAIT_MS = 600;
 
@@ -208,6 +218,7 @@ export function mountStart(
     start = c;
     if (c.kind !== 'search') openSpace = null;
     render();
+    handlers.onStartChange?.(c);
   };
 
   // ---- your balloons ----
@@ -252,7 +263,10 @@ export function mountStart(
         .then((m) => m.openSpaceFor({ lat: p.lat, lon: p.lon }))
         .catch(() => ({ lat: p.lat, lon: p.lon }));
       openSpace.then((q) => {
-        if (start === picked) start = { ...picked, lat: q.lat, lon: q.lon };
+        if (start === picked) {
+          start = { ...picked, lat: q.lat, lon: q.lon };
+          handlers.onStartChange?.(start);
+        }
       });
       letGoBtn.focus({ preventScroll: true });
     },
@@ -286,11 +300,13 @@ export function mountStart(
   });
 
   // ---- my location ----
-  const refuse = () => {
-    locationRefused = true;
+  const refuse = (e?: { code?: number }) => {
+    // 1 is PERMISSION_DENIED; 2 (unavailable) and 3 (timeout) may well work next time
+    const denied = !e || e.code === 1 || e.code === undefined;
+    if (denied) locationRefused = true;
     locateBtn.textContent = COPY.useMyLocation;
     locateBtn.removeAttribute('aria-busy');
-    openSearch(COPY.locationOff);
+    openSearch(denied ? COPY.locationOff : COPY.locationTimeout);
   };
   locateBtn.addEventListener('click', () => {
     if (locateBtn.getAttribute('aria-busy') === 'true') return;
@@ -341,6 +357,7 @@ export function mountStart(
   render();
   renderMine();
   fitShade();
+  handlers.onStartChange?.(start);
 
   return {
     get start() {
@@ -348,6 +365,10 @@ export function mountStart(
     },
     setStart,
     setBackdropLuminance,
+    refresh() {
+      renderMine();
+      fitShade();
+    },
     destroy() {
       clearInterval(sceneTimer);
       ro?.disconnect();

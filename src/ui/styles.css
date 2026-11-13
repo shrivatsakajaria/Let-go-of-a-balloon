@@ -421,6 +421,212 @@ a.link, .small a { color: var(--paper); }
   .search > * { width: 100%; max-width: 560px; }
 }
 
+/* ---- the live scene ---- */
+
+.scene .world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  transition: opacity 600ms var(--ease);
+}
+.scene .world.on { opacity: 1; }
+
+/* ---- views: which chrome shows (spec 8: out over 300 ms on Let go, the HUD in over 600 ms at 20 s) ---- */
+
+.start .top, .start .bottom, .shade, .hud-top .where .clock, .hud-top .where .over, .hud .stats, .hud-bottom, .hud-shade, .notice-layer {
+  transition: opacity 300ms var(--ease), visibility 0s linear 0s;
+}
+:root[data-view] .hud { visibility: visible; }
+:root[data-view='launch'] .start .top,
+:root[data-view='launch'] .start .bottom,
+:root[data-view='launch'] .shade-bottom,
+:root[data-view='flight'] .start .top,
+:root[data-view='flight'] .start .bottom,
+:root[data-view='flight'] .shade-bottom,
+:root[data-view='error'] .start .bottom,
+:root[data-view='broken'] .start .bottom,
+:root[data-view='link'] .start .top,
+:root[data-view='link'] .start .bottom,
+:root[data-view='link'] .shade,
+:root:not([data-view='launch']):not([data-view='flight']) .hud-top .clock,
+:root:not([data-view='flight']) .hud-top .over,
+:root:not([data-view='flight']) .hud .stats,
+:root:not([data-view='flight']) .hud-bottom,
+:root:not([data-view='flight']) .hud-shade,
+:root:not([data-view='error']):not([data-view='broken']) .notice-layer {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 300ms var(--ease), visibility 0s linear 300ms;
+}
+:root[data-view='launch'] .letgo { transform: scale(0.97); }
+/* the HUD comes in slower than the chrome goes out */
+:root[data-view='flight'] .hud-top .over,
+:root[data-view='flight'] .hud .stats,
+:root[data-view='flight'] .hud-bottom,
+:root[data-view='flight'] .hud-shade {
+  transition: opacity 600ms var(--ease), visibility 0s linear 0s;
+}
+
+/* ---- the live flight HUD ---- */
+
+.hud {
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+  visibility: hidden;
+}
+.hud > :not(.hud-shade) { pointer-events: auto; position: relative; }
+.hud-shade {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--hud-shade-h, 300px);
+  pointer-events: none;
+  background: linear-gradient(to top,
+    rgba(var(--ink), var(--shade-bottom)) 0%,
+    rgba(var(--ink), var(--shade-bottom)) 66%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.8)) 79%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.45)) 89%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.12)) 96%,
+    rgba(var(--ink), 0) 100%);
+}
+
+.hud-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: max(16px, env(safe-area-inset-top)) var(--gutter) 0;
+}
+.hud p { margin: 0; }
+.clock {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 62;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.over {
+  margin-top: 4px !important;
+  max-width: 24ch;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.stats {
+  display: flex;
+  gap: 20px;
+  margin: 0;
+  padding-top: 4px;
+  text-align: right;
+}
+.stat { display: flex; flex-direction: column-reverse; }
+.stat dd {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 650;
+  font-variation-settings: 'wdth' 62;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stat dt { margin-top: 4px; font-size: 13px; font-weight: 500; }
+.is-landed .stats { visibility: hidden; }
+
+.hud-bottom {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--gutter) max(12px, env(safe-area-inset-bottom));
+}
+.fact {
+  min-height: calc(2 * 1.35em);
+  max-width: 34ch;
+  margin-bottom: 8px !important;
+  display: flex;
+  align-items: flex-end;
+  font-size: 16px;
+  font-weight: 450;
+  line-height: 1.35;
+  text-wrap: pretty;
+  transition: opacity 220ms var(--ease);
+}
+.fact.out { opacity: 0; }
+
+/* the balloon's string, from release to 72 hours */
+.string { position: relative; height: 14px; margin: 0 4px 0 0; }
+.string > * { position: absolute; top: 50%; }
+.string .track, .string .fill { left: 0; height: 1.5px; margin-top: -0.75px; }
+.string .track { right: 0; background: rgba(247, 243, 236, 0.35); }
+.string .fill { width: 0; background: var(--accent); }
+.string .knot { left: 0; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--accent); }
+.string .ticks { left: 0; right: 0; }
+.string .ticks i { position: absolute; width: 1.5px; height: 7px; margin: -3.5px 0 0 -0.75px; background: rgba(247, 243, 236, 0.75); }
+.string .ring { right: 0; width: 9px; height: 9px; margin: -4.5px -4.5px 0 0; box-sizing: border-box; border: 1.5px solid var(--paper); border-radius: 50%; }
+
+.day-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.day { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.pause { margin-right: -8px; font-size: 15px; font-weight: 600; }
+
+.views { display: flex; align-items: center; margin-left: -8px; }
+.view {
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration-color: transparent;
+  opacity: 0.66; /* 60% in 7.1; 66% keeps 4.5:1 over snow under the full shading */
+}
+.view:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
+.view[aria-pressed='true'] { opacity: 1; text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+.dot { opacity: 0.66; font-weight: 600; }
+
+.actions { display: flex; align-items: center; gap: 16px; }
+.actions .again { margin-left: -8px; font-size: 15px; font-weight: 600; }
+.main-action {
+  min-height: 52px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--paper);
+  color: rgb(var(--ink));
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms var(--ease), background-color 160ms var(--ease);
+}
+.main-action:hover { background: #fffaf2; }
+.main-action:active { transform: scale(0.97); }
+.main-action:focus-visible { border-radius: 8px; }
+.hud .fineprint { margin-top: 8px; }
+
+/* ---- notices: the winds error and the broken link ---- */
+
+.notice-layer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 var(--gutter) max(24px, env(safe-area-inset-bottom));
+}
+.notice-text { margin: 0 0 12px; max-width: 34ch; font-size: 16px; font-weight: 450; line-height: 1.35; text-wrap: pretty; }
+.notice-actions { display: flex; align-items: center; gap: 16px; }
+.notice-actions .link { font-size: 15px; font-weight: 600; }
+
+@media (min-width: 720px) {
+  .hud-bottom { max-width: 560px; }
+  .notice-layer { max-width: 560px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

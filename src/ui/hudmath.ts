@@ -135,6 +135,12 @@ function landedWords(l: Landing | null): string {
   return l.kind === 'town' ? `landed near ${l.name}` : `landed in ${withArticle(l.name, l.kind)}`;
 }
 
+/** The line under the clock once it is down: "Landed near Bergen", "Came down in the North Sea". */
+export function landedOver(l: Landing | null): string {
+  const w = landedWords(l);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
 /**
  * What the polite status region says (spec 7.3): only the launch, a change of country and the landing.
  * Null when there is nothing to say. `prev` is null for the first state of a flight.
