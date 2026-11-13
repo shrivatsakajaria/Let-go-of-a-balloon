@@ -58,6 +58,11 @@ export type LandmarkModel = Pick<Landmark, 'build' | 'animate'>;
  *  - walls: stone with the Contour window pattern (subtle by day, some windows lit at night);
  *  - plain: stone, roofs, spires, metal: no windows;
  *  - glow:  surfaces that light up from dusk (clock faces, lanterns), dim by day.
+ *
+ * Thin overhead parts (ropes, chains, cables, hangers) go in their own meshes (a second Kit's
+ * `mesh(bucket, name)`) marked `mesh.userData.noTops = true`: the layer leaves them out of the
+ * landmark's tops for the camera, which would otherwise stand each long triangle's highest point
+ * over the whole of its plan bounds.
  */
 export type LandmarkBucket = 'walls' | 'plain' | 'glow';
 export const LANDMARK_BUCKETS: LandmarkBucket[] = ['walls', 'plain', 'glow'];

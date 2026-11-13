@@ -256,14 +256,17 @@ export class LandmarkLayer {
 /**
  * A coarse height grid over a model (its own frame, before the heading turn): the highest point of
  * every triangle in each CELL_M cell its plan bounds touch, -Infinity where there is nothing.
+ * Meshes marked `userData.noTops` (thin overhead parts: ropes, chains, hangers) are left out: a
+ * long diagonal triangle would otherwise stand its highest point over every cell of its bounds.
  */
-function heightGrid(group: THREE.Group): Tops {
+export function heightGrid(group: THREE.Group): Tops {
   group.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
   const m = new THREE.Matrix4();
   const box = new THREE.Box3();
   const meshes: THREE.Mesh[] = [];
-  group.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
+  group.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.noTops && meshes.push(o as THREE.Mesh));
+  if (!meshes.length) return { minX: 0, minZ: 0, nx: 1, nz: 1, h: new Float32Array(1).fill(-Infinity), reach: 0 };
   for (const mesh of meshes) box.union(new THREE.Box3().setFromObject(mesh).applyMatrix4(inv));
   const minX = Math.floor(box.min.x), minZ = Math.floor(box.min.z);
   const nx = Math.max(1, Math.ceil((box.max.x - minX) / CELL_M)), nz = Math.max(1, Math.ceil((box.max.z - minZ) / CELL_M));
