@@ -331,11 +331,12 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
     put('stat-label', s.label, x, y, labF, 'secondary');
     put('stat-value', s.value, x, y - 26 - 8, valF, 'primary');
   });
-  // from the labels' baseline to the headline's: the values (41 px caps) and room for descenders
-  y -= 26 + 8 + 41 + 34;
+  // from the labels' baseline to the headline's: the values (41 px caps) and room for descenders;
+  // a one-line headline has the room to stand further off
+  const head = fitHeadline(w.from, w.to, m, inner);
+  y -= 26 + 8 + 41 + (head.lines.length > 1 ? 34 : 56);
 
   // headline
-  const head = fitHeadline(w.from, w.to, m, inner);
   const lh = Math.round(head.size * 0.92);
   const lines = head.lines;
   for (let i = lines.length - 1; i >= 0; i--) {

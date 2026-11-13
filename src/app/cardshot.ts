@@ -27,6 +27,7 @@ import * as THREE from 'three';
 import type { Route } from '../flight/route';
 import { positionAt } from '../flight/route';
 import { bearingDeg, destination, haversineKm, lonLatToTile, type LatLon } from '../geo/coords';
+import { seaAt } from '../geo/gazetteer';
 import { tameWarm, type CardFrame, type CardScene } from '../ui/card';
 import { M_PER_DEG } from '../world/frame';
 import { tilesFor, tileKey, type TileKey } from '../world/lod';
@@ -61,6 +62,9 @@ const SKEW_NEAR_DEG = 11;
 export const NEAR_START_KM = 28;
 /** Far: the horizon, the start and the landing, as fractions of the frame from its top. */
 const FAR = { horizonY: 0.14, startY: 0.25, landingY: 0.58, skewDeg: 8 };
+/** Far: the plain's sea and land (Contour's deep water and a mid sage). */
+const PLAIN_SEA = '#2b7fb0';
+const PLAIN_LAND = '#a0c078';
 /** Far: how long the card world may take to draw before the picture is taken anyway. */
 const FAR_WAIT_MS = 20000;
 /** The trail is sampled this often along the route. */
@@ -166,10 +170,31 @@ export function farCamera(shot: FarShot, groundM: number, aspect = ASPECT): THRE
 }
 
 /**
- * The z7 tiles under the far view, nearest the landing first: the ground the frame sees, from its
- * bottom edge out to a little past the start, as wide as the view at each distance.
+ * The z7 tiles under the far view, in the order they are worth drawing: the landing's, the start's,
+ * those under the trail (nearest the landing first), then the rest of the ground the frame sees, from
+ * its bottom edge out to a little past the start (nearest the trail first). If the time runs out, the
+ * two ends and the line between them are drawn and the haze plain shows at the sides.
  */
 export function corridorTiles(route: Route, shot: FarShot, z = 7): TileKey[] {
+  const n = 2 ** z;
+  const keyOf = (p: LatLon): TileKey => {
+    const t = lonLatToTile(Math.max(-85.05, Math.min(85.05, p.lat)), p.lon, z);
+    return { z, x: ((Math.floor(t.x) % n) + n) % n, y: Math.max(0, Math.min(n - 1, Math.floor(t.y))) };
+  };
+  const rank = new Map<string, { t: TileKey; r: number }>();
+  const add = (p: LatLon, r: number) => {
+    const t = keyOf(p);
+    const k = tileKey(t);
+    const had = rank.get(k);
+    if (!had || r < had.r) rank.set(k, { t, r });
+  };
+  add(shot.landing, 0);
+  add(route.points[0], 1);
+  // under the trail, every few km
+  const trail: LatLon[] = [];
+  for (let i = route.points.length - 1; i >= 0; i -= 3) trail.push(route.points[i]);
+  for (const p of trail) add(p, 2 + haversineKm(shot.landing, p) / 1e5);
+  // the rest of the view
   const tanHalf = Math.tan((FOV / 2) * D2R);
   const pitch = Math.atan((0.5 - FAR.horizonY) * 2 * tanHalf);
   const near = shot.up / Math.tan(pitch + Math.atan(tanHalf)); // where the frame's bottom meets the ground
@@ -178,23 +203,16 @@ export function corridorTiles(route: Route, shot: FarShot, z = 7): TileKey[] {
   const cx = -shot.dir.x * shot.back, cz = -shot.dir.z * shot.back;
   const rx = -shot.dir.z, rz = shot.dir.x;
   const step = Math.max(8000, (far - near) / 40);
-  const seen = new Map<string, { t: TileKey; d: number }>();
-  const add = (p: LatLon) => {
-    const n = 2 ** z;
-    const t = lonLatToTile(Math.max(-85.05, Math.min(85.05, p.lat)), p.lon, z);
-    const k = { z, x: ((Math.floor(t.x) % n) + n) % n, y: Math.max(0, Math.min(n - 1, Math.floor(t.y))) };
-    const key = tileKey(k);
-    const d = haversineKm(shot.landing, p);
-    const had = seen.get(key);
-    if (!had || d < had.d) seen.set(key, { t: k, d });
-  };
-  add(shot.landing);
-  add(route.points[0]);
   for (let f = near; f <= far; f += step) {
     const half = Math.hypot(f, shot.up) * tanHalf * ASPECT * 1.1 + 10000;
-    for (let side = -half; side <= half; side += step) add(fromLocal(shot.landing, cx + shot.dir.x * f + rx * side, cz + shot.dir.z * f + rz * side));
+    for (let side = -half; side <= half; side += step) {
+      const p = fromLocal(shot.landing, cx + shot.dir.x * f + rx * side, cz + shot.dir.z * f + rz * side);
+      let dTrail = Infinity;
+      for (const q of trail) dTrail = Math.min(dTrail, haversineKm(p, q));
+      add(p, 10 + dTrail / 1e4);
+    }
   }
-  return [...seen.values()].sort((a, b) => a.d - b.d).map((v) => v.t);
+  return [...rank.values()].sort((a, b) => a.r - b.r).map((v) => v.t);
 }
 
 // ---- drawing ----
@@ -330,6 +348,60 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
   return { image, ...project(route, camera, w, h, (p) => stream.toScene(p), (p) => stream.groundAt(p), nearClarity) };
 }
 
+/** Far: the plain of sea and land under the card world (a grid over the ground the frame sees). */
+async function seaPlain(route: Route, shot: FarShot, y: number): Promise<THREE.Mesh> {
+  const tanHalf = Math.tan((FOV / 2) * D2R);
+  const pitch = Math.atan((0.5 - FAR.horizonY) * 2 * tanHalf);
+  const near = (shot.up / Math.tan(pitch + Math.atan(tanHalf))) * 0.7;
+  const s = toLocal(shot.landing, route.points[0]);
+  const far = (Math.hypot(s.x, s.z) + shot.back) * 1.4;
+  const cx = -shot.dir.x * shot.back, cz = -shot.dir.z * shot.back;
+  const rx = -shot.dir.z, rz = shot.dir.x;
+  const NF = 120, NS = 80;
+  const pos = new Float32Array((NF + 1) * (NS + 1) * 3);
+  const col = new Float32Array(pos.length);
+  const nor = new Float32Array(pos.length);
+  const sea = new THREE.Color(PLAIN_SEA), land = new THREE.Color(PLAIN_LAND);
+  const jobs: Promise<void>[] = [];
+  for (let i = 0; i <= NF; i++) {
+    const f = near * (far / near) ** (i / NF); // closer rows nearer the camera
+    const half = Math.hypot(f, shot.up) * tanHalf * ASPECT * 1.3 + 20000;
+    for (let j = 0; j <= NS; j++) {
+      const side = -half + (2 * half * j) / NS;
+      const x = cx + shot.dir.x * f + rx * side, z = cz + shot.dir.z * f + rz * side;
+      const k = (i * (NS + 1) + j) * 3;
+      pos[k] = x;
+      pos[k + 1] = y;
+      pos[k + 2] = z;
+      nor[k + 1] = 1;
+      jobs.push(
+        seaAt(fromLocal(shot.landing, x, z)).then(
+          (wet) => void (wet ? sea : land).toArray(col, k),
+          () => void land.toArray(col, k),
+        ),
+      );
+    }
+  }
+  await Promise.all(jobs);
+  const index: number[] = [];
+  for (let i = 0; i < NF; i++)
+    for (let j = 0; j < NS; j++) {
+      const a = i * (NS + 1) + j, b = a + NS + 1;
+      index.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(index);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, fog: true }));
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/** The last card world: how many tiles it wanted, how many were drawn, and how long it took (for checks). */
+export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0 };
+
 /** Far: a card world of its own, drawn once and disposed. */
 export async function farFrame(live: LiveScene, route: Route, w: number, h: number): Promise<CardFrame | null> {
   const shot = farShot(route);
@@ -338,6 +410,10 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
   const sky = new Sky(scene, { shadow: { radius: 700, mapSize: 512, snap: 100, upM: 60, downM: 40 } });
   const L = sky.apply(shot.sun, null, false);
   const camera = farCamera(shot, g, w / h);
+  // under everything, a plain of sea and land from the place-name grid (about 5 km cells): wherever a
+  // map tile is not drawn in time, the coast still reads, softened by the haze, never a hole
+  const plain = await seaPlain(route, shot, Math.min(0, g) - 300);
+  scene.add(plain);
   const camGround = fromLocal(shot.landing, camera.position.x, camera.position.z);
   const lod = { lat: camGround.lat, lon: camGround.lon, altM: camera.position.y, headingDeg: shot.viewDeg };
   // the coarse corridor, plus the usual finer rings round the camera's ground point (shorter routes)
@@ -366,6 +442,8 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
       await new Promise((r) => setTimeout(r, 100));
     }
     stream.update(here, performance.now() + 1000);
+    const st = stream.stats();
+    Object.assign(farStats, { tiles: tiles.length, settled: st.settled, failed: st.failed, ms: Math.round(performance.now() - t0) });
     sky.setView(camera, shot.fogFar, h / 2);
     sky.fog.near = shot.fogNear;
     sky.place(new THREE.Vector3(0, g, 0));
@@ -379,5 +457,7 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
   } finally {
     stream.dispose();
     sky.dispose();
+    plain.geometry.dispose();
+    (plain.material as THREE.Material).dispose();
   }
 }

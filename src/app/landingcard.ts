@@ -10,7 +10,7 @@ import { nearestPlace, type Place } from '../geo/gazetteer';
 import { cardFacts, cardWords, startName, type CardLayout, type CardWords, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
 import { showCardView, type CardView } from '../ui/cardview';
 import { COPY } from '../ui/copy';
-import { cardScene } from './cardshot';
+import { cardScene, farStats } from './cardshot';
 import type { LiveScene } from './scene';
 import { landedAt } from './data';
 
@@ -29,9 +29,11 @@ export type CardHook = {
   renders: number;
   /** When the last card was asked for (UTC ms). */
   startedAt: number;
+  /** The card world of a long route: tiles wanted, drawn, failed, and ms to draw them. */
+  world: typeof farStats;
 };
 
-export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0 };
+export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0, world: farStats };
 (globalThis as unknown as { __card: CardHook }).__card = cardHook;
 
 /** A "Use my location" start goes by the place it is in (startName), never "Your location". */

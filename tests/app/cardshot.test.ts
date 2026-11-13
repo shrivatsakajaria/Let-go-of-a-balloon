@@ -100,7 +100,12 @@ describe('the card camera for a long route (both ends in the picture)', () => {
     expect(keys).toContain(key(BERGEN));
     expect(new Set(keys).size).toBe(keys.length);
     expect(tiles.length).toBeLessThanOrEqual(80);
-    // nearest the landing first
+    // the landing first, then the start, then the tiles under the trail, then the rest of the view
     expect(keys[0]).toBe(key(BERGEN));
+    expect(keys[1]).toBe(key(MANCHESTER));
+    const underTrail = new Set(r.points.map(key));
+    const firstOff = keys.findIndex((k) => !underTrail.has(k));
+    expect(firstOff).toBeGreaterThan(2);
+    expect(keys.slice(firstOff).every((k) => !underTrail.has(k))).toBe(true);
   });
 });
