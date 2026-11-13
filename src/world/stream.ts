@@ -143,6 +143,7 @@ export class WorldStream {
   private counts = { built: 0, cancelled: 0, failed: 0, recentres: 0 };
   private disposed = false;
   private arriveMsMax = 0;
+  private started = false;
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -284,10 +285,12 @@ export class WorldStream {
   private maybeRecentre(camera: LodCamera): boolean {
     const dz = (camera.lat - this.origin.lat) * M_PER_DEG;
     const dx = lonDelta(this.origin.lon, camera.lon) * M_PER_DEG * this.cosO;
-    if (this.entries.size > 0 && dx * dx + dz * dz <= this.recentreM * this.recentreM) return false;
+    // the first frame moves the origin to the camera if it is far; after that, past recentreM
+    if (this.started && dx * dx + dz * dz <= this.recentreM * this.recentreM) return false;
+    this.started = true;
     const from = { ...this.origin };
     const to = { lat: camera.lat, lon: wrapLon(camera.lon) };
-    if (from.lat === to.lat && from.lon === to.lon) return false;
+    if (dx * dx + dz * dz <= 1e-6) return false;
     const shift = this.toScene(to);
     const oldCos = this.cosO;
     this.origin = to;
@@ -295,7 +298,7 @@ export class WorldStream {
     this.coverage.setOrigin(to);
     this.coverageDirty = true;
     for (const e of this.entries.values()) if (e.view) this.place(e);
-    if (this.entries.size === 0) return true; // the first placement: nothing to shift
+    // always told, even with no tile in: the balloon and camera may already be placed
     this.counts.recentres++;
     this.haze.uWinShift.value.x += shift.x;
     this.haze.uWinShift.value.z += shift.z;

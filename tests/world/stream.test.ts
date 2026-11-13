@@ -210,6 +210,19 @@ describe('WorldStream', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('a first camera far from the origin moves the origin there, and says so even with no tile in', () => {
+    const { stream } = setup({ origin: { lat: 51.5, lon: -0.12 } });
+    const events: RecentreEvent[] = [];
+    stream.onRecentre = (e) => events.push(e);
+    stream.update(cam(MANCHESTER), 0);
+    expect(events).toHaveLength(1);
+    expect(events[0].to.lat).toBeCloseTo(MANCHESTER.lat, 9);
+    expect(Math.hypot(stream.toScene(MANCHESTER).x, stream.toScene(MANCHESTER).z)).toBeLessThan(1e-6);
+    // then it stays put while the camera is near
+    stream.update(cam(destination(MANCHESTER, 10, 2)), 16);
+    expect(events).toHaveLength(1);
+  });
+
   it('fades a tile in from the haze over 400 ms, or dissolves it in over coarser land', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER));
