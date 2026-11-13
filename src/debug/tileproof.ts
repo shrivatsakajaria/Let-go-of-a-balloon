@@ -17,6 +17,7 @@ import type { BuildReply, BuildRequest } from '../world/worker';
 import type { TileMeshes } from '../world/meshjob';
 import { blockBounds, farLandBuffers, gridPlacements, orbitPose, type TilePlacement } from './tilegrid';
 import { toGeometry, treeGeometry } from './tilegeom';
+import { WorkerPool } from '../world/workerpool';
 
 const ALBERT: LatLon = { lat: 53.4794, lon: -2.2453 };
 const Z = 14;
@@ -285,31 +286,24 @@ function groundAt(t: TerrainTile, tile: TilePlacement): number {
   return heightAt(t.heights, t.size, f.fx * t.size - 0.5, f.fy * t.size - 0.5);
 }
 
-const workers = Array.from({ length: Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 2) - 1)) }, () =>
-  new Worker(new URL('../world/worker.ts', import.meta.url), { type: 'module' }),
+const pool = new WorkerPool<BuildRequest, BuildReply>(
+  () => new Worker(new URL('../world/worker.ts', import.meta.url), { type: 'module' }),
+  Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 2) - 1)),
+  { timeoutMs: 20000 },
 );
-let nextWorker = 0;
-let nextId = 1;
-const pending = new Map<number, (r: BuildReply) => void>();
-for (const w of workers) w.onmessage = (e: MessageEvent<BuildReply>) => {
-  const id = e.data.id;
-  if (id === undefined) return;
-  pending.get(id)?.(e.data);
-  pending.delete(id);
-};
 
-function build(tile: TilePlacement, tpl: string, terrain: TerrainTile): Promise<BuildReply> {
-  const id = nextId++;
+/** Build one tile in the pool; rejects if the worker fails, times out or reports an error. */
+async function build(tile: TilePlacement, tpl: string, terrain: TerrainTile): Promise<TileMeshes> {
   const heights = terrain.heights.slice(); // the terrain cache keeps the original
-  const req: BuildRequest = {
-    type: 'build', id, z: tile.z, x: tile.x, y: tile.y,
-    region: DEFAULT_REGION, vectorUrl: tpl, terrain: { heights, size: terrain.size }, hiddenFootprints: [],
-  };
-  const w = workers[nextWorker++ % workers.length];
-  return new Promise((resolve) => {
-    pending.set(id, resolve);
-    w.postMessage(req, [heights.buffer]);
-  });
+  const reply = await pool.request(
+    {
+      type: 'build', z: tile.z, x: tile.x, y: tile.y,
+      region: DEFAULT_REGION, vectorUrl: tpl, terrain: { heights, size: terrain.size }, hiddenFootprints: [],
+    },
+    [heights.buffer],
+  );
+  if (reply.type !== 'built') throw new Error(reply.message);
+  return reply.meshes;
 }
 
 function showStatus(text: string) {
@@ -340,43 +334,48 @@ function addFarLand(tiles: TilePlacement[], terrains: Map<TilePlacement, Terrain
   placed.push({ fade, born: performance.now() });
 }
 
+const LOAD_FAILED = 'The map did not load. Check the connection and reload the page.';
+
 async function load() {
   const tiles = gridPlacements(ALBERT, Z);
-  let tpl: string;
   try {
-    tpl = await vectorTileTemplate();
-  } catch {
-    showStatus('The map did not load. Check the connection and reload the page.');
-    return;
-  }
-  const terrains = new Map<TilePlacement, TerrainTile>();
-  const terrainIn = tiles.map(async (tile, i) => {
-    const t = await terrainTile(tile.z, tile.x, tile.y);
-    terrains.set(tile, t);
-    if (i === 0) {
-      target.y = groundAt(t, tile);
-      placeSun();
+    let tpl: string;
+    try {
+      tpl = await vectorTileTemplate();
+    } catch {
+      showStatus(LOAD_FAILED);
+      return;
     }
-    return t;
-  });
-  // the surrounding land, as soon as every terrain tile has answered
-  Promise.allSettled(terrainIn).then(() => addFarLand(tiles, terrains));
-  await Promise.all(
-    tiles.map(async (tile, i) => {
-      try {
-        const reply = await build(tile, tpl, await terrainIn[i]);
-        if (reply.type === 'built') addTile(tile, reply.meshes);
-        else throw new Error(reply.message);
-      } catch (e) {
-        failed++;
-        console.warn(`tile ${tile.z}/${tile.x}/${tile.y}`, e);
+    const terrains = new Map<TilePlacement, TerrainTile>();
+    const terrainIn = tiles.map(async (tile, i) => {
+      const t = await terrainTile(tile.z, tile.x, tile.y);
+      terrains.set(tile, t);
+      if (i === 0) {
+        target.y = groundAt(t, tile);
+        placeSun();
       }
-    }),
-  );
-  if (failed === tiles.length) showStatus('The map did not load. Check the connection and reload the page.');
-  else if (failed) showStatus(`${failed} of ${tiles.length} map tiles did not load.`);
-  hook.done = true;
-  for (const w of workers) w.terminate();
+      return t;
+    });
+    // the surrounding land, as soon as every terrain tile has answered
+    Promise.allSettled(terrainIn)
+      .then(() => addFarLand(tiles, terrains))
+      .catch((e) => console.warn('far land', e));
+    await Promise.all(
+      tiles.map(async (tile, i) => {
+        try {
+          addTile(tile, await build(tile, tpl, await terrainIn[i]));
+        } catch (e) {
+          failed++;
+          console.warn(`tile ${tile.z}/${tile.x}/${tile.y}`, e);
+        }
+      }),
+    );
+    if (failed === tiles.length) showStatus(LOAD_FAILED);
+    else if (failed) showStatus(`${failed} of ${tiles.length} map tiles did not load.`);
+  } finally {
+    hook.done = true;
+    pool.terminate();
+  }
 }
 
 // ---- frame loop ----
