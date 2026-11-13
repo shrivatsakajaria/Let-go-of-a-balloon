@@ -313,6 +313,9 @@ export class Live {
     if (this.replayPrep?.route === fl.route) this.replayPrep.names.then((n) => this.replayRun === ctl && names.push(...n));
     const landing = this.landingFor === fl.route && this.landing ? { name: this.landing.name, kind: this.landing.kind } : null;
     this.deps.start.setBackdropLuminance(1, 1);
+    // a paused camera would not climb: the replay plays (it has Back to live, not Pause)
+    this.hud.setPaused(false);
+    this.scene.setPaused(false);
     this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
     const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
     void playReplay(fl.route, {
