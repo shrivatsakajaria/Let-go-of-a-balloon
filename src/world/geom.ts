@@ -275,3 +275,42 @@ export function clipTriToTile(ax: number, az: number, bx: number, bz: number, cx
   o = clipRingHalfPlane(o, 0, 1, H);
   return o;
 }
+
+/**
+ * Douglas-Peucker for a closed ring [x, z, ...] (no repeated last point): drops vertices closer than
+ * `tol` metres to the simplified outline. Anchored on the vertex farthest from the first, so the
+ * ring keeps its extent. Returns the ring unchanged if it would fall under three vertices.
+ */
+export function simplifyRing(r: ArrayLike<number>, tol: number): number[] {
+  const n = r.length / 2;
+  const all = Array.from(r);
+  if (n <= 4 || tol <= 0) return all;
+  let far = 0, best = -1;
+  for (let i = 1; i < n; i++) {
+    const d = (r[i * 2] - r[0]) ** 2 + (r[i * 2 + 1] - r[1]) ** 2;
+    if (d > best) { best = d; far = i; }
+  }
+  const keep = new Uint8Array(n);
+  keep[0] = keep[far] = 1;
+  const t2 = tol * tol;
+  const stack: [number, number][] = [[0, far], [far, n]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const ax = r[a * 2], az = r[a * 2 + 1], bx = r[(b % n) * 2], bz = r[(b % n) * 2 + 1];
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+    let worst = -1, wi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const px = r[i * 2] - ax, pz = r[i * 2 + 1] - az;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, (px * dx + pz * dz) / l2)) : 0;
+      const d = (px - dx * t) ** 2 + (pz - dz * t) ** 2;
+      if (d > worst) { worst = d; wi = i; }
+    }
+    if (worst > t2) {
+      keep[wi] = 1;
+      stack.push([a, wi], [wi, b]);
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(r[i * 2], r[i * 2 + 1]);
+  return out.length >= 6 ? out : all;
+}

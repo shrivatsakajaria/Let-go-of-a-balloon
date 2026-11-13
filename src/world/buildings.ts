@@ -7,7 +7,7 @@
 import earcut from 'earcut';
 import { groundHeightAt, LC, type GroundGrid } from './terrain';
 import { lerpHex, TALL_WALLS_M, type RegionStyle } from './palette';
-import { MeshBuilder, clipRingHalfPlane, dedupe, hash01, pointInPolygon, ringArea, ringCentroid, rgb, scaleRGB, bbox, type BBox, type Polygon, type RGB } from './geom';
+import { MeshBuilder, clipRingHalfPlane, dedupe, hash01, pointInPolygon, ringArea, ringCentroid, rgb, scaleRGB, simplifyRing, bbox, type BBox, type Polygon, type RGB } from './geom';
 import type { BuildingFeature } from './vector';
 import type { Landcover } from './landcover';
 
@@ -182,7 +182,23 @@ export type BuildingContext = {
   ground: GroundGrid;
   region: RegionStyle;
   hidden: Circle[];
+  /** Flat tops for every building (no pitched roofs), for distant tiles. */
+  flat?: boolean;
+  /** Skip footprints smaller than this (m2) unless at least `keepTallerM` tall. */
+  minAreaM2?: number;
+  keepTallerM?: number;
+  /** Simplify footprints to this tolerance in metres (distant tiles). */
+  simplifyM?: number;
+  /** Collects [x, z, radius, top] per building drawn (local metres; top is absolute). */
+  tops?: number[];
 };
+
+/** Centre-to-farthest-vertex radius of a ring around (cx, cz). */
+function ringRadius(r: ArrayLike<number>, cx: number, cz: number): number {
+  let m = 0;
+  for (let i = 0; i < r.length; i += 2) m = Math.max(m, (r[i] - cx) ** 2 + (r[i + 1] - cz) ** 2);
+  return Math.sqrt(m);
+}
 
 export function styleFor(region: RegionStyle, seed: number, height = 0): ExtrudeStyle {
   const walls = region.tallWalls && height > TALL_WALLS_M ? region.tallWalls : region.walls;
@@ -215,12 +231,15 @@ export function buildBuildings(list: BuildingFeature[], ctx: BuildingContext, wa
     boxes.push(bbox(outer));
     const c = ringCentroid(outer);
     if (ctx.hidden.some((h) => (c.x - h.x) ** 2 + (c.z - h.z) ** 2 <= h.r * h.r)) continue;
+    if (ctx.minAreaM2 && b.height < (ctx.keepTallerM ?? Infinity) && Math.abs(ringArea(outer)) < ctx.minAreaM2) continue;
     const base = baseUnder(ctx.ground, outer);
     const top = base + b.height;
     const bottom = base + b.minHeight;
     if (top - bottom < 0.5) continue;
     const seed = (Math.round(c.x * 10) * 73856093) ^ (Math.round(c.z * 10) * 19349663);
-    extrude(b.polygon, bottom, top, b.height < PITCHED_BELOW_M, styleFor(ctx.region, seed, b.height), walls, roofs);
+    const poly = ctx.simplifyM ? b.polygon.map((r) => Float64Array.from(simplifyRing(r, ctx.simplifyM!))) : b.polygon;
+    extrude(poly, bottom, top, !ctx.flat && b.height < PITCHED_BELOW_M, styleFor(ctx.region, seed, b.height), walls, roofs);
+    ctx.tops?.push(c.x, c.z, ringRadius(outer, c.x, c.z), top);
     built++;
   }
   return { built, boxes };
@@ -255,6 +274,8 @@ export type GapFillInput = {
   roadAngle: Float32Array;
   seed: number;
   cap?: number;
+  /** Collects [x, z, radius, top] per house. */
+  tops?: number[];
 };
 
 /**
@@ -335,6 +356,7 @@ export function gapFill(inp: GapFillInput, walls: MeshBuilder, roofs: MeshBuilde
       const base = baseUnder(ground, ring);
       const height = 6 + 2 * h(9);
       extrude([ring], base, base + height, true, styleFor(region, c * 16 + k + inp.seed), walls, roofs);
+      inp.tops?.push(x, z, Math.hypot(len, wid) / 2, base + height);
       placed++;
     }
   }

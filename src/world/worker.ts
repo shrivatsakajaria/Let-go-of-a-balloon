@@ -11,8 +11,10 @@
  * Use: new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }).
  */
 import { decodeVectorTile, emptyFeatures, vectorTileUrl } from './vector';
-import { buildTileMeshes, transferables, type HiddenFootprint, type TileMeshes } from './meshjob';
+import { buildTileMeshes, packMeshes, transferables, type Detail, type HiddenFootprint, type PackedBuffers, type TileMeshes } from './meshjob';
 import type { RegionStyle } from './palette';
+import type { MeshBuffers } from './terrain';
+import { streamTerrainTile, type TerrainTile } from './terrainsrc';
 
 export type BuildRequest = {
   type: 'build';
@@ -22,13 +24,18 @@ export type BuildRequest = {
   y: number;
   region: RegionStyle;
   vectorUrl: string;
-  terrain: { heights: Float32Array; size: number };
+  /** Elevation for the tile; without it the worker reads it itself (terrainsrc streamTerrainTile). */
+  terrain?: { heights: Float32Array; size: number };
   hiddenFootprints?: HiddenFootprint[];
   lcSize?: number;
+  detail?: Partial<Detail>;
+  skirtM?: number;
+  /** Reply with packed buckets (meshjob packBuffers): smaller to send and to upload. */
+  pack?: boolean;
 };
 
 export type BuildReply =
-  | { type: 'built'; id?: number; z: number; x: number; y: number; meshes: TileMeshes }
+  | { type: 'built'; id?: number; z: number; x: number; y: number; meshes: TileMeshes<MeshBuffers | PackedBuffers> }
   | { type: 'error'; id?: number; z: number; x: number; y: number; message: string };
 
 export type CancelRequest = { type: 'cancel'; id: number };
@@ -43,11 +50,12 @@ export async function handleBuild(
   req: BuildRequest,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
+  terrainImpl: (z: number, x: number, y: number) => Promise<TerrainTile> = streamTerrainTile,
 ): Promise<{ reply: BuildReply; transfer: ArrayBuffer[] }> {
   const { id, z, x, y } = req;
   try {
-    const { heights, size } = req.terrain;
-    if (heights.length !== size * size) throw new Error('terrain size mismatch');
+    const terrainIn = req.terrain ? Promise.resolve(req.terrain) : terrainImpl(z, x, y);
+    terrainIn.catch(() => {}); // awaited below; never unhandled
     const res = await fetchImpl(vectorTileUrl(req.vectorUrl, z, x, y), { signal });
     let features = emptyFeatures();
     if (res.status !== 404 && res.status !== 204) {
@@ -56,11 +64,16 @@ export async function handleBuild(
       if (signal?.aborted) throw new Error(CANCELLED);
       if (buf.byteLength) features = decodeVectorTile(buf, z, x, y);
     }
+    const { heights, size } = await terrainIn;
+    if (heights.length !== size * size) throw new Error('terrain size mismatch');
     if (signal?.aborted) throw new Error(CANCELLED);
-    const meshes = buildTileMeshes(features, heights, z, x, y, req.region, {
+    const built = buildTileMeshes(features, heights, z, x, y, req.region, {
       hiddenFootprints: req.hiddenFootprints,
       lcSize: req.lcSize,
+      detail: req.detail,
+      skirtM: req.skirtM,
     });
+    const meshes = req.pack ? packMeshes(built) : built;
     return { reply: { type: 'built', id, z, x, y, meshes }, transfer: transferables(meshes) };
   } catch (e) {
     const message = signal?.aborted ? CANCELLED : e instanceof Error ? e.message : String(e);

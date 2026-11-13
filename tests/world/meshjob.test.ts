@@ -375,7 +375,7 @@ test('worker: fetches the tile from the template, builds, and lists every buffer
   if (reply.type !== 'built') return;
   expect(reply.id).toBe(7);
   expect(reply.meshes.buildings.position.length).toBe(m.buildings.position.length);
-  expect(transfer.length).toBe(6 * 3 + 2);
+  expect(transfer.length).toBe(6 * 3 + 4); // buckets, trees, lamps, ground grid, building tops
   expect(new Set(transfer).size).toBe(transfer.length);
   // a missing tile (open sea) still gets its ground
   const sea = await handleBuild({ ...req, x: 1, y: 1 }, fakeFetch);
@@ -406,6 +406,100 @@ test('worker: a cancelled build stops at the fetch and is reported, not built', 
   expect(seen).toBe(ac.signal);
   expect(reply).toMatchObject({ type: 'error', id: 9, message: 'cancelled' });
   expect(transfer).toHaveLength(0);
+});
+
+test('levels of detail: lite buildings are flat and fewer, far tiles carry ground, water and land use only', () => {
+  const lite = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, { detail: { buildings: 'lite', roadMinRank: 2, trees: true, lamps: false } });
+  expect(lite.roofs.position.length).toBe(0);
+  expect(lite.stats.gapHouses).toBe(0);
+  expect(lite.stats.buildings).toBeGreaterThan(200);
+  expect(lite.stats.buildings).toBeLessThan(m.stats.buildings);
+  expect(lite.buildings.position.length).toBeLessThan(m.buildings.position.length);
+  expect(lite.roads.position.length).toBeLessThan(m.roads.position.length);
+  expect(lite.roads.position.length).toBeGreaterThan(0);
+  expect(lite.lamps.length).toBe(0);
+  expect(lite.trees.length).toBe(m.trees.length);
+  const far = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, {
+    detail: { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false },
+  });
+  for (const k of ['buildings', 'roofs', 'roads', 'waterways'] as const) expect(far[k].position.length).toBe(0);
+  expect(far.trees.length + far.lamps.length + far.tops.length).toBe(0);
+  expect(far.ground.position.length).toBe(m.ground.position.length);
+  expect(far.water.position.length).toBe(m.water.position.length);
+  // major roads only: motorways to secondaries
+  const major = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, { detail: { roadMinRank: 3 } });
+  expect(major.roads.position.length).toBeGreaterThan(0);
+  expect(major.roads.position.length).toBeLessThan(lite.roads.position.length);
+});
+
+test('skirts hang below every ground edge, facing out, in the edge colour', () => {
+  const depth = 25;
+  const t = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, { skirtM: depth });
+  const n = 64;
+  const base = m.ground.position.length;
+  expect(t.ground.position.length).toBe(base + n * 4 * 2 * 9);
+  expect(Array.from(t.ground.position.subarray(0, base))).toEqual(Array.from(m.ground.position));
+  const W = frame.widthM, H = frame.heightM;
+  for (let o = base; o < t.ground.position.length; o += 9) {
+    const P = t.ground.position, N = t.ground.normal;
+    const xs = [P[o], P[o + 3], P[o + 6]], zs = [P[o + 2], P[o + 5], P[o + 8]];
+    const onEdge = (v: number[], e: number) => v.every((q) => Math.abs(q - e) < 0.01);
+    const out = onEdge(zs, 0) ? [0, 1] : onEdge(zs, -H) ? [0, -1] : onEdge(xs, 0) ? [-1, 0] : onEdge(xs, W) ? [1, 0] : null;
+    expect(out).not.toBeNull();
+    expect([N[o], N[o + 2]]).toEqual(out);
+    // wound to face outward
+    const e1 = [P[o + 3] - P[o], P[o + 4] - P[o + 1], P[o + 5] - P[o + 2]];
+    const e2 = [P[o + 6] - P[o], P[o + 7] - P[o + 1], P[o + 8] - P[o + 2]];
+    const nx = e1[1] * e2[2] - e1[2] * e2[1], nz = e1[0] * e2[1] - e1[1] * e2[0];
+    expect(nx * out![0] + nz * out![1]).toBeGreaterThan(0);
+  }
+  // the deepest skirt point is `depth` under its edge vertex
+  const ys = Array.from(t.ground.position.subarray(base)).filter((_, i) => i % 3 === 1);
+  const g = groundGrid(heights, SIZE, frame, n);
+  expect(Math.min(...ys)).toBeCloseTo(Math.min(...Array.from(g.terr)) - depth, 3);
+});
+
+test('the ground grid and building tops come back for ground and rooftop queries', () => {
+  const n = 64;
+  expect(m.grid.length).toBe((n + 1) * (n + 1));
+  const g = groundGrid(heights, SIZE, frame, n);
+  // the drawn surface: corner vertex (i, j) of the ground mesh sits at grid[j * (n + 1) + i]
+  for (const [i, j] of [[0, 0], [10, 20], [n, n], [33, 5]]) {
+    expect(m.grid[j * (n + 1) + i]).toBeCloseTo(groundHeightAt({ ...g, terr: m.grid }, g.X[i], g.Z[j]), 4);
+  }
+  expect(m.tops.length).toBe((m.stats.buildings + m.stats.gapHouses) * 4);
+  let tall = 0;
+  for (let k = 0; k < m.tops.length; k += 4) {
+    const [x, z, r, top] = m.tops.subarray(k, k + 4);
+    expect(x).toBeGreaterThanOrEqual(-r);
+    expect(z).toBeLessThanOrEqual(r);
+    expect(r).toBeGreaterThan(0.5);
+    expect(top).toBeGreaterThan(groundHeightAt({ ...g, terr: m.grid }, Math.min(frame.widthM, Math.max(0, x)), Math.max(-frame.heightM, Math.min(0, z))) - 2);
+    if (top - 38 > 60) tall++;
+  }
+  expect(tall).toBeGreaterThan(5); // Manchester's towers
+});
+
+test('worker: reads terrain itself when none is sent, and packs the buckets on request', async () => {
+  const { handleBuild } = await import('../../src/world/worker');
+  const asked: string[] = [];
+  const terrain = async (z: number, x: number, y: number) => {
+    asked.push(`${z}/${x}/${y}`);
+    return { heights, size: SIZE };
+  };
+  const req = {
+    type: 'build' as const, id: 3, z: Z, x: X, y: Y, region: DEFAULT_REGION,
+    vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf', pack: true, skirtM: 20,
+  };
+  const { reply, transfer } = await handleBuild(req, (async () => new Response(buf)) as unknown as typeof fetch, undefined, terrain);
+  expect(asked).toEqual([`${Z}/${X}/${Y}`]);
+  expect(reply.type).toBe('built');
+  if (reply.type !== 'built') return;
+  const g = reply.meshes.ground;
+  expect(g.normal).toBeInstanceOf(Int8Array);
+  expect(g.color).toBeInstanceOf(Uint8Array);
+  expect(g.color.length).toBe((g.position.length / 3) * 4);
+  expect(new Set(transfer).size).toBe(transfer.length);
 });
 
 test('lakes lie flat at their lowest shore height, and the ground under them is lowered so they show', () => {
@@ -554,4 +648,13 @@ test('decoded roads and rivers run on into the tile buffer, so ribbons can be cu
       expect(b.position[i]).toBeGreaterThanOrEqual(-1e-3);
       expect(b.position[i]).toBeLessThanOrEqual(W + 1e-3);
     }
+});
+
+test('simplifyRing drops vertices within the tolerance and keeps the corners', async () => {
+  const { simplifyRing } = await import('../../src/world/geom');
+  // a 20 m square with points along its sides and a 0.5 m bump on one
+  const r = [0, 0, 10, 0.5, 20, 0, 20, 10, 20, 20, 10, 20, 0, 20, 0, 10];
+  expect(simplifyRing(r, 1)).toEqual([0, 0, 20, 0, 20, 20, 0, 20]);
+  expect(simplifyRing(r, 0.2).length).toBe(10); // the bump stays
+  expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toEqual([0, 0, 1, 0, 0, 1]); // a triangle is left alone
 });

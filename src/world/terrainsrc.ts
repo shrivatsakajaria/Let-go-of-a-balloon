@@ -181,6 +181,52 @@ export function terrainTile(z: number, x: number, y: number): Promise<TerrainTil
 
 let seaTile: TerrainTile | null = null;
 
+const SEA: TerrainTile = { heights: new Float32Array(4), size: 2 };
+const sources = new Map<string, Promise<TerrainTile | null>>();
+const SOURCE_CACHE = 6;
+
+/** A planet-archive tile through a small cache (children of one z12 tile share it); null = not in the archive. */
+function planetSource(z: number, x: number, y: number): Promise<TerrainTile | null> {
+  const key = `${z}/${x}/${y}`;
+  let p = sources.get(key);
+  if (p) {
+    sources.delete(key); // most recently used goes last
+    sources.set(key, p);
+    return p;
+  }
+  planet ??= new PMTiles(TERRAIN_PLANET_PMTILES);
+  p = pmtilesTile(planet, z, x, y);
+  sources.set(key, p);
+  p.catch(() => sources.delete(key));
+  if (sources.size > SOURCE_CACHE) sources.delete(sources.keys().next().value as string);
+  return p;
+}
+
+/**
+ * Terrain for the streamed world, read inside the mesh worker. Like terrainTile, but a tile the
+ * planet archive does not have is open sea (Mapterhorn leaves fully submerged tiles out): flat 0 m,
+ * with no trip to the fallbacks. Keeps only a few source tiles, so a worker stays small on a
+ * phone. An archive error still goes to the fallback sources.
+ */
+export async function streamTerrainTile(z: number, x: number, y: number): Promise<TerrainTile> {
+  const maxZ = TERRAIN_PLANET_MAX_ZOOM;
+  const n = 2 ** z;
+  const xw = ((x % n) + n) % n;
+  const s = Math.max(0, z - maxZ);
+  try {
+    if (s > 0) {
+      const reg = await regionalTile(z, xw, y);
+      if (reg) return reg;
+    }
+    const t = await planetSource(z - s, xw >> s, y >> s);
+    if (!t) return SEA;
+    lastSource = 'pmtiles';
+    return s ? overzoomTile(t, maxZ, xw >> s, y >> s, z, xw, y) : t;
+  } catch {
+    return terrainTile(z, x, y);
+  }
+}
+
 /**
  * Tile loader for the route ground. Mapterhorn leaves fully submerged tiles out of the planet
  * archive, and the route floors the ground at 0 m, so a tile the archive does not have is open sea

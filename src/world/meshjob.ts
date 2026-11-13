@@ -3,7 +3,7 @@
  * and lamp instances, and labels. Pure (no fetch, DOM or three.js) so it runs in a Worker and in
  * Node tests. Everything is in the tile frame's local metres (see frame.ts).
  */
-import { buildGroundMesh, carveGround, cellAt, groundGrid, type MeshBuffers } from './terrain';
+import { buildGroundMesh, carveGround, cellAt, groundGrid, withSkirts, type MeshBuffers } from './terrain';
 import { tileFrame } from './frame';
 import type { RegionStyle } from './palette';
 import { MeshBuilder } from './geom';
@@ -19,22 +19,47 @@ export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
 
 export type Label = { name: string; kind: string; lat: number; lon: number; x: number; z: number; rank?: number };
 
-export type TileMeshes = {
-  ground: MeshBuffers;
-  water: MeshBuffers;
-  buildings: MeshBuffers;
-  roofs: MeshBuffers;
-  roads: MeshBuffers;
-  waterways: MeshBuffers;
+export type TileMeshes<B = MeshBuffers> = {
+  ground: B;
+  water: B;
+  buildings: B;
+  roofs: B;
+  roads: B;
+  waterways: B;
   /** Tree instance matrices, 16 floats each (column-major, three.js order). */
   trees: Float32Array;
   /** Street-lamp positions, [x, y, z] each, y on the ground. */
   lamps: Float32Array;
   labels: Label[];
+  /** The drawn ground's vertex heights, (n+1) x (n+1), row 0 = south (terrain.ts GroundGrid.terr). */
+  grid: Float32Array;
+  /** [x, z, radius, top] per building and gap-fill house (local metres; top is absolute). */
+  tops: Float32Array;
   stats: { buildings: number; gapHouses: number; trees: number; lamps: number };
 };
 
-export type BuildOptions = { hiddenFootprints?: HiddenFootprint[]; lcSize?: number };
+/**
+ * How much of a tile to build. Far tiles need ground, water and land use only (spec 12).
+ *  - buildings: 'full' footprints with pitched roofs on low ones and gap-fill houses (z14);
+ *    'lite' flat tops, small low footprints left out; 'none'.
+ *  - roads: the lowest road rank drawn (lines.ts: 4 motorway, 3 primary, 2 streets, 0 rail), or
+ *    Infinity for none.
+ */
+export type Detail = { buildings: 'full' | 'lite' | 'none'; roadMinRank: number; waterways: boolean; trees: boolean; lamps: boolean };
+export const FULL_DETAIL: Detail = { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true };
+/** 'lite' buildings: footprints under this many m2 are left out unless at least LITE_KEEP_M tall. */
+export const LITE_MIN_AREA_M2 = 120;
+export const LITE_KEEP_M = 12;
+/** 'lite' footprints are simplified to this tolerance (about half a pixel at 3 km on a phone). */
+export const LITE_SIMPLIFY_M = 2;
+
+export type BuildOptions = {
+  hiddenFootprints?: HiddenFootprint[];
+  lcSize?: number;
+  detail?: Partial<Detail>;
+  /** Skirts this deep on the ground's edges (terrain.ts withSkirts); none by default. */
+  skirtM?: number;
+};
 
 /** Ground and land-cover cells per tile side by zoom. */
 export const lcSizeFor = (z: number) => (z >= 14 ? 64 : z === 13 ? 48 : 32);
@@ -56,6 +81,7 @@ export function buildTileMeshes(
   if (size * size !== heights.length || size < 2) throw new Error('terrain must be a square grid');
   const frame = tileFrame(z, x, y);
   const n = opts.lcSize ?? lcSizeFor(z);
+  const detail: Detail = { ...FULL_DETAIL, ...opts.detail };
   const seed = (Math.imul(x, 7919) ^ Math.imul(y, 104729) ^ z) | 0;
 
   const landcover = rasteriseLandcover(features, frame, n);
@@ -65,15 +91,16 @@ export function buildTileMeshes(
   const cellLevel = rasteriseLevels(features.water.map((w) => w.polygon), levels, frame, n);
   carveGround(g, cellLevel);
   const waterLevelAt = (px: number, pz: number) => cellLevel[cellAt(g, px, pz)];
-  const ground = buildGroundMesh(g, landcover.grid);
+  const flatGround = buildGroundMesh(g, landcover.grid);
+  const ground = opts.skirtM ? withSkirts(g, flatGround, opts.skirtM) : flatGround;
 
   const water = new MeshBuilder(4096);
   buildWater(features.water, levels, g, water);
 
   const roads = new MeshBuilder(16384);
-  const roadInfo = buildRoads(features.transportation, g, z, roads, waterLevelAt);
+  const roadInfo = buildRoads(Number.isFinite(detail.roadMinRank) ? features.transportation : [], g, z, roads, waterLevelAt, detail.roadMinRank);
   const waterways = new MeshBuilder(1024);
-  buildWaterways(features.waterway, g, z, waterways);
+  if (detail.waterways) buildWaterways(features.waterway, g, z, waterways);
 
   const walls = new MeshBuilder(16384);
   const roofs = new MeshBuilder(4096);
@@ -81,9 +108,16 @@ export function buildTileMeshes(
     const p = frame.toLocal(h.lat, h.lon);
     return { x: p.x, z: p.z, r: h.radiusM };
   });
-  const { built, boxes } = buildBuildings(features.building, { ground: g, region, hidden }, walls, roofs);
+  const tops: number[] = [];
+  const lite = detail.buildings === 'lite';
+  const { built, boxes } = buildBuildings(
+    detail.buildings === 'none' ? [] : features.building,
+    { ground: g, region, hidden, tops, flat: lite, minAreaM2: lite ? LITE_MIN_AREA_M2 : 0, keepTallerM: LITE_KEEP_M, simplifyM: lite ? LITE_SIMPLIFY_M : 0 },
+    walls,
+    roofs,
+  );
   const gapHouses =
-    z >= 14
+    z >= 14 && detail.buildings === 'full'
       ? gapFill(
           {
             ground: g,
@@ -94,13 +128,14 @@ export function buildTileMeshes(
             roadCells: roadInfo.cells,
             roadAngle: roadInfo.angle,
             seed,
+            tops,
           },
           walls,
           roofs,
         )
       : 0;
 
-  const trees = placeTrees(
+  const trees = !detail.trees ? new Float32Array(0) : placeTrees(
     treeZones(features),
     g,
     seed,
@@ -108,7 +143,7 @@ export function buildTileMeshes(
     undefined,
     features.building.map((b) => b.polygon),
   );
-  const lamps = placeLamps(features.transportation, g, z, seed);
+  const lamps = detail.lamps ? placeLamps(features.transportation, g, z, seed) : new Float32Array(0);
 
   const labels: Label[] = [...features.place, ...features.water_name].map((p) => ({
     name: p.name,
@@ -130,6 +165,8 @@ export function buildTileMeshes(
     trees,
     lamps,
     labels,
+    grid: g.terr,
+    tops: Float32Array.from(tops),
     stats: { buildings: built, gapHouses, trees: trees.length / 16, lamps: lamps.length / 3 },
   };
 }
@@ -162,12 +199,24 @@ export function packBuffers(b: MeshBuffers): PackedBuffers {
   return { position: b.position, normal, color };
 }
 
+/** A tile with every bucket packed (packBuffers). */
+export function packMeshes(m: TileMeshes): TileMeshes<PackedBuffers> {
+  return {
+    ...m,
+    ground: packBuffers(m.ground),
+    water: packBuffers(m.water),
+    buildings: packBuffers(m.buildings),
+    roofs: packBuffers(m.roofs),
+    roads: packBuffers(m.roads),
+    waterways: packBuffers(m.waterways),
+  };
+}
+
 /** Every ArrayBuffer in a TileMeshes, for postMessage transfer. */
-export function transferables(m: TileMeshes): ArrayBuffer[] {
+export function transferables(m: TileMeshes<MeshBuffers | PackedBuffers>): ArrayBuffer[] {
   const set = new Set<ArrayBuffer>();
   for (const b of [m.ground, m.water, m.buildings, m.roofs, m.roads, m.waterways])
     for (const a of [b.position, b.normal, b.color]) set.add(a.buffer as ArrayBuffer);
-  set.add(m.trees.buffer as ArrayBuffer);
-  set.add(m.lamps.buffer as ArrayBuffer);
+  for (const a of [m.trees, m.lamps, m.grid, m.tops]) set.add(a.buffer as ArrayBuffer);
   return [...set];
 }

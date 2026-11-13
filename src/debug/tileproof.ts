@@ -14,7 +14,6 @@ import { heightAt } from '../world/terrain';
 import { terrainTile, type TerrainTile } from '../world/terrainsrc';
 import { vectorTileTemplate } from '../world/vector';
 import type { BuildReply, BuildRequest } from '../world/worker';
-import type { TileMeshes } from '../world/meshjob';
 import { blockBounds, farLandBuffers, gridPlacements, orbitPose, type TilePlacement } from './tilegrid';
 import { toGeometry } from '../world/geometry';
 import { WorkerPool } from '../world/workerpool';
@@ -23,7 +22,7 @@ import { createHaze, setBlockHaze } from '../world/haze';
 import { ContourMaterials, noCoverage } from '../world/materials';
 import { SkyDome } from '../world/skydome';
 import { SunLight, sunDirection } from '../world/sunlight';
-import { TileView } from '../world/tileview';
+import { TileView, type TileBuffers } from '../world/tileview';
 
 const ALBERT: LatLon = { lat: 53.4794, lon: -2.2453 };
 const Z = 14;
@@ -106,7 +105,7 @@ type Fading = { slot: number; born: number; fade: number };
 const placed: Fading[] = [];
 let built = 0, failed = 0;
 
-function addTile(tile: TilePlacement, meshes: TileMeshes) {
+function addTile(tile: TilePlacement, meshes: TileBuffers) {
   const view = new TileView(meshes, materials, { zoom: Z, castShadow: true, clip: false });
   view.place(tile.offsetX, 0, tile.offsetZ, tile.scaleX);
   scene.add(view.group);
@@ -128,7 +127,7 @@ const pool = new WorkerPool<BuildRequest, BuildReply>(
 );
 
 /** Build one tile in the pool; rejects if the worker fails, times out or reports an error. */
-async function build(tile: TilePlacement, tpl: string, terrain: TerrainTile): Promise<TileMeshes> {
+async function build(tile: TilePlacement, tpl: string, terrain: TerrainTile): Promise<TileBuffers> {
   const heights = terrain.heights.slice(); // the terrain cache keeps the original
   const reply = await pool.request(
     {

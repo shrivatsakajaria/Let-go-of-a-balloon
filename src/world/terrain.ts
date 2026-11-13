@@ -261,3 +261,49 @@ export function buildGroundMesh(g: GroundGrid, landcover: LandcoverGrid): MeshBu
   }
   return { position, normal, color };
 }
+
+/**
+ * Skirts: short vertical curtains hanging `depth` metres below the four edges of the drawn ground,
+ * facing out, each in the colour of the ground cell above it. They close any hairline gap at a tile
+ * edge and the step down to a coarser level of detail (which is drawn a little lower), so no seam
+ * or hole ever shows the sky. `ground` is buildGroundMesh's output for `g`; returns the ground with
+ * the skirts appended.
+ */
+export function withSkirts(g: GroundGrid, ground: MeshBuffers, depth: number): MeshBuffers {
+  const { n, X, Z, terr } = g;
+  const V = n + 1;
+  const base = ground.position.length;
+  const extra = n * 4 * 2 * 9;
+  const position = new Float32Array(base + extra);
+  const normal = new Float32Array(base + extra);
+  const color = new Float32Array(base + extra);
+  position.set(ground.position);
+  normal.set(ground.normal);
+  color.set(ground.color);
+  let o = base;
+  const quad = (cell: number, i0: number, j0: number, i1: number, j1: number, ox: number, oz: number) => {
+    const ax = X[i0], az = Z[j0], ay = terr[j0 * V + i0];
+    const bx = X[i1], bz = Z[j1], by = terr[j1 * V + i1];
+    // a (top), b (top), b (bottom), a (bottom); wound so the face looks along (ox, oz)
+    const flip = (bz - az) * ox - (bx - ax) * oz < 0;
+    const P = flip
+      ? [ax, ay, az, bx, by - depth, bz, bx, by, bz, ax, ay, az, ax, ay - depth, az, bx, by - depth, bz]
+      : [ax, ay, az, bx, by, bz, bx, by - depth, bz, ax, ay, az, bx, by - depth, bz, ax, ay - depth, az];
+    const c = (cell * 2) * 9; // first triangle of the edge cell
+    for (let k = 0; k < 6; k++) {
+      position[o] = P[k * 3]; position[o + 1] = P[k * 3 + 1]; position[o + 2] = P[k * 3 + 2];
+      normal[o] = ox; normal[o + 1] = 0; normal[o + 2] = oz;
+      color[o] = ground.color[c]; color[o + 1] = ground.color[c + 1]; color[o + 2] = ground.color[c + 2];
+      o += 3;
+    }
+  };
+  for (let i = 0; i < n; i++) {
+    quad(i, i, 0, i + 1, 0, 0, 1); // south edge (z = 0), facing +z
+    quad((n - 1) * n + i, i, n, i + 1, n, 0, -1); // north edge, facing -z
+  }
+  for (let j = 0; j < n; j++) {
+    quad(j * n, 0, j, 0, j + 1, -1, 0); // west edge, facing -x
+    quad(j * n + n - 1, n, j, n, j + 1, 1, 0); // east edge, facing +x
+  }
+  return { position, normal, color };
+}

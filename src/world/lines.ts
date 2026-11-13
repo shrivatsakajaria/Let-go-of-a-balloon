@@ -123,11 +123,12 @@ export type RoadResult = {
 };
 
 /**
- * Road ribbons, width and pale tone by class; paths, service roads and tracks only above z13.
+ * Road ribbons, width and pale tone by class; paths, service roads and tracks only above z13, and
+ * only classes of at least `minRank` (4 motorway and trunk, 3 primary and secondary, 2 streets, 0 rail).
  * Roads never dip under flat water: `waterLevel` (NaN where none) lifts them over docks and lakes.
  * Also buckets road segments and street bearings into the n x n land-cover grid.
  */
-export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder, waterLevel?: Surface): RoadResult {
+export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder, waterLevel?: Surface, minRank = 0): RoadResult {
   const n = g.n;
   const surface: Surface = waterLevel
     ? (x, zz) => {
@@ -143,7 +144,7 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
   for (const l of lines) {
     if (l.cls.endsWith('_construction')) continue;
     const st = l.cls === 'path' && l.subclass === 'pedestrian' ? PEDESTRIAN : STYLE[l.cls];
-    if (!st || (st.small && z <= 13)) continue;
+    if (!st || (st.small && z <= 13) || st.rank < minRank) continue;
     const p = densify(l.line, step, surface);
     ribbon(p, st.half, DRAPE_M + st.rank * 0.008, st.color, surface, frame.widthM, frame.heightM, out);
     for (let i = 2; i < p.length; i += 2) {
