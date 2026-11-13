@@ -1,0 +1,2277 @@
+[
+  {
+    "id": "new-york",
+    "group": "Country",
+    "country": "United States",
+    "city": "New York",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 40.689,
+      "lon": -74.045,
+      "label": "Liberty Island, beside the Statue of Liberty",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Statue of Liberty",
+      "Empire State Building",
+      "One World Trade Center",
+      "Brooklyn Bridge",
+      "Chrysler Building"
+    ],
+    "animated": "Torch flame flickers; Empire State tower lights at dusk"
+  },
+  {
+    "id": "mumbai",
+    "group": "Country",
+    "country": "India",
+    "city": "Mumbai",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 18.922,
+      "lon": 72.8347,
+      "label": "Gateway of India waterfront",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Gateway of India",
+      "Taj Mahal Palace hotel",
+      "Chhatrapati Shivaji Terminus",
+      "Bandra-Worli Sea Link"
+    ],
+    "animated": "Boats bob in the harbour"
+  },
+  {
+    "id": "rio-de-janeiro",
+    "group": "Country",
+    "country": "Brazil",
+    "city": "Rio de Janeiro",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": -22.9711,
+      "lon": -43.1822,
+      "label": "Copacabana beach",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sugarloaf Mountain and cable car",
+      "Copacabana promenade",
+      "Maracana"
+    ],
+    "animated": "Cable car glides",
+    "notes": "Christ the Redeemer: image rights are claimed by the Archdiocese; check before modelling"
+  },
+  {
+    "id": "london",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "London",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 51.5007,
+      "lon": -0.1263,
+      "label": "Parliament Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Elizabeth Tower (Big Ben)",
+      "Palace of Westminster",
+      "London Eye",
+      "Tower Bridge",
+      "St Paul's Cathedral",
+      "The Shard"
+    ],
+    "animated": "Big Ben clock face lights at dusk; London Eye turns"
+  },
+  {
+    "id": "manchester",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Manchester",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 53.4794,
+      "lon": -2.2453,
+      "label": "Albert Square, by the Town Hall",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Manchester Town Hall",
+      "Beetham Tower",
+      "Old Trafford"
+    ]
+  },
+  {
+    "id": "edinburgh",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Edinburgh",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 55.9488,
+      "lon": -3.196,
+      "label": "Castle Esplanade",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Edinburgh Castle",
+      "Scott Monument",
+      "Arthur's Seat (terrain)"
+    ]
+  },
+  {
+    "id": "birmingham",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Birmingham",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 52.4791,
+      "lon": -1.9082,
+      "label": "Centenary Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Library of Birmingham",
+      "Selfridges Bullring"
+    ]
+  },
+  {
+    "id": "glasgow",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Glasgow",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 55.8611,
+      "lon": -4.2502,
+      "label": "George Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Glasgow City Chambers",
+      "SEC Armadillo"
+    ]
+  },
+  {
+    "id": "liverpool",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Liverpool",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 53.4058,
+      "lon": -2.9958,
+      "label": "Pier Head",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Royal Liver Building",
+      "Liverpool Cathedral"
+    ],
+    "animated": "Liver birds on the towers"
+  },
+  {
+    "id": "belfast",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Belfast",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 54.5965,
+      "lon": -5.9301,
+      "label": "Belfast City Hall",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Belfast City Hall",
+      "Titanic Belfast",
+      "Harland and Wolff cranes"
+    ]
+  },
+  {
+    "id": "cardiff",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Cardiff",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 51.4822,
+      "lon": -3.1812,
+      "label": "Cardiff Castle",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Cardiff Castle",
+      "Principality Stadium"
+    ]
+  },
+  {
+    "id": "bristol",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Bristol",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 51.4549,
+      "lon": -2.6278,
+      "label": "Clifton Suspension Bridge viewpoint",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Clifton Suspension Bridge"
+    ]
+  },
+  {
+    "id": "oxford",
+    "group": "Country",
+    "country": "United Kingdom",
+    "city": "Oxford",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 51.7534,
+      "lon": -1.254,
+      "label": "Radcliffe Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Radcliffe Camera",
+      "dreaming spires"
+    ]
+  },
+  {
+    "id": "dublin",
+    "group": "Country",
+    "country": "Ireland",
+    "city": "Dublin",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 53.3498,
+      "lon": -6.2603,
+      "label": "O'Connell Street, by the Spire",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "The Spire",
+      "Ha'penny Bridge",
+      "Custom House",
+      "Aviva Stadium"
+    ]
+  },
+  {
+    "id": "cork",
+    "group": "Country",
+    "country": "Ireland",
+    "city": "Cork",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 51.9033,
+      "lon": -8.4766,
+      "label": "Shandon, by St Anne's Church",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Shandon Bells tower",
+      "St Fin Barre's Cathedral",
+      "English Market roof"
+    ],
+    "animated": "Shandon clock faces and bells"
+  },
+  {
+    "id": "galway",
+    "group": "Country",
+    "country": "Ireland",
+    "city": "Galway",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 53.2707,
+      "lon": -9.0568,
+      "label": "Spanish Arch",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Spanish Arch",
+      "Galway Cathedral"
+    ]
+  },
+  {
+    "id": "limerick",
+    "group": "Country",
+    "country": "Ireland",
+    "city": "Limerick",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 52.6697,
+      "lon": -8.6258,
+      "label": "King John's Castle",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "King John's Castle"
+    ]
+  },
+  {
+    "id": "paris",
+    "group": "Country",
+    "country": "France",
+    "city": "Paris",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 48.8556,
+      "lon": 2.2986,
+      "label": "Champ de Mars",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Eiffel Tower",
+      "Arc de Triomphe",
+      "Notre-Dame",
+      "Sacre-Coeur"
+    ],
+    "animated": "Day lighting only",
+    "notes": "Do not recreate the Eiffel Tower night light show (protected); leave out the Louvre Pyramid (recent work, France has limited freedom of panorama)"
+  },
+  {
+    "id": "barcelona",
+    "group": "Country",
+    "country": "Spain",
+    "city": "Barcelona",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 41.4036,
+      "lon": 2.1744,
+      "label": "Placa de Gaudi, facing the Sagrada Familia",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sagrada Familia",
+      "Casa Batllo",
+      "Park Guell",
+      "Columbus Monument"
+    ],
+    "animated": "Cranes on the Sagrada Familia"
+  },
+  {
+    "id": "tokyo",
+    "group": "Country",
+    "country": "Japan",
+    "city": "Tokyo",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 35.6595,
+      "lon": 139.7005,
+      "label": "Shibuya Crossing",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Shibuya scramble",
+      "Tokyo Tower",
+      "Tokyo Skytree",
+      "Senso-ji"
+    ],
+    "animated": "Crowds cross at the scramble",
+    "notes": "Tokyo Tower and Skytree likenesses are trademarked; check before modelling"
+  },
+  {
+    "id": "sydney",
+    "group": "Country",
+    "country": "Australia",
+    "city": "Sydney",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": -33.861,
+      "lon": 151.211,
+      "label": "Circular Quay",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sydney Opera House",
+      "Harbour Bridge"
+    ],
+    "animated": "Ferries cross the harbour",
+    "notes": "Opera House has image-use guidelines; fine for non-commercial use, check before launch"
+  },
+  {
+    "id": "cappadocia-goreme",
+    "group": "Country",
+    "country": "Turkey",
+    "city": "Cappadocia (Goreme)",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 38.6431,
+      "lon": 34.8289,
+      "label": "Goreme valley at dawn",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Fairy chimneys (terrain)",
+      "other balloons in the sky"
+    ],
+    "animated": "Dozens of hot-air balloons rise at dawn",
+    "notes": "A natural fit: the world's best-known place for balloon flights"
+  },
+  {
+    "id": "dubai",
+    "group": "City-state or standout city",
+    "country": "United Arab Emirates",
+    "city": "Dubai",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 25.195,
+      "lon": 55.274,
+      "label": "Burj Park, by the Dubai Fountain",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Burj Khalifa",
+      "Burj Al Arab",
+      "Museum of the Future",
+      "Palm Jumeirah (coastline)"
+    ],
+    "animated": "Fountain dances at dusk",
+    "notes": "Burj Khalifa likeness is trademarked; check before modelling"
+  },
+  {
+    "id": "singapore",
+    "group": "City-state or standout city",
+    "country": "Singapore",
+    "city": "Singapore",
+    "tier": 1,
+    "batch": "launch",
+    "launch": {
+      "lat": 1.2868,
+      "lon": 103.8545,
+      "label": "Merlion Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Marina Bay Sands",
+      "Merlion",
+      "Gardens by the Bay Supertrees",
+      "Esplanade"
+    ],
+    "animated": "Supertrees light at night",
+    "notes": "Merlion and Marina Bay Sands are trademarks; check before modelling"
+  },
+  {
+    "id": "washington-dc",
+    "group": "Country",
+    "country": "United States",
+    "city": "Washington DC",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 38.8895,
+      "lon": -77.0353,
+      "label": "National Mall, by the Washington Monument",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Washington Monument",
+      "US Capitol",
+      "Lincoln Memorial",
+      "White House"
+    ],
+    "animated": "Reflecting Pool shimmers; Capitol dome lit at night"
+  },
+  {
+    "id": "chicago",
+    "group": "Country",
+    "country": "United States",
+    "city": "Chicago",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 41.8827,
+      "lon": -87.6233,
+      "label": "Millennium Park, by Cloud Gate",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Willis Tower",
+      "Cloud Gate",
+      "875 North Michigan (Hancock)",
+      "Navy Pier wheel"
+    ],
+    "animated": "Navy Pier wheel turns"
+  },
+  {
+    "id": "san-francisco",
+    "group": "Country",
+    "country": "United States",
+    "city": "San Francisco",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 37.804,
+      "lon": -122.466,
+      "label": "Crissy Field, facing the Golden Gate Bridge",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Golden Gate Bridge",
+      "Transamerica Pyramid",
+      "Coit Tower",
+      "Alcatraz"
+    ],
+    "animated": "Fog rolls under the bridge at dawn"
+  },
+  {
+    "id": "los-angeles",
+    "group": "Country",
+    "country": "United States",
+    "city": "Los Angeles",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 34.1184,
+      "lon": -118.3004,
+      "label": "Griffith Observatory lawn",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Griffith Observatory",
+      "US Bank Tower",
+      "Santa Monica Pier"
+    ],
+    "animated": "Pier wheel turns",
+    "notes": "Leave out the Hollywood Sign: its likeness is trademarked"
+  },
+  {
+    "id": "delhi",
+    "group": "Country",
+    "country": "India",
+    "city": "Delhi",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 28.6129,
+      "lon": 77.2295,
+      "label": "Kartavya Path, facing India Gate",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "India Gate",
+      "Rashtrapati Bhavan",
+      "Qutub Minar",
+      "Lotus Temple",
+      "Red Fort"
+    ],
+    "animated": "India Gate flame at dusk"
+  },
+  {
+    "id": "agra",
+    "group": "Country",
+    "country": "India",
+    "city": "Agra",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 27.1735,
+      "lon": 78.0421,
+      "label": "Taj Mahal gardens",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Taj Mahal",
+      "Agra Fort"
+    ],
+    "animated": "Reflecting pool shimmers"
+  },
+  {
+    "id": "bengaluru",
+    "group": "Country",
+    "country": "India",
+    "city": "Bengaluru",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 12.9794,
+      "lon": 77.591,
+      "label": "Cubbon Park, by Vidhana Soudha",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Vidhana Soudha",
+      "UB City tower"
+    ]
+  },
+  {
+    "id": "kolkata",
+    "group": "Country",
+    "country": "India",
+    "city": "Kolkata",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 22.5448,
+      "lon": 88.3426,
+      "label": "Victoria Memorial gardens",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Victoria Memorial",
+      "Howrah Bridge"
+    ]
+  },
+  {
+    "id": "sao-paulo",
+    "group": "Country",
+    "country": "Brazil",
+    "city": "Sao Paulo",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": -23.5874,
+      "lon": -46.6576,
+      "label": "Ibirapuera Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "MASP",
+      "Ibirapuera Obelisk",
+      "Edificio Copan",
+      "Avenida Paulista towers"
+    ]
+  },
+  {
+    "id": "toronto",
+    "group": "Country",
+    "country": "Canada",
+    "city": "Toronto",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 43.6418,
+      "lon": -79.3872,
+      "label": "Roundhouse Park, by the CN Tower",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "CN Tower",
+      "Rogers Centre",
+      "Toronto City Hall"
+    ],
+    "animated": "CN Tower lights at night"
+  },
+  {
+    "id": "vancouver",
+    "group": "Country",
+    "country": "Canada",
+    "city": "Vancouver",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 49.2888,
+      "lon": -123.1111,
+      "label": "Canada Place waterfront",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Canada Place sails",
+      "Lions Gate Bridge",
+      "Stanley Park (terrain)"
+    ],
+    "animated": "Seaplanes on the harbour"
+  },
+  {
+    "id": "berlin",
+    "group": "Country",
+    "country": "Germany",
+    "city": "Berlin",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 52.5163,
+      "lon": 13.3777,
+      "label": "Pariser Platz, by the Brandenburg Gate",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Brandenburg Gate",
+      "Reichstag",
+      "TV Tower (Fernsehturm)"
+    ],
+    "animated": "TV Tower ball catches the sun"
+  },
+  {
+    "id": "madrid",
+    "group": "Country",
+    "country": "Spain",
+    "city": "Madrid",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 40.4169,
+      "lon": -3.7035,
+      "label": "Puerta del Sol",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Royal Palace",
+      "Cibeles",
+      "Gran Via Metropolis",
+      "Cuatro Torres"
+    ]
+  },
+  {
+    "id": "rome",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Rome",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 41.8902,
+      "lon": 12.4922,
+      "label": "Piazza del Colosseo",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Colosseum",
+      "Pantheon",
+      "Vittoriano",
+      "Trevi Fountain"
+    ]
+  },
+  {
+    "id": "milan",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Milan",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 45.4642,
+      "lon": 9.19,
+      "label": "Piazza del Duomo",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Milan Cathedral",
+      "Galleria",
+      "Bosco Verticale"
+    ],
+    "notes": "Bosco Verticale is a recent work; check rights"
+  },
+  {
+    "id": "florence",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Florence",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 43.7629,
+      "lon": 11.2651,
+      "label": "Piazzale Michelangelo",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Duomo",
+      "Ponte Vecchio",
+      "Palazzo Vecchio"
+    ]
+  },
+  {
+    "id": "amsterdam",
+    "group": "Country",
+    "country": "Netherlands",
+    "city": "Amsterdam",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 52.358,
+      "lon": 4.881,
+      "label": "Museumplein",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Rijksmuseum",
+      "canal houses",
+      "Centraal Station"
+    ],
+    "animated": "Canal boats"
+  },
+  {
+    "id": "mexico-city",
+    "group": "Country",
+    "country": "Mexico",
+    "city": "Mexico City",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 19.4326,
+      "lon": -99.1332,
+      "label": "Zocalo",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Metropolitan Cathedral",
+      "Palacio de Bellas Artes",
+      "Angel of Independence",
+      "Torre Latinoamericana"
+    ],
+    "animated": "Giant flag in the Zocalo flies"
+  },
+  {
+    "id": "jakarta",
+    "group": "Country",
+    "country": "Indonesia",
+    "city": "Jakarta",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": -6.1754,
+      "lon": 106.8272,
+      "label": "Merdeka Square, by the National Monument",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "National Monument (Monas)",
+      "Istiqlal Mosque",
+      "Bundaran HI"
+    ],
+    "animated": "Monas flame catches the light"
+  },
+  {
+    "id": "kyoto",
+    "group": "Country",
+    "country": "Japan",
+    "city": "Kyoto",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 34.9949,
+      "lon": 135.785,
+      "label": "Kiyomizu-dera terrace",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Kiyomizu-dera",
+      "Fushimi Inari gates",
+      "Kinkaku-ji"
+    ]
+  },
+  {
+    "id": "melbourne",
+    "group": "Country",
+    "country": "Australia",
+    "city": "Melbourne",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": -37.818,
+      "lon": 144.9691,
+      "label": "Federation Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Flinders Street Station",
+      "Eureka Tower"
+    ],
+    "animated": "Trams move"
+  },
+  {
+    "id": "riyadh",
+    "group": "Country",
+    "country": "Saudi Arabia",
+    "city": "Riyadh",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 24.7113,
+      "lon": 46.6744,
+      "label": "Kingdom Centre plaza",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Kingdom Centre",
+      "Al Faisaliah Tower",
+      "Masmak Fortress"
+    ]
+  },
+  {
+    "id": "istanbul",
+    "group": "Country",
+    "country": "Turkey",
+    "city": "Istanbul",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 41.0058,
+      "lon": 28.9768,
+      "label": "Sultanahmet Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Hagia Sophia",
+      "Blue Mosque",
+      "Galata Tower",
+      "Bosphorus Bridge"
+    ],
+    "animated": "Ferries on the Bosphorus"
+  },
+  {
+    "id": "cape-town",
+    "group": "Country",
+    "country": "South Africa",
+    "city": "Cape Town",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": -33.9036,
+      "lon": 18.4207,
+      "label": "V&A Waterfront",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Table Mountain (terrain)",
+      "Cape Town Stadium",
+      "Clock Tower"
+    ],
+    "animated": "Table cloth cloud over the mountain"
+  },
+  {
+    "id": "lagos",
+    "group": "Country",
+    "country": "Nigeria",
+    "city": "Lagos",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 6.4492,
+      "lon": 3.4339,
+      "label": "Lekki-Ikoyi Link Bridge",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Lekki-Ikoyi Link Bridge",
+      "National Theatre",
+      "Eko Atlantic towers"
+    ]
+  },
+  {
+    "id": "manila",
+    "group": "Country",
+    "country": "Philippines",
+    "city": "Manila",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 14.5831,
+      "lon": 120.9794,
+      "label": "Rizal Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Rizal Monument",
+      "Intramuros walls",
+      "Manila Cathedral"
+    ]
+  },
+  {
+    "id": "hong-kong",
+    "group": "City-state or standout city",
+    "country": "Hong Kong",
+    "city": "Hong Kong",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 22.2934,
+      "lon": 114.1693,
+      "label": "Tsim Sha Tsui promenade",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Victoria Harbour skyline",
+      "IFC",
+      "Bank of China Tower",
+      "Star Ferry"
+    ],
+    "animated": "Star Ferry crosses the harbour"
+  },
+  {
+    "id": "seoul",
+    "group": "City-state or standout city",
+    "country": "South Korea",
+    "city": "Seoul",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 37.572,
+      "lon": 126.9769,
+      "label": "Gwanghwamun Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Gyeongbokgung",
+      "N Seoul Tower",
+      "Lotte World Tower"
+    ]
+  },
+  {
+    "id": "cairo-and-giza",
+    "group": "City-state or standout city",
+    "country": "Egypt",
+    "city": "Cairo and Giza",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 29.9765,
+      "lon": 31.1313,
+      "label": "Giza pyramid plateau",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Great Pyramids",
+      "Sphinx",
+      "Cairo Tower"
+    ],
+    "animated": "Desert haze"
+  },
+  {
+    "id": "bangkok",
+    "group": "City-state or standout city",
+    "country": "Thailand",
+    "city": "Bangkok",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 13.755,
+      "lon": 100.493,
+      "label": "Sanam Luang, by the Grand Palace",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Grand Palace",
+      "Wat Arun"
+    ],
+    "animated": "Long-tail boats on the river"
+  },
+  {
+    "id": "kuala-lumpur",
+    "group": "City-state or standout city",
+    "country": "Malaysia",
+    "city": "Kuala Lumpur",
+    "tier": 1,
+    "batch": "weekly",
+    "launch": {
+      "lat": 3.157,
+      "lon": 101.7123,
+      "label": "KLCC Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Petronas Towers",
+      "KL Tower"
+    ]
+  },
+  {
+    "id": "seattle",
+    "group": "Country",
+    "country": "United States",
+    "city": "Seattle",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 47.6205,
+      "lon": -122.3493,
+      "label": "Seattle Center, under the Space Needle",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Space Needle",
+      "Pike Place Market sign"
+    ],
+    "animated": "Space Needle top slowly lights"
+  },
+  {
+    "id": "boston",
+    "group": "Country",
+    "country": "United States",
+    "city": "Boston",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 42.355,
+      "lon": -71.0656,
+      "label": "Boston Common",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Massachusetts State House",
+      "Old North Church"
+    ]
+  },
+  {
+    "id": "philadelphia",
+    "group": "Country",
+    "country": "United States",
+    "city": "Philadelphia",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 39.9489,
+      "lon": -75.15,
+      "label": "Independence Mall",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Independence Hall",
+      "City Hall tower"
+    ]
+  },
+  {
+    "id": "miami",
+    "group": "Country",
+    "country": "United States",
+    "city": "Miami",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 25.7826,
+      "lon": -80.13,
+      "label": "Ocean Drive, South Beach",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Art Deco hotel row",
+      "Brickell skyline"
+    ],
+    "animated": "Neon signs glow at night"
+  },
+  {
+    "id": "las-vegas",
+    "group": "Country",
+    "country": "United States",
+    "city": "Las Vegas",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 36.1126,
+      "lon": -115.1767,
+      "label": "Bellagio fountains on the Strip",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Strat tower",
+      "Bellagio"
+    ],
+    "animated": "Fountains dance"
+  },
+  {
+    "id": "austin",
+    "group": "Country",
+    "country": "United States",
+    "city": "Austin",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 30.2747,
+      "lon": -97.7404,
+      "label": "Texas State Capitol grounds",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Texas State Capitol",
+      "Congress Avenue Bridge"
+    ]
+  },
+  {
+    "id": "hyderabad",
+    "group": "Country",
+    "country": "India",
+    "city": "Hyderabad",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 17.3616,
+      "lon": 78.4747,
+      "label": "Charminar square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Charminar",
+      "Golconda Fort"
+    ]
+  },
+  {
+    "id": "chennai",
+    "group": "Country",
+    "country": "India",
+    "city": "Chennai",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 13.05,
+      "lon": 80.2824,
+      "label": "Marina Beach",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Kapaleeshwarar Temple gopuram",
+      "Chennai Central"
+    ],
+    "animated": "Waves on Marina Beach"
+  },
+  {
+    "id": "jaipur",
+    "group": "Country",
+    "country": "India",
+    "city": "Jaipur",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 26.9239,
+      "lon": 75.8267,
+      "label": "Hawa Mahal road",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Hawa Mahal",
+      "Amer Fort"
+    ]
+  },
+  {
+    "id": "pune",
+    "group": "Country",
+    "country": "India",
+    "city": "Pune",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 18.5195,
+      "lon": 73.8553,
+      "label": "Shaniwar Wada",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Shaniwar Wada"
+    ]
+  },
+  {
+    "id": "brasilia",
+    "group": "Country",
+    "country": "Brazil",
+    "city": "Brasilia",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -15.7998,
+      "lon": -47.8645,
+      "label": "Esplanada dos Ministerios",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "National Congress",
+      "Cathedral of Brasilia"
+    ],
+    "notes": "Niemeyer buildings are recent works; check rights"
+  },
+  {
+    "id": "salvador",
+    "group": "Country",
+    "country": "Brazil",
+    "city": "Salvador",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -12.9744,
+      "lon": -38.513,
+      "label": "Elevador Lacerda square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Elevador Lacerda",
+      "Pelourinho houses"
+    ]
+  },
+  {
+    "id": "montreal",
+    "group": "Country",
+    "country": "Canada",
+    "city": "Montreal",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 45.5045,
+      "lon": -73.5562,
+      "label": "Place d'Armes, by Notre-Dame Basilica",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Notre-Dame Basilica",
+      "Olympic Stadium tower"
+    ]
+  },
+  {
+    "id": "ottawa",
+    "group": "Country",
+    "country": "Canada",
+    "city": "Ottawa",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 45.4236,
+      "lon": -75.7009,
+      "label": "Parliament Hill",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Parliament Peace Tower"
+    ]
+  },
+  {
+    "id": "calgary",
+    "group": "Country",
+    "country": "Canada",
+    "city": "Calgary",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 51.0443,
+      "lon": -114.0631,
+      "label": "Calgary Tower plaza",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Calgary Tower",
+      "Saddledome"
+    ]
+  },
+  {
+    "id": "marseille",
+    "group": "Country",
+    "country": "France",
+    "city": "Marseille",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.295,
+      "lon": 5.374,
+      "label": "Vieux-Port",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Notre-Dame de la Garde",
+      "Fort Saint-Jean"
+    ],
+    "animated": "Boats in the old port"
+  },
+  {
+    "id": "lyon",
+    "group": "Country",
+    "country": "France",
+    "city": "Lyon",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 45.7578,
+      "lon": 4.832,
+      "label": "Place Bellecour",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Fourviere Basilica"
+    ]
+  },
+  {
+    "id": "nice",
+    "group": "Country",
+    "country": "France",
+    "city": "Nice",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.695,
+      "lon": 7.265,
+      "label": "Promenade des Anglais",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Promenade des Anglais",
+      "Castle Hill"
+    ]
+  },
+  {
+    "id": "bordeaux",
+    "group": "Country",
+    "country": "France",
+    "city": "Bordeaux",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 44.8412,
+      "lon": -0.57,
+      "label": "Place de la Bourse water mirror",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Place de la Bourse"
+    ]
+  },
+  {
+    "id": "munich",
+    "group": "Country",
+    "country": "Germany",
+    "city": "Munich",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 48.1374,
+      "lon": 11.5755,
+      "label": "Marienplatz",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Frauenkirche",
+      "New Town Hall",
+      "Allianz Arena"
+    ],
+    "animated": "Glockenspiel figures turn"
+  },
+  {
+    "id": "hamburg",
+    "group": "Country",
+    "country": "Germany",
+    "city": "Hamburg",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 53.5456,
+      "lon": 9.9667,
+      "label": "Landungsbrucken harbour front",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Elbphilharmonie",
+      "port cranes"
+    ],
+    "notes": "Elbphilharmonie is a recent work; check rights"
+  },
+  {
+    "id": "frankfurt",
+    "group": "Country",
+    "country": "Germany",
+    "city": "Frankfurt",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 50.1106,
+      "lon": 8.682,
+      "label": "Romerberg",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Romer",
+      "Main skyline towers"
+    ]
+  },
+  {
+    "id": "cologne",
+    "group": "Country",
+    "country": "Germany",
+    "city": "Cologne",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 50.9413,
+      "lon": 6.9583,
+      "label": "Roncalliplatz",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Cologne Cathedral",
+      "Hohenzollern Bridge"
+    ]
+  },
+  {
+    "id": "seville",
+    "group": "Country",
+    "country": "Spain",
+    "city": "Seville",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 37.3772,
+      "lon": -5.9869,
+      "label": "Plaza de Espana",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Plaza de Espana",
+      "Giralda"
+    ]
+  },
+  {
+    "id": "valencia",
+    "group": "Country",
+    "country": "Spain",
+    "city": "Valencia",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 39.4542,
+      "lon": -0.3503,
+      "label": "City of Arts and Sciences",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "City of Arts and Sciences"
+    ],
+    "notes": "Calatrava buildings are recent works; check rights"
+  },
+  {
+    "id": "bilbao",
+    "group": "Country",
+    "country": "Spain",
+    "city": "Bilbao",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.2687,
+      "lon": -2.934,
+      "label": "Guggenheim riverside",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Guggenheim Museum"
+    ],
+    "notes": "Recent work; check rights"
+  },
+  {
+    "id": "venice",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Venice",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 45.434,
+      "lon": 12.3388,
+      "label": "St Mark's Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "St Mark's Basilica",
+      "Campanile",
+      "Rialto Bridge"
+    ],
+    "animated": "Gondolas on the Grand Canal"
+  },
+  {
+    "id": "naples",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Naples",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 40.8359,
+      "lon": 14.2488,
+      "label": "Piazza del Plebiscito",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Vesuvius (terrain)",
+      "Castel dell'Ovo"
+    ]
+  },
+  {
+    "id": "pisa",
+    "group": "Country",
+    "country": "Italy",
+    "city": "Pisa",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.723,
+      "lon": 10.3966,
+      "label": "Piazza dei Miracoli",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Leaning Tower",
+      "Cathedral"
+    ]
+  },
+  {
+    "id": "rotterdam",
+    "group": "Country",
+    "country": "Netherlands",
+    "city": "Rotterdam",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 51.9093,
+      "lon": 4.4868,
+      "label": "Erasmus Bridge",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Erasmus Bridge",
+      "Cube Houses",
+      "Markthal"
+    ],
+    "notes": "Recent works; check rights"
+  },
+  {
+    "id": "the-hague",
+    "group": "Country",
+    "country": "Netherlands",
+    "city": "The Hague",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 52.0799,
+      "lon": 4.3133,
+      "label": "Binnenhof",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Binnenhof",
+      "Peace Palace"
+    ]
+  },
+  {
+    "id": "guadalajara",
+    "group": "Country",
+    "country": "Mexico",
+    "city": "Guadalajara",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 20.6767,
+      "lon": -103.3475,
+      "label": "Guadalajara Cathedral",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Guadalajara Cathedral",
+      "Hospicio Cabanas"
+    ]
+  },
+  {
+    "id": "monterrey",
+    "group": "Country",
+    "country": "Mexico",
+    "city": "Monterrey",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 25.669,
+      "lon": -100.3096,
+      "label": "Macroplaza",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Faro del Comercio",
+      "Cerro de la Silla (terrain)"
+    ]
+  },
+  {
+    "id": "bali",
+    "group": "Country",
+    "country": "Indonesia",
+    "city": "Bali",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -8.6212,
+      "lon": 115.0868,
+      "label": "Tanah Lot",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Tanah Lot temple",
+      "rice terraces"
+    ],
+    "animated": "Waves around Tanah Lot"
+  },
+  {
+    "id": "yogyakarta",
+    "group": "Country",
+    "country": "Indonesia",
+    "city": "Yogyakarta",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -7.6079,
+      "lon": 110.2038,
+      "label": "Borobudur",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Borobudur",
+      "Prambanan"
+    ]
+  },
+  {
+    "id": "osaka",
+    "group": "Country",
+    "country": "Japan",
+    "city": "Osaka",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 34.6873,
+      "lon": 135.5262,
+      "label": "Osaka Castle Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Osaka Castle",
+      "Umeda Sky Building"
+    ]
+  },
+  {
+    "id": "sapporo",
+    "group": "Country",
+    "country": "Japan",
+    "city": "Sapporo",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.0605,
+      "lon": 141.3546,
+      "label": "Odori Park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sapporo TV Tower",
+      "Clock Tower"
+    ]
+  },
+  {
+    "id": "brisbane",
+    "group": "Country",
+    "country": "Australia",
+    "city": "Brisbane",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -27.481,
+      "lon": 153.0234,
+      "label": "South Bank",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Story Bridge",
+      "Wheel of Brisbane"
+    ]
+  },
+  {
+    "id": "perth",
+    "group": "Country",
+    "country": "Australia",
+    "city": "Perth",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -31.958,
+      "lon": 115.8572,
+      "label": "Elizabeth Quay",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Bell Tower",
+      "Elizabeth Quay bridge"
+    ]
+  },
+  {
+    "id": "jeddah",
+    "group": "Country",
+    "country": "Saudi Arabia",
+    "city": "Jeddah",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 21.515,
+      "lon": 39.146,
+      "label": "Jeddah Corniche",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "King Fahd's Fountain",
+      "Al-Balad old town"
+    ],
+    "animated": "Fountain jet",
+    "notes": "Mecca and Medina left out: entry restricted and religiously sensitive"
+  },
+  {
+    "id": "ankara",
+    "group": "Country",
+    "country": "Turkey",
+    "city": "Ankara",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 39.925,
+      "lon": 32.8369,
+      "label": "Anitkabir",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Anitkabir",
+      "Atakule"
+    ]
+  },
+  {
+    "id": "johannesburg",
+    "group": "Country",
+    "country": "South Africa",
+    "city": "Johannesburg",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -26.1076,
+      "lon": 28.0567,
+      "label": "Nelson Mandela Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Ponte Tower",
+      "Hillbrow Tower"
+    ]
+  },
+  {
+    "id": "durban",
+    "group": "Country",
+    "country": "South Africa",
+    "city": "Durban",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -29.829,
+      "lon": 31.03,
+      "label": "Moses Mabhida Stadium",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Moses Mabhida Stadium arch"
+    ]
+  },
+  {
+    "id": "abuja",
+    "group": "Country",
+    "country": "Nigeria",
+    "city": "Abuja",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 9.0597,
+      "lon": 7.4894,
+      "label": "Abuja National Mosque",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "National Mosque",
+      "Aso Rock (terrain)"
+    ]
+  },
+  {
+    "id": "makati",
+    "group": "Country",
+    "country": "Philippines",
+    "city": "Makati",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 14.5565,
+      "lon": 121.0234,
+      "label": "Ayala Triangle Gardens",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Makati skyline"
+    ]
+  },
+  {
+    "id": "cebu",
+    "group": "Country",
+    "country": "Philippines",
+    "city": "Cebu",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 10.2935,
+      "lon": 123.9019,
+      "label": "Magellan's Cross",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Magellan's Cross",
+      "Basilica del Santo Nino"
+    ]
+  },
+  {
+    "id": "abu-dhabi",
+    "group": "City-state or standout city",
+    "country": "United Arab Emirates",
+    "city": "Abu Dhabi",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 24.4128,
+      "lon": 54.475,
+      "label": "Sheikh Zayed Grand Mosque",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sheikh Zayed Grand Mosque",
+      "Etihad Towers"
+    ]
+  },
+  {
+    "id": "doha",
+    "group": "City-state or standout city",
+    "country": "Qatar",
+    "city": "Doha",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 25.295,
+      "lon": 51.539,
+      "label": "Museum of Islamic Art park",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Museum of Islamic Art",
+      "West Bay towers"
+    ]
+  },
+  {
+    "id": "monaco",
+    "group": "City-state or standout city",
+    "country": "Monaco",
+    "city": "Monaco",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 43.7347,
+      "lon": 7.4206,
+      "label": "Port Hercule",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Monte Carlo Casino",
+      "Prince's Palace"
+    ],
+    "animated": "Yachts in the harbour"
+  },
+  {
+    "id": "luxembourg-city",
+    "group": "City-state or standout city",
+    "country": "Luxembourg",
+    "city": "Luxembourg City",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 49.6115,
+      "lon": 6.13,
+      "label": "Place d'Armes",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Adolphe Bridge",
+      "Grand Ducal Palace"
+    ]
+  },
+  {
+    "id": "vatican-city",
+    "group": "City-state or standout city",
+    "country": "Vatican City",
+    "city": "Vatican City",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 41.9022,
+      "lon": 12.4568,
+      "label": "St Peter's Square",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "St Peter's Basilica dome"
+    ]
+  },
+  {
+    "id": "lisbon",
+    "group": "City-state or standout city",
+    "country": "Portugal",
+    "city": "Lisbon",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 38.7076,
+      "lon": -9.1365,
+      "label": "Praca do Comercio",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Belem Tower",
+      "25 de Abril Bridge",
+      "Augusta arch"
+    ],
+    "animated": "Yellow trams"
+  },
+  {
+    "id": "athens",
+    "group": "City-state or standout city",
+    "country": "Greece",
+    "city": "Athens",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 37.9726,
+      "lon": 23.7236,
+      "label": "Areopagus Hill",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Acropolis and Parthenon"
+    ]
+  },
+  {
+    "id": "prague",
+    "group": "City-state or standout city",
+    "country": "Czechia",
+    "city": "Prague",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 50.0865,
+      "lon": 14.4114,
+      "label": "Charles Bridge",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Charles Bridge",
+      "Prague Castle",
+      "Tyn Church"
+    ]
+  },
+  {
+    "id": "vienna",
+    "group": "City-state or standout city",
+    "country": "Austria",
+    "city": "Vienna",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 48.2085,
+      "lon": 16.3731,
+      "label": "Stephansplatz",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "St Stephen's Cathedral",
+      "Prater wheel"
+    ],
+    "animated": "Prater wheel turns"
+  },
+  {
+    "id": "copenhagen",
+    "group": "City-state or standout city",
+    "country": "Denmark",
+    "city": "Copenhagen",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 55.6798,
+      "lon": 12.5907,
+      "label": "Nyhavn",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Nyhavn houses",
+      "Little Mermaid"
+    ],
+    "notes": "The Little Mermaid statue is still under copyright; leave out"
+  },
+  {
+    "id": "stockholm",
+    "group": "City-state or standout city",
+    "country": "Sweden",
+    "city": "Stockholm",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 59.3251,
+      "lon": 18.0709,
+      "label": "Stortorget, Gamla Stan",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Stockholm City Hall",
+      "Gamla Stan"
+    ]
+  },
+  {
+    "id": "zurich",
+    "group": "City-state or standout city",
+    "country": "Switzerland",
+    "city": "Zurich",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 47.3667,
+      "lon": 8.541,
+      "label": "Burkliplatz lakefront",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Grossmunster",
+      "Lake Zurich"
+    ]
+  },
+  {
+    "id": "reykjavik",
+    "group": "City-state or standout city",
+    "country": "Iceland",
+    "city": "Reykjavik",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 64.1417,
+      "lon": -21.9266,
+      "label": "Hallgrimskirkja",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Hallgrimskirkja",
+      "Harpa"
+    ],
+    "animated": "Northern lights on some nights",
+    "notes": "Harpa is a recent work; check rights"
+  },
+  {
+    "id": "buenos-aires",
+    "group": "City-state or standout city",
+    "country": "Argentina",
+    "city": "Buenos Aires",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -34.6037,
+      "lon": -58.3816,
+      "label": "Plaza de la Republica, by the Obelisco",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Obelisco",
+      "Casa Rosada"
+    ]
+  },
+  {
+    "id": "nairobi",
+    "group": "City-state or standout city",
+    "country": "Kenya",
+    "city": "Nairobi",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -1.2885,
+      "lon": 36.8233,
+      "label": "KICC grounds",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Kenyatta International Convention Centre"
+    ]
+  },
+  {
+    "id": "marrakech",
+    "group": "City-state or standout city",
+    "country": "Morocco",
+    "city": "Marrakech",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 31.6258,
+      "lon": -7.9891,
+      "label": "Jemaa el-Fnaa",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Koutoubia Mosque minaret"
+    ],
+    "animated": "Market lights at dusk"
+  },
+  {
+    "id": "auckland",
+    "group": "City-state or standout city",
+    "country": "New Zealand",
+    "city": "Auckland",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": -36.8485,
+      "lon": 174.7622,
+      "label": "Sky Tower plaza",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Sky Tower",
+      "Harbour Bridge"
+    ]
+  },
+  {
+    "id": "taipei",
+    "group": "City-state or standout city",
+    "country": "Taiwan",
+    "city": "Taipei",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 25.034,
+      "lon": 121.5645,
+      "label": "Xinyi district, by Taipei 101",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Taipei 101"
+    ]
+  },
+  {
+    "id": "shanghai",
+    "group": "City-state or standout city",
+    "country": "China",
+    "city": "Shanghai",
+    "tier": 2,
+    "batch": "later",
+    "launch": {
+      "lat": 31.24,
+      "lon": 121.49,
+      "label": "The Bund",
+      "headingDeg": null
+    },
+    "landmarks": [
+      "Oriental Pearl Tower",
+      "Shanghai Tower"
+    ],
+    "notes": "Mainland China: LinkedIn and X are blocked there and map data uses shifted coordinates; low priority"
+  }
+]
