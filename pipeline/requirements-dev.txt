@@ -1,0 +1,2 @@
+# Test-only tools for the wind pipeline (CI and local). Install into a venv, never globally.
+pytest==9.2.0

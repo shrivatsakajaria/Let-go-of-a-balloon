@@ -3,13 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "cities": "vite-node scripts/cities.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "start": "vite preview"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -17,7 +21,8 @@
     "@types/three": "^0.187.0",
     "typescript": "^5.6.3",
     "vite": "^6.0.0",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wrangler": "4.161.0"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",

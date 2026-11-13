@@ -11,3 +11,6 @@ test-results/
 .winds-store/
 public/winds/
 .pytest_cache/
+.env
+.env.*
+!.env.example
