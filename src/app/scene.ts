@@ -81,6 +81,8 @@ const REPLAY_STREAM_ALT_M = 60000;
  * re-centres to a few a second (positions stay within ~70 km of the origin, millimetres in float32).
  */
 const REPLAY_RECENTRE_M = 30000;
+/** In the replay the shadow box sits this far above the balloon, where nothing casts a shadow. */
+const REPLAY_SHADOW_UP_M = 50000;
 
 /** Shadows on a disc round the balloon: wider at a few hundred metres, tighter at street level and cruise. */
 function shadowRadius(agl: number): number {
@@ -508,11 +510,12 @@ export class LiveScene {
     let redraw = this.sky.light.setRadius(shadowRadius(agl));
     const ahead = Math.min(400, agl * 0.4);
     this.focus.set(this.target.x + Math.sin(h) * ahead, this.groundS, this.target.z - Math.cos(h) * ahead);
+    // the replay draws no cast shadows: its shadow box goes up into the empty sky, so the map it draws
+    // is clear (no boats' or roofs' shadows from wherever the box last was; the balloon's own shadow is a
+    // decal and stays). Back to live, the box comes down to the balloon again and the map is redrawn.
+    if (rp) this.focus.y = this.target.y + REPLAY_SHADOW_UP_M;
     redraw = this.sky.place(this.focus) || redraw;
     if (this.shadowAsked > this.shadowDrawnAt && t - this.shadowDrawnAt > 250) redraw = true;
-    // the replay: no shadow worth drawing from high up; close to the balloon (the climb's start, the landing)
-    // the shadow map is redrawn every frame, since the land under it changed in between
-    if (rp) redraw = rs.wide <= 0.3;
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
