@@ -1,9 +1,10 @@
 /**
  * Christ the Redeemer on Corcovado: the 30 m Art Deco figure in pale soapstone, arms outstretched
- * 28 m with the tunic's sleeves hanging under them, the long robe with its folds and sash, the
- * head bowed a little; the 8 m pedestal with the chapel's door at the back; the summit's paved
- * terrace with its parapets, and the long platform in front of the statue where the balloon is let
- * go. The figure is floodlit from dusk (a plain glow). Faceted, Contour colours.
+ * 28 m with the tunic's narrow sleeves draped under the forearms, the long robe with its folds and
+ * sash, the head bowed a little; the 8 m pedestal with the chapel's door at the back; the summit's
+ * paved terrace with its parapets, and the long platform in front of the statue where the balloon
+ * is let go. From dusk the floodlight falls on the front of the robe, the arms and the face (a plain
+ * glow on those faces only, so the form still reads); the rest is lit stone. Faceted, Contour colours.
  *
  * The map's elevation data has lost Corcovado's needle: the ground it draws at the statue is
  * 528 m (the real summit is 710 m), with a smoothed hump 140 m to the west-north-west that is
@@ -133,8 +134,11 @@ function pedestal(k: Kit): void {
   k.pop();
 }
 
-/** Quads between rings of points (closed loops of the same length), lit away from their centres. */
-function loft(k: Kit, colour: Color, rings: P3[][], cap = true): void {
+/**
+ * Quads between rings of points (closed loops of the same length), lit away from their centres.
+ * With `lit`, the faces turned to the front (-z) go in the glow bucket: the floodlit side.
+ */
+function loft(k: Kit, colour: Color, rings: P3[][], cap = true, lit = false): void {
   const mid = (r: P3[]): P3 => {
     const s: P3 = [0, 0, 0];
     for (const p of r) for (let i = 0; i < 3; i++) s[i] += p[i] / r.length;
@@ -147,14 +151,15 @@ function loft(k: Kit, colour: Color, rings: P3[][], cap = true): void {
     for (let i = 0; i < A.length; i++) {
       const j = (i + 1) % A.length;
       const q: P3 = [(A[i][0] + B[j][0]) / 2 - m[0], (A[i][1] + B[j][1]) / 2 - m[1], (A[i][2] + B[j][2]) / 2 - m[2]];
-      k.quad('glow', colour, A[i], A[j], B[j], B[i], q);
+      const front = lit && q[2] < -0.6 * Math.hypot(q[0], q[1], q[2]);
+      k.quad(front ? 'glow' : 'plain', colour, A[i], A[j], B[j], B[i], q);
     }
   }
   if (!cap) return;
   const last = rings[rings.length - 1], c = cs[cs.length - 1];
   for (let i = 0; i < last.length; i++) {
     const a = last[i], b = last[(i + 1) % last.length];
-    k.tri('glow', colour, c[0], c[1], c[2], a[0], a[1], a[2], b[0], b[1], b[2], 0, 1, 0);
+    k.tri('plain', colour, c[0], c[1], c[2], a[0], a[1], a[2], b[0], b[1], b[2], 0, 1, 0);
   }
 }
 
@@ -175,34 +180,40 @@ function figure(k: Kit): void {
   const robe: [number, number, number][] = [
     [0, 3.3, 2.7], [5, 3.0, 2.4], [11, 2.8, 2.2], [15, 2.8, 2.2], [19.5, 3.2, 2.3], [23, 3.6, 2.2], [24.4, 3.4, 2.0], [25.2, 1.7, 1.5],
   ];
-  loft(k, S, robe.map(([y, rx, rz]) => ring(0, P + y, 0, rx, rz)), false);
+  // (the front of the robe and the face are the floodlit faces at night; the rest is lit stone)
+  loft(k, S, robe.map(([y, rx, rz]) => ring(0, P + y, 0, rx, rz)), false, true);
   // the sash at the waist
   loft(k, SH, [ring(0, P + 14.3, 0, 2.95, 2.35), ring(0, P + 15.4, 0, 2.95, 2.35)], false);
-  // folds down the front and the back of the robe
+  // folds down the front and the back of the robe (stone: shadowed stripes on the lit front)
   for (const [x, z] of [[-1.2, -2.45], [0.9, -2.45], [-0.9, 2.35], [1.1, 2.35]] as [number, number][]) {
-    k.box('glow', SH, x, P, z, 0.55, 13.5, 0.5, { taper: 0.7 });
+    k.box('plain', SH, x, P, z, 0.55, 13.5, 0.5, { taper: 0.7 });
   }
   // the neck and the head, bowed a little forward
-  loft(k, S, [ring(0, P + 25.2, -0.2, 0.75, 0.75, 8), ring(0, P + 26.0, -0.35, 1.05, 1.2, 8), ring(0, P + 27.6, -0.5, 1.15, 1.3, 8), ring(0, P + 28.9, -0.45, 0.95, 1.05, 8), ring(0, P + 29.6, -0.35, 0.45, 0.5, 8)]);
+  loft(k, S, [ring(0, P + 25.2, -0.2, 0.75, 0.75, 8), ring(0, P + 26.0, -0.35, 1.05, 1.2, 8), ring(0, P + 27.6, -0.5, 1.15, 1.3, 8), ring(0, P + 28.9, -0.45, 0.95, 1.05, 8), ring(0, P + 29.6, -0.35, 0.45, 0.5, 8)], true, true);
   // the hair falling to the shoulders behind
-  k.box('glow', SH, 0, P + 24.4, 0.55, 2.3, 3.6, 1.4, { taper: 0.8 });
+  k.box('plain', SH, 0, P + 24.4, 0.55, 2.3, 3.6, 1.4, { taper: 0.8 });
   for (const s of [-1, 1]) {
     // the arm, straight out: a beam from the shoulder to the hand, 14 m from the axis
     loft(k, S, [
       [[s * 2.8, P + 22.6, -0.85], [s * 2.8, P + 22.6, 0.85], [s * 2.8, P + 24.7, 0.85], [s * 2.8, P + 24.7, -0.85]],
       [[s * 12.6, P + 23.1, -0.6], [s * 12.6, P + 23.1, 0.6], [s * 12.6, P + 24.5, 0.6], [s * 12.6, P + 24.5, -0.6]],
-    ].map((r) => (s > 0 ? r : [...r].reverse()) as P3[]), false);
+    ].map((r) => (s > 0 ? r : [...r].reverse()) as P3[]), false, true);
     // the hand, open
     k.box('glow', S, s * 13.3, P + 22.9, 0, 1.5, 1.7, 0.9);
-    // the sleeve hanging under the arm, from the hip to the wrist
-    const t = 0.55;
-    const body: P3 = [s * 2.9, P + 14.5, 0], top: P3 = [s * 2.9, P + 22.7, 0], wrist: P3 = [s * 11.8, P + 23.1, 0], cuff: P3 = [s * 11.4, P + 21.2, 0];
-    for (const side of [-1, 1]) {
-      const o = side * t;
-      k.quad('glow', S, [body[0], body[1], o], [top[0], top[1], o], [wrist[0], wrist[1], o], [cuff[0], cuff[1], o], [0, 0, side]);
+    // the sleeve: a narrow drape under the forearm, at most 2.6 m deep, ending well short of the
+    // body so the sky shows between arm and robe. Stations: distance out, depth below the arm.
+    const t = 0.5;
+    const under = (x: number) => P + 22.6 + ((x - 2.8) / 9.8) * 0.5;
+    const drape: [number, number][] = [[4.6, 0], [5.6, 1.4], [7.6, 2.4], [9.8, 2.6], [11.5, 1.9], [12.0, 0]];
+    const pt = (x: number, d: number, z: number): P3 => [s * x, under(x) - d + 0.05, z];
+    for (let i = 0; i + 1 < drape.length; i++) {
+      const [x0, d0] = drape[i], [x1, d1] = drape[i + 1];
+      for (const side of [-1, 1]) {
+        k.quad(side < 0 ? 'glow' : 'plain', S, pt(x0, 0, side * t), pt(x1, 0, side * t), pt(x1, d1, side * t), pt(x0, d0, side * t), [0, 0, side]);
+      }
+      // its lower edge, in shade
+      if (d0 + d1 > 0) k.quad('plain', SH, pt(x0, d0, -t), pt(x1, d1, -t), pt(x1, d1, t), pt(x0, d0, t), [0, -1, 0]);
     }
-    k.quad('glow', SH, [body[0], body[1], -t], [cuff[0], cuff[1], -t], [cuff[0], cuff[1], t], [body[0], body[1], t], [s * 0.2, -1, 0]);
-    k.quad('glow', SH, [cuff[0], cuff[1], -t], [wrist[0], wrist[1], -t], [wrist[0], wrist[1], t], [cuff[0], cuff[1], t], [s, 0, 0]);
   }
 }
 
