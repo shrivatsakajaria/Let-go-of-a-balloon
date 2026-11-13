@@ -134,6 +134,16 @@ export function groundGrid(heights: Float32Array, size: number, frame: TileFrame
  * Height of the drawn (terraced, faceted) ground at local (x, z): the same two triangles per cell
  * that buildGround emits, so anything placed with this sits exactly on the ground.
  */
+/** Ground cell (index j*n+i, row 0 = south) containing local (x, z), clamped to the tile. */
+export function cellAt(g: GroundGrid, x: number, z: number): number {
+  const { n, X, Z } = g;
+  const i = Math.max(0, Math.min(n - 1, Math.floor((x / X[n]) * n)));
+  let j = Math.max(0, Math.min(n - 1, Math.floor((z / Z[n]) * n)));
+  while (j > 0 && z > Z[j]) j--;
+  while (j < n - 1 && z < Z[j + 1]) j++;
+  return j * n + i;
+}
+
 export function groundHeightAt(g: GroundGrid, x: number, z: number): number {
   const { n, terr, X, Z } = g;
   const V = n + 1;

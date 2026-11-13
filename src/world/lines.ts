@@ -2,9 +2,9 @@
  * Roads and rivers as flat ribbons draped a little above the drawn ground, and street lamps along
  * the smaller streets. Pure; runs in a Worker.
  */
-import { groundHeightAt, type GroundGrid } from './terrain';
+import { cellAt, groundHeightAt, type GroundGrid } from './terrain';
 import { CONTOUR, ROADS, lerpHex } from './palette';
-import { MeshBuilder, hash01, rgb, type RGB } from './geom';
+import { MeshBuilder, clipTriToTile, hash01, rgb, type RGB } from './geom';
 import type { LineFeature } from './vector';
 import type { Segment } from './buildings';
 
@@ -67,13 +67,14 @@ function densify(l: ArrayLike<number>, step: number, h: Surface): number[] {
 type Surface = (x: number, z: number) => number;
 
 /**
- * A flat ribbon of half width `half` along points p, each edge vertex draped on the surface and
- * kept inside the tile (W x H), so a road crossing the border meets its neighbour's half exactly.
+ * A flat ribbon of half width `half` along points p, each edge vertex draped on the surface. The
+ * whole ribbon is built (lines run on into the tile buffer) and each triangle is cut at the tile
+ * border (W x H), so a tile draws exactly its part and its neighbour the rest. Points made by the
+ * cut take their height from the surface, which neighbouring tiles share along the border.
  */
 function ribbon(p: number[], half: number, lift: number, color: RGB, surface: Surface, W: number, H: number, out: MeshBuilder): void {
   const n = p.length / 2;
   if (n < 2) return;
-  const cx = (v: number) => (v < 0 ? 0 : v > W ? W : v), cz = (v: number) => (v > 0 ? 0 : v < -H ? -H : v);
   const L: number[] = [], R: number[] = [];
   for (let i = 0; i < n; i++) {
     const x = p[i * 2], z = p[i * 2 + 1];
@@ -93,19 +94,24 @@ function ribbon(p: number[], half: number, lift: number, color: RGB, surface: Su
       scale = Math.min(2, 1 / Math.max(0.5, mx * n1x + mz * n1z)); // mitre, limited at sharp turns
     }
     const ox = mx * half * scale, oz = mz * half * scale;
-    L.push(cx(x + ox), cz(z + oz));
-    R.push(cx(x - ox), cz(z - oz));
+    L.push(x + ox, z + oz);
+    R.push(x - ox, z - oz);
   }
   const y = (x: number, z: number) => surface(x, z) + lift;
+  const inside = (x: number, z: number) => x >= 0 && x <= W && z <= 0 && z >= -H;
+  const tri = (ax: number, az: number, bx: number, bz: number, cx: number, cz: number) => {
+    if (inside(ax, az) && inside(bx, bz) && inside(cx, cz)) {
+      out.tri(ax, y(ax, az), az, bx, y(bx, bz), bz, cx, y(cx, cz), cz, color);
+      return;
+    }
+    const q = clipTriToTile(ax, az, bx, bz, cx, cz, W, H);
+    for (let k = 2; k + 3 < q.length; k += 2)
+      out.tri(q[0], y(q[0], q[1]), q[1], q[k], y(q[k], q[k + 1]), q[k + 1], q[k + 2], y(q[k + 2], q[k + 3]), q[k + 3], color);
+  };
   for (let i = 0; i + 1 < n; i++) {
     const a = i * 2, b = a + 2;
-    out.quad(
-      L[a], y(L[a], L[a + 1]), L[a + 1],
-      R[a], y(R[a], R[a + 1]), R[a + 1],
-      R[b], y(R[b], R[b + 1]), R[b + 1],
-      L[b], y(L[b], L[b + 1]), L[b + 1],
-      color,
-    );
+    tri(L[a], L[a + 1], R[a], R[a + 1], R[b], R[b + 1]);
+    tri(L[a], L[a + 1], R[b], R[b + 1], L[b], L[b + 1]);
   }
 }
 
@@ -142,10 +148,7 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
     ribbon(p, st.half, DRAPE_M + st.rank * 0.008, st.color, surface, frame.widthM, frame.heightM, out);
     for (let i = 2; i < p.length; i += 2) {
       const ax = p[i - 2], az = p[i - 1], bx = p[i], bz = p[i + 1];
-      const f = frame.localToFrac((ax + bx) / 2, (az + bz) / 2);
-      const ci = Math.min(n - 1, Math.max(0, Math.floor(f.fx * n)));
-      const cj = Math.min(n - 1, Math.max(0, Math.floor((1 - f.fy) * n)));
-      const c = cj * n + ci;
+      const c = cellAt(g, (ax + bx) / 2, (az + bz) / 2);
       let list = cells.get(c);
       if (!list) cells.set(c, (list = []));
       list.push({ ax, az, bx, bz, half: st.half });
@@ -215,8 +218,10 @@ export function placeLamps(lines: LineFeature[], g: GroundGrid, z: number, seed:
         const t = (next - along) / len;
         const x = ax + (bx - ax) * t - ((bz - az) / len) * half * side;
         const zz = az + (bz - az) * t + ((bx - ax) / len) * half * side;
-        out.push(x, groundHeightAt(g, x, zz), zz);
-        count++;
+        if (x >= 0 && x <= g.frame.widthM && zz <= 0 && zz >= -g.frame.heightM) {
+          out.push(x, groundHeightAt(g, x, zz), zz);
+          count++;
+        }
         side = -side;
         next += spacing;
       }

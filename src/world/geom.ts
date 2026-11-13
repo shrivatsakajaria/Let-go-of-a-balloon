@@ -234,8 +234,8 @@ export function clipRingToBox(r: ArrayLike<number>, e: number): number[] {
   return o;
 }
 
-/** Clip a polyline to the box [0, e] x [0, e]; returns the pieces inside (Liang-Barsky per segment). */
-export function clipLineToBox(l: ArrayLike<number>, e: number): number[][] {
+/** Clip a polyline to the box [lo, hi] x [lo, hi]; returns the pieces inside (Liang-Barsky per segment). */
+export function clipLineToBox(l: ArrayLike<number>, hi: number, lo = 0): number[][] {
   const pieces: number[][] = [];
   let cur: number[] | null = null;
   for (let i = 0; i + 3 < l.length; i += 2) {
@@ -243,7 +243,7 @@ export function clipLineToBox(l: ArrayLike<number>, e: number): number[][] {
     const dx = x1 - x0, dy = y1 - y0;
     let t0 = 0, t1 = 1;
     let ok = true;
-    for (const [p, q] of [[-dx, x0], [dx, e - x0], [-dy, y0], [dy, e - y0]]) {
+    for (const [p, q] of [[-dx, x0 - lo], [dx, hi - x0], [-dy, y0 - lo], [dy, hi - y0]]) {
       if (p === 0) {
         if (q < 0) { ok = false; break; }
       } else {
@@ -262,4 +262,16 @@ export function clipLineToBox(l: ArrayLike<number>, e: number): number[][] {
     if (t1 < 1) cur = null;
   }
   return pieces.map((p) => dedupe(p, 1e-9, false)).filter((p) => p.length >= 4);
+}
+
+/**
+ * Clip a triangle (flat xz) to the tile rectangle x in [0, W], z in [-H, 0]; returns the convex
+ * polygon inside (flat xz, maybe empty).
+ */
+export function clipTriToTile(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, W: number, H: number): number[] {
+  let o = clipRingHalfPlane([ax, az, bx, bz, cx, cz], 1, 0, 0);
+  o = clipRingHalfPlane(o, -1, 0, W);
+  o = clipRingHalfPlane(o, 0, -1, 0);
+  o = clipRingHalfPlane(o, 0, 1, H);
+  return o;
 }

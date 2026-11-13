@@ -14,7 +14,10 @@ type Props = Record<string, number | string | boolean>;
 
 /** A polygon area (water, landuse, landcover, park), clipped to the tile. */
 export type AreaFeature = { cls: string; subclass: string; polygon: Polygon };
-/** A line (transportation, waterway), clipped to the tile: flat [x0, z0, x1, z1, ...]. */
+/**
+ * A line (transportation, waterway): flat [x0, z0, x1, z1, ...]. Kept out into the tile buffer
+ * (LINE_BUFFER of the extent) so ribbons can be built whole and cut exactly at the tile border.
+ */
 export type LineFeature = { cls: string; subclass: string; brunnel: string; line: Float64Array };
 /** A building footprint whose centroid lies in this tile (not clipped). Heights in metres. */
 export type BuildingFeature = { height: number; minHeight: number; polygon: Polygon };
@@ -37,6 +40,9 @@ export type Features = {
 export function emptyFeatures(): Features {
   return { water: [], waterway: [], landuse: [], landcover: [], park: [], transportation: [], building: [], place: [], water_name: [] };
 }
+
+/** How far past the tile edge lines are kept, as a fraction of the extent (OpenFreeMap's buffer is 1/64). */
+export const LINE_BUFFER = 1 / 64;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -99,7 +105,7 @@ function lines(layer: VectorTileLayer | undefined, frame: TileFrame): LineFeatur
     if (f.type !== 2) continue;
     const cls = str(f.properties.class), subclass = str(f.properties.subclass), brunnel = str(f.properties.brunnel);
     for (const l of f.loadGeometry())
-      for (const piece of clipLineToBox(flatPoints(l), layer.extent))
+      for (const piece of clipLineToBox(flatPoints(l), layer.extent * (1 + LINE_BUFFER), -layer.extent * LINE_BUFFER))
         out.push({ cls, subclass, brunnel, line: toLocal(frame, piece, layer.extent) });
   }
   return out;

@@ -80,7 +80,9 @@ test('Manchester Town Hall area produces building geometry', () =>
   expect(m.buildings.position.length).toBeGreaterThan(30000));
 
 test('no tree instance falls outside a wood or park polygon', () => {
-  const zones = [...f.landcover.filter((a) => a.cls === 'wood'), ...f.park].map((a) => a.polygon);
+  // OMT: woods are landcover class wood; city parks are landcover grass/park (the park layer is
+  // protected areas and historic sites, not trees)
+  const zones = f.landcover.filter((a) => a.cls === 'wood' || a.cls === 'forest' || a.subclass === 'park').map((a) => a.polygon);
   expect(zones.length).toBeGreaterThan(0);
   const n = m.trees.length / 16;
   expect(Number.isInteger(n)).toBe(true);
@@ -89,6 +91,7 @@ test('no tree instance falls outside a wood or park polygon', () => {
   for (let i = 0; i < n; i++) {
     const x = m.trees[i * 16 + 12], z = m.trees[i * 16 + 14];
     expect(zones.some((p) => inside(p, x, z))).toBe(true);
+    expect(f.building.some((b) => inside([b.polygon[0]], x, z))).toBe(false); // never inside a building
     expect(m.trees[i * 16 + 15]).toBe(1);
   }
 });
@@ -169,13 +172,15 @@ test('water: a deep band along the true shoreline only, never along the tile bor
   expect(minBandX).toBeGreaterThan(W / 2 - 40); // only near the shoreline at x = W/2
 });
 
-test('decoded polygons and lines are clipped to the tile', () => {
+test('decoded polygons are clipped to the tile, lines to the tile and its buffer', () => {
   const eps = 1e-6;
   const ok = (x: number, z: number) => x >= -eps && x <= frame.widthM + eps && z <= eps && z >= -frame.heightM - eps;
   for (const a of [...f.water, ...f.landcover, ...f.landuse, ...f.park])
     for (const r of a.polygon) for (let i = 0; i < r.length; i += 2) expect(ok(r[i], r[i + 1])).toBe(true);
+  const b = frame.widthM / 64 + 0.1; // OpenFreeMap's buffer: 64 of 4096
+  const okb = (x: number, z: number) => x >= -b && x <= frame.widthM + b && z <= b && z >= -frame.heightM - b;
   for (const l of [...f.transportation, ...f.waterway])
-    for (let i = 0; i < l.line.length; i += 2) expect(ok(l.line[i], l.line[i + 1])).toBe(true);
+    for (let i = 0; i < l.line.length; i += 2) expect(okb(l.line[i], l.line[i + 1])).toBe(true);
 });
 
 test('fixture water: band segments never lie on the tile border', () => {
@@ -437,4 +442,97 @@ test('roads crossing flat water stay above its surface (bridges over docks and l
     const x = t.roads.position[i];
     if (x > 420 && x < 680) expect(t.roads.position[i + 1]).toBeGreaterThan(level + 0.25);
   }
+});
+
+test('trees: none on the protected-area (park layer) polygon, some in the city parks', () => {
+  const historic = f.park.filter((a) => a.cls === 'historic').map((a) => a.polygon);
+  expect(historic.length).toBeGreaterThan(0); // Mamucium Roman fort
+  const parks = f.landcover.filter((a) => a.subclass === 'park').map((a) => a.polygon);
+  expect(parks.length).toBeGreaterThan(0);
+  let inHistoric = 0, inParks = 0;
+  for (let i = 0; i < m.trees.length; i += 16) {
+    const x = m.trees[i + 12], z = m.trees[i + 14];
+    if (historic.some((p) => inside(p, x, z)) && !f.landcover.some((a) => (a.cls === 'wood' || a.subclass === 'park') && inside(a.polygon, x, z))) inHistoric++;
+    if (parks.some((p) => inside(p, x, z))) inParks++;
+  }
+  expect(inHistoric).toBe(0);
+  expect(inParks).toBeGreaterThan(10);
+  // a park-layer polygon alone (a national park over moorland) gets no trees
+  const s = emptyFeatures();
+  s.park.push({ cls: 'national_park', subclass: '', polygon: rect(0, 0, frame.widthM, -frame.heightM) });
+  expect(buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION).trees.length).toBe(0);
+});
+
+test('water: no deep band on an edge shared by two water polygons, band on the outer shore', () => {
+  const s = emptyFeatures();
+  s.water.push({ cls: 'lake', subclass: '', polygon: rect(400, -400, 600, -600) });
+  s.water.push({ cls: 'lake', subclass: '', polygon: rect(600, -400, 800, -600) });
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION);
+  const deep = parseHex(CONTOUR.waterDeep).map((v) => v / 255);
+  let nearShared = 0, nearOuter = 0;
+  for (let i = 0; i < t.water.color.length; i += 9) { // per triangle, by centroid
+    if (Math.hypot(t.water.color[i] - deep[0], t.water.color[i + 1] - deep[1], t.water.color[i + 2] - deep[2]) >= 0.02) continue;
+    const p = t.water.position;
+    const x = (p[i] + p[i + 3] + p[i + 6]) / 3, z = (p[i + 2] + p[i + 5] + p[i + 8]) / 3;
+    if (z < -420 && z > -580) {
+      if (Math.abs(x - 600) < 15) nearShared++;
+      if (Math.abs(x - 400) < 15 || Math.abs(x - 800) < 15) nearOuter++;
+    }
+  }
+  expect(nearShared).toBe(0);
+  expect(nearOuter).toBeGreaterThan(0);
+});
+
+test('a road crossing the tile border at 45 degrees: each tile draws exactly its half, no notch', () => {
+  const triArea = (p: Float32Array) => {
+    let a = 0;
+    for (let t = 0; t < p.length; t += 9)
+      a += Math.abs((p[t + 3] - p[t]) * (p[t + 8] - p[t + 2]) - (p[t + 5] - p[t + 2]) * (p[t + 6] - p[t])) / 2;
+    return a;
+  };
+  const W = frame.widthM;
+  const road = (dx: number) => {
+    const s = emptyFeatures();
+    s.transportation.push({ cls: 'primary', subclass: '', brunnel: '', line: Float64Array.from([W - 150 - dx, -500, W + 150 - dx, -800]) });
+    return s;
+  };
+  const a = buildTileMeshes(road(0), flat, Z, X, Y, DEFAULT_REGION).roads;
+  const b = buildTileMeshes(road(W), flat, Z, X + 1, Y, DEFAULT_REGION).roads;
+  for (let i = 0; i < a.position.length; i += 3) expect(a.position[i]).toBeLessThanOrEqual(W + 1e-3);
+  for (let i = 0; i < b.position.length; i += 3) expect(b.position[i]).toBeGreaterThanOrEqual(-1e-3);
+  const full = 10 * 300 * Math.SQRT2; // primary: 10 m wide, square ends
+  expect(triArea(a.position)).toBeCloseTo(full / 2, 0);
+  expect(triArea(b.position)).toBeCloseTo(full / 2, 0);
+  // every point of the true ribbon next to the border is covered by the tile it lies in
+  const covered = (p: Float32Array, x: number, z: number) => {
+    for (let t = 0; t < p.length; t += 9) {
+      const ax = p[t], az = p[t + 2], bx = p[t + 3], bz = p[t + 5], cx = p[t + 6], cz = p[t + 8];
+      const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+      const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+      if (l1 >= -1e-6 && l2 >= -1e-6 && 1 - l1 - l2 >= -1e-6) return true;
+    }
+    return false;
+  };
+  // centreline crosses x = W at z = -650; across the ribbon (perpendicular (1,1)/sqrt2), +-4.9 m
+  for (let k = -4.9; k <= 4.9; k += 0.7) {
+    for (const along of [-2, -0.3, 0.3, 2]) {
+      const x = W + (k + along) / Math.SQRT2, z = -650 + (k - along) / Math.SQRT2;
+      if (x < W) expect(covered(a.position, x, z)).toBe(true);
+      else expect(covered(b.position, x - W, z)).toBe(true);
+    }
+  }
+});
+
+test('decoded roads and rivers run on into the tile buffer, so ribbons can be cut at the border', () => {
+  const W = frame.widthM;
+  let beyond = 0;
+  for (const l of [...f.transportation, ...f.waterway])
+    for (let i = 0; i < l.line.length; i += 2) if (l.line[i] < -1 || l.line[i] > W + 1 || l.line[i + 1] > 1 || l.line[i + 1] < -frame.heightM - 1) beyond++;
+  expect(beyond).toBeGreaterThan(0);
+  // and every ribbon vertex is inside the tile
+  for (const b of [m.roads, m.waterways])
+    for (let i = 0; i < b.position.length; i += 3) {
+      expect(b.position[i]).toBeGreaterThanOrEqual(-1e-3);
+      expect(b.position[i]).toBeLessThanOrEqual(W + 1e-3);
+    }
 });

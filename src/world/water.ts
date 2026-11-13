@@ -6,12 +6,14 @@
 import earcut from 'earcut';
 import { groundHeightAt, type GroundGrid } from './terrain';
 import { CONTOUR } from './palette';
-import { MeshBuilder, hash01, mixRGB, rgb, ringArea, type RGB } from './geom';
+import { MeshBuilder, bbox, hash01, mixRGB, pointInPolygon, rgb, ringArea, type RGB } from './geom';
 import type { AreaFeature } from './vector';
 
 const SHALLOW = rgb(CONTOUR.waterShallow);
 const DEEP = rgb(CONTOUR.waterDeep);
 const WHITE: RGB = [1, 1, 1];
+/** How far outside a shore edge to look for adjoining water. */
+const SEAM_PROBE_M = 0.5;
 /** The band sits this far above the body so the two never fight for the same pixels. */
 const BAND_LIFT_M = 0.05;
 
@@ -97,6 +99,17 @@ export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid,
   const cell = W / g.n;
   const draped = (x: number, z: number) => groundHeightAt(g, x, z) + WATER_DRAPE_M;
   const clampX = (v: number) => Math.min(W, Math.max(0, v)), clampZ = (v: number) => Math.min(0, Math.max(-H, v));
+  // an edge that another water polygon continues across (riverbank seams, a pond joining a river)
+  // is not shore: probe just outside it
+  const boxes = list.map((a) => bbox(a.polygon[0]));
+  const otherWaterAt = (self: number, x: number, z: number) => {
+    for (let k = 0; k < list.length; k++) {
+      if (k === self) continue;
+      const b = boxes[k];
+      if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && pointInPolygon(list[k].polygon, x, z)) return true;
+    }
+    return false;
+  };
 
   for (let w = 0; w < list.length; w++) {
     const { polygon } = list[w];
@@ -132,10 +145,14 @@ export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid,
         const len = Math.hypot(dx, dz);
         if (len < 1e-6) continue;
         const ix = (-dz / len) * s * band, iz = (dx / len) * s * band; // into the water
-        const steps = flatY ? 1 : Math.ceil(len / cell); // draped bands follow the ground too
+        // pieces of at most a ground cell: draped bands follow the ground, and each piece is
+        // checked for being shared with another water polygon
+        const steps = Math.ceil(len / cell);
         for (let q = 0; q < steps; q++) {
           const t0 = q / steps, t1 = (q + 1) / steps;
           const sx = ax + dx * t0, sz = az + dz * t0, ex = ax + dx * t1, ez = az + dz * t1;
+          const mx = (sx + ex) / 2 - (ix / band) * SEAM_PROBE_M, mz = (sz + ez) / 2 - (iz / band) * SEAM_PROBE_M;
+          if (otherWaterAt(w, mx, mz)) continue;
           const px = clampX(ex + ix), pz = clampZ(ez + iz), qx = clampX(sx + ix), qz = clampZ(sz + iz);
           out.quad(sx, by(sx, sz), sz, ex, by(ex, ez), ez, px, by(px, pz), pz, qx, by(qx, qz), qz, DEEP);
         }

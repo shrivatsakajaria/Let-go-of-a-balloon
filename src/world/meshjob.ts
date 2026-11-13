@@ -3,7 +3,7 @@
  * and lamp instances, and labels. Pure (no fetch, DOM or three.js) so it runs in a Worker and in
  * Node tests. Everything is in the tile frame's local metres (see frame.ts).
  */
-import { buildGroundMesh, carveGround, groundGrid, type MeshBuffers } from './terrain';
+import { buildGroundMesh, carveGround, cellAt, groundGrid, type MeshBuffers } from './terrain';
 import { tileFrame } from './frame';
 import type { RegionStyle } from './palette';
 import { MeshBuilder } from './geom';
@@ -63,11 +63,7 @@ export function buildTileMeshes(
   const levels = waterLevels(features.water, g);
   const cellLevel = rasteriseLevels(features.water.map((w) => w.polygon), levels, frame, n);
   carveGround(g, cellLevel);
-  const waterLevelAt = (px: number, pz: number) => {
-    const f = frame.localToFrac(px, pz);
-    const i = Math.min(n - 1, Math.max(0, Math.floor(f.fx * n))), j = Math.min(n - 1, Math.max(0, Math.floor((1 - f.fy) * n)));
-    return cellLevel[j * n + i];
-  };
+  const waterLevelAt = (px: number, pz: number) => cellLevel[cellAt(g, px, pz)];
   const ground = buildGroundMesh(g, landcover.grid);
 
   const water = new MeshBuilder(4096);
@@ -103,7 +99,14 @@ export function buildTileMeshes(
         )
       : 0;
 
-  const trees = placeTrees(treeZones(features), g, seed, z >= 14 ? 14 : z === 13 ? 24 : 40);
+  const trees = placeTrees(
+    treeZones(features),
+    g,
+    seed,
+    z >= 14 ? 14 : z === 13 ? 24 : 40,
+    undefined,
+    features.building.map((b) => b.polygon),
+  );
   const lamps = placeLamps(features.transportation, g, z, seed);
 
   const labels: Label[] = [...features.place, ...features.water_name].map((p) => ({

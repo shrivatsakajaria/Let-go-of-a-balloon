@@ -63,8 +63,10 @@ export type Landcover = {
 };
 
 /**
- * Rasterise land use, land cover, parks and water into an n x n class grid (row 0 = south). Later
- * layers win: built-up land use, then natural land cover, then parks, then water.
+ * Rasterise land use, land cover and water into an n x n class grid (row 0 = south). Later layers
+ * win: built-up land use, then natural land cover (city parks are landcover grass/park), then water.
+ * The `park` layer (protected areas) is left out: painting it would turn a national park's woods
+ * and moors to lawn.
  */
 export function rasteriseLandcover(f: Features, frame: TileFrame, n: number): Landcover {
   const classes = new Uint8Array(n * n);
@@ -80,7 +82,6 @@ export function rasteriseLandcover(f: Features, frame: TileFrame, n: number): La
     const cls = landcoverClass(a.cls);
     if (cls !== LC.unknown) paint(a, cls);
   }
-  for (const a of f.park) paint(a, LC.grass);
   for (const a of f.water) paint(a, LC.water);
   return { grid: { size: n, classes }, residential };
 }
@@ -89,20 +90,39 @@ export function rasteriseLandcover(f: Features, frame: TileFrame, n: number): La
 
 export const TREE_CAP = 2000;
 
-/** Polygons that hold trees: landcover wood and parks. */
+/**
+ * Polygons that hold trees: landcover class wood (or forest) and city parks, which OpenMapTiles
+ * puts in landcover as grass/park. The `park` layer is protected areas (national parks, nature
+ * reserves, historic sites) and holds no trees of its own.
+ */
 export function treeZones(f: Features): Polygon[] {
-  return [...f.landcover.filter((a) => a.cls === 'wood' || a.cls === 'forest'), ...f.park].map((a) => a.polygon);
+  return f.landcover.filter((a) => a.cls === 'wood' || a.cls === 'forest' || a.subclass === 'park').map((a) => a.polygon);
 }
 
 /**
  * Tree instances (4x4 column-major matrices, three.js order): a jittered grid clipped to the zones,
  * spaced so a tile never needs more than TREE_CAP, with a narrow seeded spread of size and turn.
- * Positions sit on the drawn ground.
+ * Never inside a `blockers` footprint (buildings). Positions sit on the drawn ground.
  */
-export function placeTrees(zones: Polygon[], ground: GroundGrid, seed: number, spacingM: number, cap = TREE_CAP): Float32Array {
+export function placeTrees(
+  zones: Polygon[],
+  ground: GroundGrid,
+  seed: number,
+  spacingM: number,
+  cap = TREE_CAP,
+  blockers: Polygon[] = [],
+): Float32Array {
   if (!zones.length) return new Float32Array(0);
   const frame = ground.frame;
   const boxes: BBox[] = zones.map((p) => bbox(p[0]));
+  const blockBoxes: BBox[] = blockers.map((p) => bbox(p[0]));
+  const blocked = (x: number, z: number) => {
+    for (let k = 0; k < blockers.length; k++) {
+      const b = blockBoxes[k];
+      if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && pointInPolygon([blockers[k][0]], x, z)) return true;
+    }
+    return false;
+  };
   let area = 0;
   for (const p of zones) area += polygonArea(p);
   const step = Math.max(spacingM, Math.sqrt(area / cap) * 1.05);
@@ -123,7 +143,7 @@ export function placeTrees(zones: Polygon[], ground: GroundGrid, seed: number, s
         const b = boxes[k];
         if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) hit = pointInPolygon(zones[k], x, z);
       }
-      if (!hit) continue;
+      if (!hit || blocked(x, z)) continue;
       const y = groundHeightAt(ground, x, z);
       const turn = hash01(gi, gj, seed + 2) * Math.PI * 2;
       const s = 0.85 + 0.3 * hash01(gi, gj, seed + 3);
