@@ -22,15 +22,46 @@ type Key = Light & { el: number };
  * balloon's #ff5a12 remains the only saturated thing in the world. Golden hour (0-15 deg) is
  * the hero look: a warm low sun over a pale horizon. The sun's colour stays below 0.55 HSV
  * saturation at every elevation (warm apricot, never the balloon's orange).
+ *
+ * Violet is kept to the evening twilight (SK: the towns turn a calm violet-grey at dusk). Deep night
+ * (below about -12 deg) is ink blue with cool blue-grey towns: there every blue light (moonlight,
+ * the night skylight, the night ground tints) has its green well above its red (in linear light, at
+ * least 1.6 times), so the warm materials it falls on, and the warm windows and lamps, never mix
+ * with it into violet. Dawn is cooler and paler than dusk (lightFor's `rising`).
  */
 const KEYS: Key[] = [
-  { el: -18, skyTop: '#0a1022', skyHorizon: '#18223c', groundTint: '#7480a6', sun: '#9fb0d8', sunIntensity: 0.35, hemiSky: '#46598c', hemiGround: '#252a35', night: 1 },
-  { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#68738f', sun: '#93a6d2', sunIntensity: 0.42, hemiSky: '#4a5c8c', hemiGround: '#2a2f39', night: 0.8 },
+  { el: -18, skyTop: '#0a1022', skyHorizon: '#18223c', groundTint: '#6a88a2', sun: '#8cb4d2', sunIntensity: 0.35, hemiSky: '#3f5d8a', hemiGround: '#202c36', night: 1 },
+  { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#5f7a8e', sun: '#84aacc', sunIntensity: 0.42, hemiSky: '#456490', hemiGround: '#22303a', night: 0.8 },
   { el: -4, skyTop: '#2a3c64', skyHorizon: '#78809a', groundTint: '#8f93a6', sun: '#d6ab8c', sunIntensity: 0.9, hemiSky: '#67779a', hemiGround: '#444048', night: 0.35 },
   { el: 0, skyTop: '#4a5a7e', skyHorizon: '#e8b392', groundTint: '#f2d6c0', sun: '#f6b688', sunIntensity: 1.5, hemiSky: '#8f98b2', hemiGround: '#5e5148', night: 0.12 },
   { el: 5, skyTop: '#5c7aa6', skyHorizon: '#f4c595', groundTint: '#ffe0c4', sun: '#ffb676', sunIntensity: 1.8, hemiSky: '#a8b7d0', hemiGround: '#6d6150', night: 0 },
   { el: 15, skyTop: '#5e90ca', skyHorizon: '#d8e3e6', groundTint: '#fff0e0', sun: '#ffe0b8', sunIntensity: 2.2, hemiSky: '#c4d6e8', hemiGround: '#78805c', night: 0 },
   { el: 40, skyTop: '#5a9edf', skyHorizon: '#d6e8f0', groundTint: '#ffffff', sun: '#fff3df', sunIntensity: 2.6, hemiSky: '#d2e6f8', hemiGround: '#7f8b5c', night: 0 },
+];
+
+/** The colours that differ between dawn and dusk (strengths and `night` follow the elevation only). */
+type Tone = Pick<Light, 'skyTop' | 'skyHorizon' | 'groundTint' | 'sun' | 'hemiSky' | 'hemiGround'>;
+type ToneKey = Tone & { el: number };
+
+/** Dawn and dusk differ below this sun elevation and meet the shared keys at it. */
+export const TWILIGHT_TOP_DEG = 3;
+const TWILIGHT_BOTTOM_DEG = -18;
+
+/** Dawn: cooler and paler (a clear, washed light), cool grey-blue rather than mauve, a hint of pink low down. */
+const DAWN: ToneKey[] = [
+  { el: -10, skyTop: '#122040', skyHorizon: '#2e4a6e', groundTint: '#62798c', sun: '#88abc9', hemiSky: '#48668e', hemiGround: '#23303a' },
+  { el: -4, skyTop: '#2c4466', skyHorizon: '#8a9cb0', groundTint: '#9099a2', sun: '#d0c6ae', hemiSky: '#6884a0', hemiGround: '#3e484c' },
+  { el: 0, skyTop: '#4e6880', skyHorizon: '#e4cdb2', groundTint: '#f0e2d2', sun: '#f4d0a8', hemiSky: '#93a6b8', hemiGround: '#5c5650' },
+];
+/**
+ * Dusk: warmer, and the towns go a calm violet-grey in the twilight, as SK wants ("of course it's
+ * gonna turn purple"): the evening keys themselves, with the original -10 deg twilight (a violet
+ * lean) before the cool blue night takes over below about -12 deg.
+ */
+const DUSK: ToneKey[] = [
+  { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#68738f', sun: '#93a6d2', hemiSky: '#4a5c8c', hemiGround: '#2a2f39' },
+  { el: -4, skyTop: '#2a3c64', skyHorizon: '#78809a', groundTint: '#8f93a6', sun: '#d6ab8c', hemiSky: '#67779a', hemiGround: '#444048' },
+  { el: 0, skyTop: '#4a5a7e', skyHorizon: '#eaa87e', groundTint: '#f6d8c0', sun: '#f8b080', hemiSky: '#8f98b2', hemiGround: '#605248' },
 ];
 
 const smooth = (f: number): number => f * f * (3 - 2 * f);
@@ -40,17 +71,19 @@ function strip(k: Key): Light {
   return light;
 }
 
-/** Sky and light for a given sun elevation in degrees; clamps outside the keyed range. */
-export function lightFor(elevationDeg: number): Light {
-  const first = KEYS[0];
-  const last = KEYS[KEYS.length - 1];
-  if (elevationDeg <= first.el) return strip(first);
-  if (elevationDeg >= last.el) return strip(last);
+function interpolate<T extends { el: number }>(keys: T[], elevationDeg: number): { a: T; b: T; f: number } {
+  const first = keys[0], last = keys[keys.length - 1];
+  if (elevationDeg <= first.el) return { a: first, b: first, f: 0 };
+  if (elevationDeg >= last.el) return { a: last, b: last, f: 0 };
   let i = 0;
-  while (elevationDeg > KEYS[i + 1].el) i++;
-  const a = KEYS[i];
-  const b = KEYS[i + 1];
-  const f = smooth((elevationDeg - a.el) / (b.el - a.el));
+  while (elevationDeg > keys[i + 1].el) i++;
+  const a = keys[i], b = keys[i + 1];
+  return { a, b, f: smooth((elevationDeg - a.el) / (b.el - a.el)) };
+}
+
+function baseLight(elevationDeg: number): Light {
+  const { a, b, f } = interpolate(KEYS, elevationDeg);
+  if (a === b) return strip(a);
   const n = (x: number, y: number) => x + (y - x) * f;
   return {
     skyTop: lerpHex(a.skyTop, b.skyTop, f),
@@ -62,6 +95,36 @@ export function lightFor(elevationDeg: number): Light {
     hemiGround: lerpHex(a.hemiGround, b.hemiGround, f),
     night: n(a.night, b.night),
   };
+}
+
+const tone = (L: Light, el: number): ToneKey => ({ el, skyTop: L.skyTop, skyHorizon: L.skyHorizon, groundTint: L.groundTint, sun: L.sun, hemiSky: L.hemiSky, hemiGround: L.hemiGround });
+/** Below this the night is the shared, cool blue night (no violet), dawn or dusk alike. */
+const NIGHT_FROM_DEG = -12;
+/**
+ * Each twilight run of keys starts on the shared night (down to NIGHT_FROM_DEG) and ends on the
+ * shared keys at TWILIGHT_TOP_DEG, so it blends into them.
+ */
+const run = (mid: ToneKey[]): ToneKey[] => [
+  tone(baseLight(TWILIGHT_BOTTOM_DEG), TWILIGHT_BOTTOM_DEG),
+  tone(baseLight(NIGHT_FROM_DEG), NIGHT_FROM_DEG),
+  ...mid,
+  tone(baseLight(TWILIGHT_TOP_DEG), TWILIGHT_TOP_DEG),
+];
+const DAWN_RUN = run(DAWN);
+const DUSK_RUN = run(DUSK);
+
+/**
+ * Sky and light for a given sun elevation in degrees; clamps outside the keyed range. `rising`
+ * (the sun climbing: dawn) or not (dusk) gives the twilight its own palette, dawn cooler and paler,
+ * dusk warmer, between -18 deg and TWILIGHT_TOP_DEG; above and below that, and when `rising` is
+ * not given, both are the shared keys (so golden hour and the tile proof's look are unchanged).
+ */
+export function lightFor(elevationDeg: number, rising?: boolean): Light {
+  const L = baseLight(elevationDeg);
+  if (rising === undefined || elevationDeg >= TWILIGHT_TOP_DEG || elevationDeg <= TWILIGHT_BOTTOM_DEG) return L;
+  const { a, b, f } = interpolate(rising ? DAWN_RUN : DUSK_RUN, elevationDeg);
+  const c = (k: keyof Tone) => lerpHex(a[k], b[k], f);
+  return { ...L, skyTop: c('skyTop'), skyHorizon: c('skyHorizon'), groundTint: c('groundTint'), sun: c('sun'), hemiSky: c('hemiSky'), hemiGround: c('hemiGround') };
 }
 
 /**

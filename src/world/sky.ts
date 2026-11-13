@@ -163,6 +163,8 @@ export type SkyOptions = {
 
 /** Angular radius of the drawn discs, degrees (larger than life, as in a picture book). */
 const SUN_DISC_DEG = 1.4;
+/** Whether the sun is climbing: compared with its elevation this much later. */
+const RISING_STEP_MS = 10 * 60e3;
 const MOON_DISC_DEG = 1.1;
 
 export class Sky {
@@ -178,6 +180,8 @@ export class Sky {
   key: KeyLight;
   sun: Body = { elevationDeg: 30, azimuthDeg: 180 };
   moon: Moon | null = null;
+  /** Dawn (true), dusk (false) or neither given. */
+  rising: boolean | undefined = undefined;
   /** Toward the real sun (not clamped), scene axes. */
   readonly sunDir = new THREE.Vector3(0, 1, 0);
   readonly moonDir = new THREE.Vector3(0, -1, 0);
@@ -205,16 +209,22 @@ export class Sky {
     scene.add(this.dome.mesh, this.stars, this.sunDisc, this.moonDisc);
   }
 
-  /** The sky for a real place and time. */
+  /** The sky for a real place and time: dawn or dusk from whether the sun is climbing. */
   update(utcMs: number, p: LatLon): Light {
-    return this.apply(sunPosition(utcMs, p), moonPosition(utcMs, p));
+    const sun = sunPosition(utcMs, p);
+    const rising = sunPosition(utcMs + RISING_STEP_MS, p).elevationDeg > sun.elevationDeg;
+    return this.apply(sun, moonPosition(utcMs, p), rising);
   }
 
-  /** The sky for a given sun (and moon, or none): for fixed looks such as the tile proof's. */
-  apply(sun: Body, moon: Moon | null = null): Light {
+  /**
+   * The sky for a given sun (and moon, or none): for fixed looks such as the tile proof's. `rising`
+   * picks the dawn or dusk palette at twilight (palette.lightFor); without it, the shared keys.
+   */
+  apply(sun: Body, moon: Moon | null = null, rising?: boolean): Light {
     this.sun = { ...sun };
     this.moon = moon ? { ...moon } : null;
-    const L = lightFor(sun.elevationDeg);
+    this.rising = rising;
+    const L = lightFor(sun.elevationDeg, rising);
     this.current = L;
     sunDirection(sun.elevationDeg, sun.azimuthDeg, this.sunDir);
     if (moon) sunDirection(moon.elevationDeg, moon.azimuthDeg, this.moonDir);

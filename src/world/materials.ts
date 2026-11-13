@@ -63,8 +63,8 @@ export type Bucket = 'ground' | 'water' | 'waterways' | 'roads' | 'buildings' | 
 export const BUCKETS: Bucket[] = ['ground', 'water', 'waterways', 'roads', 'buildings', 'roofs', 'trees', 'boats'];
 
 /** Lit windows, street lamps and city glow at night: warm, pale amber (never the balloon's orange). */
-export const WINDOW_LIGHT = [1.0, 0.74, 0.42] as const;
-export const GLOW_LIGHT = [1.0, 0.82, 0.6] as const;
+export const WINDOW_LIGHT = [1.0, 0.84, 0.54] as const;
+export const GLOW_LIGHT = [1.0, 0.86, 0.6] as const;
 export const LAMP_LIGHT = [1.0, 0.8, 0.52] as const;
 const vec3 = (c: readonly number[]) => `vec3(${c.map((v) => v.toFixed(3)).join(', ')})`;
 
@@ -118,7 +118,10 @@ const FRAGMENT_FOG = `
   float edge = min(min(vWP.x - uBlock.x, uBlock.y - vWP.x), min(vWP.z - uBlock.z, uBlock.w - vWP.z));
   float ring = max(1.0 - smoothstep(uHazeRing.x, uHazeRing.y, edge), smoothstep(uHazeRing.z, uHazeRing.w, length(vWP.xz)));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, hz, max(far, ring));
-  gl_FragColor.rgb = mix(hz, gl_FragColor.rgb, vDither > 0.5 ? 1.0 : vFade);`;
+  gl_FragColor.rgb = mix(hz, gl_FragColor.rgb, vDither > 0.5 ? 1.0 : vFade);
+  // deep night is ink blue and cool blue-grey, never violet (warm windows and lamps on blue light);
+  // the evening twilight keeps its violet-grey (SK)
+  gl_FragColor.rgb = noPurple(gl_FragColor.rgb, smoothstep(0.85, 1.0, uNight));`;
 
 /**
  * The prototype's withWindows, in metres (${WIN_GRID_M} x 3.6 m): a subtle darker pane by day, faded out

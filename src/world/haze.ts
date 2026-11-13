@@ -11,13 +11,43 @@
 import * as THREE from 'three';
 import { lerpHex, parseHex, type Light } from './palette';
 
+/**
+ * Takes violet out of a colour: the part that is both red and blue above the green moves half to
+ * green, so the brightness holds and what is left leans warm or blue. `amount` 0..1 (0: unchanged).
+ * The world materials use it in deep night only (materials.ts): the evening twilight keeps its
+ * violet-grey on purpose.
+ */
+export const NO_PURPLE_GLSL = `vec3 noPurple(vec3 c, float amount) {
+  float m = min(c.r, c.b) - c.g;
+  if (m > 0.0) c += vec3(-0.5, 0.5, -0.5) * (m * amount);
+  return c;
+}`;
+
 export const HAZE_GLSL = `uniform vec3 uTop; uniform vec3 uHor; uniform vec3 uLow; uniform vec3 uSunCol; uniform vec3 uSunDir;
+${NO_PURPLE_GLSL}
 vec3 hazeCol(vec3 d) {
   float up = smoothstep(0.0, 0.24, d.y);
   vec3 c = d.y >= 0.0 ? mix(uHor, uTop, up) : mix(uHor, uLow, smoothstep(0.0, -0.32, d.y));
   float s = max(dot(d, uSunDir), 0.0);
   return mix(c, uSunCol, (pow(s, 5.0) * 0.32 + pow(s, 48.0) * 0.3) * (1.0 - up * 0.7));
 }`;
+
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** The haze colour for a unit view direction, exactly as HAZE_GLSL works it out (for checks). */
+export function hazeColor(h: HazeUniforms, d: { x: number; y: number; z: number }): [number, number, number] {
+  const up = smoothstep(0, 0.24, d.y);
+  const T = h.uTop.value, Hr = h.uHor.value, Lo = h.uLow.value, S = h.uSunCol.value, D = h.uSunDir.value;
+  const k = d.y >= 0 ? up : smoothstep(0, -0.32, d.y);
+  const to = d.y >= 0 ? T : Lo;
+  const c = [Hr.x + (to.x - Hr.x) * k, Hr.y + (to.y - Hr.y) * k, Hr.z + (to.z - Hr.z) * k];
+  const s = Math.max(d.x * D.x + d.y * D.y + d.z * D.z, 0);
+  const w = (Math.pow(s, 5) * 0.32 + Math.pow(s, 48) * 0.3) * (1 - up * 0.7);
+  return [c[0] + (S.x - c[0]) * w, c[1] + (S.y - c[1]) * w, c[2] + (S.z - c[2]) * w];
+}
 
 type U<T> = { value: T };
 
