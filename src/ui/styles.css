@@ -80,6 +80,9 @@ body {
 .shade-bottom {
   bottom: 0;
   height: var(--shade-bottom-h, 300px);
+}
+/* the bottom shading, shared by the start screen and the flight HUD */
+.ink-bottom {
   background: linear-gradient(to top,
     rgba(var(--ink), var(--shade-bottom)) 0%,
     rgba(var(--ink), var(--shade-bottom)) 66%,
@@ -484,7 +487,10 @@ a.link, .small a { color: var(--paper); }
   pointer-events: none;
   visibility: hidden;
 }
-.hud > :not(.hud-shade) { pointer-events: auto; position: relative; }
+/* the HUD's boxes never take a tap (its empty top band sits over the start screen's Credits); only its
+   controls do, and only while they show */
+.hud > :not(.hud-shade) { position: relative; }
+.hud button, .hud a, .notice-layer button { pointer-events: auto; }
 .hud-shade {
   position: fixed;
   left: 0;
@@ -492,13 +498,6 @@ a.link, .small a { color: var(--paper); }
   bottom: 0;
   height: var(--hud-shade-h, 300px);
   pointer-events: none;
-  background: linear-gradient(to top,
-    rgba(var(--ink), var(--shade-bottom)) 0%,
-    rgba(var(--ink), var(--shade-bottom)) 66%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.8)) 79%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.45)) 89%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.12)) 96%,
-    rgba(var(--ink), 0) 100%);
 }
 
 .hud-top {
@@ -612,6 +611,7 @@ a.link, .small a { color: var(--paper); }
 /* ---- notices: the winds error and the broken link ---- */
 
 .notice-layer {
+  pointer-events: none;
   position: fixed;
   left: 0;
   right: 0;

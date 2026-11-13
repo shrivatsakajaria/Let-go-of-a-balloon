@@ -20,6 +20,8 @@ import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
 import { brightLuminance, sceneAltitude } from '../ui/hudmath';
+import { LandmarkLayer } from '../landmarks/layer';
+import { hiddenFootprints } from '../landmarks/registry';
 import { Clouds } from '../world/clouds';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
@@ -65,6 +67,8 @@ export class LiveScene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.08, 60000);
   readonly stream: WorldStream;
+  /** Landmark models near the camera, in place of their map buildings. */
+  readonly landmarks: LandmarkLayer;
   readonly sky: Sky;
   readonly clouds: Clouds;
   readonly director: Director;
@@ -112,6 +116,9 @@ export class LiveScene {
   private readonly point: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private readonly dirPoint: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private lumBuf = new Uint8Array(0);
+  private readonly info: SceneFrame = {
+    now: 0, point: this.point, aglM: 0, groundM: 0, feetM: 0, released: false, landed: false, settled: false, waiting: true, shot: '', sunElevationDeg: 0,
+  };
 
   constructor(canvas: HTMLCanvasElement, start: LatLon, opts: { reducedMotion: boolean }) {
     this.canvas = canvas;
@@ -130,16 +137,18 @@ export class LiveScene {
       groundTint: this.sky.current.groundTint,
       origin: start,
       fallbackGround: (p) => routeGround.peek(p),
+      hidden: hiddenFootprints(),
     });
+    this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
     this.stream.onRecentre = (e) => this.clouds.shift(e.dx, e.dz);
-    this.stream.onChange = () => {
+    this.stream.onChange = this.landmarks.onChange = () => {
       this.shadowAsked = performance.now();
     };
     this.director = new Director(this.camera, {
       toScene: (p) => this.stream.toScene(p),
       groundAt: (p) => this.stream.groundAt(p),
-      buildingTopAt: (p, r) => this.stream.buildingTopAt(p, r),
+      buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
     });
@@ -220,6 +229,12 @@ export class LiveScene {
     );
   }
 
+  /** A launch that has not let go yet is called off (another balloon is opening): the hand stays closed. */
+  cancelLaunch(): void {
+    this.holdUntil = null;
+    if (this.person?.state === 'holding') this.person.holdIdle();
+  }
+
   /** The launch failed before the hand opened: back to the start screen's shot, with no cut. */
   rewind(): void {
     this.holdUntil = null;
@@ -257,12 +272,29 @@ export class LiveScene {
     return this.stream.labelsNear(p, km);
   }
 
+  /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */
+  /** Disposed: nothing may be drawn with it any more (the landing card checks before it renders). */
+  get gone(): boolean {
+    return this.disposed;
+  }
+
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.holdUntil = null;
+    this.onFrame = this.onLuminance = this.onFirstFrame = null;
+    this.person?.dispose();
+    this.person = null;
+    this.balloon.dispose();
+    this.clouds.dispose();
+    this.sky.dispose();
+    this.landmarks.dispose();
     this.stream.dispose();
     this.pool.terminate();
+    this.scene.clear();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   // ---- internals ----
@@ -320,8 +352,15 @@ export class LiveScene {
     const route = this.route;
     const landed = !!route && this.released && now >= route.release + FLIGHT_HOURS * H;
     const pt = this.point;
-    if (route && this.released) Object.assign(pt, positionAt(route, now));
-    else Object.assign(pt, { tSec: 0, lat: this.start.lat, lon: this.start.lon, altM: Number.NaN, groundM: Number.NaN, speedMs: this.wind.speedMs, headingDeg: this.wind.headingDeg });
+    if (route && this.released) positionAt(route, now, pt);
+    else {
+      pt.tSec = 0;
+      pt.lat = this.start.lat;
+      pt.lon = this.start.lon;
+      pt.altM = pt.groundM = Number.NaN;
+      pt.speedMs = this.wind.speedMs;
+      pt.headingDeg = this.wind.headingDeg;
+    }
     if (landed) pt.speedMs = 0;
 
     // the drawn ground under it, eased so a finer tile arriving does not jolt the balloon
@@ -337,8 +376,14 @@ export class LiveScene {
     // the balloon (sized for last frame's camera), then the camera framing it as drawn
     this.balloon.setState(pt, dt, this.sky.current, { pos: this.pos, camera: this.camera.position });
     this.balloon.mesh.getWorldPosition(this.target);
-    Object.assign(this.dirPoint, pt);
-    this.dirPoint.altM = y;
+    const dp = this.dirPoint;
+    dp.tSec = pt.tSec;
+    dp.lat = pt.lat;
+    dp.lon = pt.lon;
+    dp.groundM = pt.groundM;
+    dp.speedMs = pt.speedMs;
+    dp.headingDeg = pt.headingDeg;
+    dp.altM = y;
     this.director.update(this.dirPoint, dt, this.target);
 
     // near plane: just short of the nearest thing drawn close by (the balloon and its string, the person)
@@ -359,6 +404,7 @@ export class LiveScene {
     const cll = this.stream.fromScene(this.camera.position.x, this.camera.position.z);
     const heading = (Math.atan2(this.look.x, -this.look.z) / D2R + 360) % 360;
     this.stream.update({ lat: cll.lat, lon: cll.lon, altM: this.camera.position.y, headingDeg: heading }, t);
+    this.landmarks.update(cll, now, this.sky.current);
 
     // clouds drift with the wind at cruise, and never take in the balloon or the camera
     const h = pt.headingDeg * D2R;
@@ -401,19 +447,20 @@ export class LiveScene {
       this.person = null;
     }
 
-    this.onFrame?.({
-      now,
-      point: pt,
-      aglM: agl,
-      groundM: this.groundS,
-      feetM: this.feetS,
-      released: this.released,
-      landed,
-      settled: this.director.shot !== 'launch',
-      waiting: this.director.waiting,
-      shot: this.director.shot,
-      sunElevationDeg: this.sky.sun.elevationDeg,
-    });
+    if (this.onFrame) {
+      const f = this.info; // one object, filled in every frame
+      f.now = now;
+      f.aglM = agl;
+      f.groundM = this.groundS;
+      f.feetM = this.feetS;
+      f.released = this.released;
+      f.landed = landed;
+      f.settled = this.director.shot !== 'launch';
+      f.waiting = this.director.waiting;
+      f.shot = this.director.shot;
+      f.sunElevationDeg = this.sky.sun.elevationDeg;
+      this.onFrame(f);
+    }
   };
 
   /** Read a few rows of the frame just drawn behind the top (170 px) and bottom (300 px) text. */
@@ -422,17 +469,16 @@ export class LiveScene {
     const W = gl.drawingBufferWidth, Hh = gl.drawingBufferHeight;
     if (W < 4 || Hh < 4) return;
     const pr = this.renderer.getPixelRatio();
+    // one buffer, read and measured band by band
     const band = (fromTopCss: number, toTopCss: number): Uint8Array => {
       const rows = 4;
       if (this.lumBuf.length !== W * 4 * rows) this.lumBuf = new Uint8Array(W * 4 * rows);
-      const out = new Uint8Array(W * 4 * rows);
       for (let i = 0; i < rows; i++) {
         const yCss = fromTopCss + ((toTopCss - fromTopCss) * (i + 0.5)) / rows;
         const yGl = Math.max(0, Math.min(Hh - 1, Hh - 1 - Math.round(yCss * pr)));
         gl.readPixels(0, yGl, W, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.lumBuf.subarray(i * W * 4, (i + 1) * W * 4));
       }
-      out.set(this.lumBuf);
-      return out;
+      return this.lumBuf;
     };
     const hCss = Hh / pr;
     try {

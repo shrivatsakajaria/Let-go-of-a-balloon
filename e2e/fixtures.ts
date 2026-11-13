@@ -52,6 +52,8 @@ export async function liveWorld(context: BrowserContext, opts: LiveOpts = {}) {
   const external: string[] = [];
   const winds: string[] = [];
   const pm = emptyPmtiles();
+  // the page keeps its read-only test hook (window.__live) up to date only when asked
+  await context.addInitScript(() => ((window as unknown as { __lgoabTest: boolean }).__lgoabTest = true));
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';

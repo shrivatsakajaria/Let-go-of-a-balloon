@@ -223,6 +223,7 @@ export function corridorTiles(route: Route, shot: FarShot, z = 7): TileKey[] {
 export function cardScene(live: LiveScene): CardScene {
   return {
     cardFrame: (route, w, h) => {
+      if (live.gone) return null;
       const pts = route.points;
       return haversineKm(pts[0], pts[pts.length - 1]) <= NEAR_START_KM ? cardFrame(live, route, w, h) : farFrame(live, route, w, h);
     },
@@ -446,6 +447,7 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     const t0 = performance.now();
     let calm = 0;
     while (performance.now() - t0 < FAR_WAIT_MS) {
+      if (live.gone) return null;
       stream.update(here, performance.now());
       calm = stream.stats().ready ? calm + 1 : 0;
       if (calm >= 2) break;
@@ -457,6 +459,7 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     stream.update(here, performance.now() + 2000);
     const st = stream.stats();
     Object.assign(farStats, { tiles: tiles.length, settled: st.settled, failed: st.failed, ms: Math.round(performance.now() - t0) });
+    if (live.gone) return null;
     sky.setView(camera, shot.fogFar, h / 2);
     sky.fog.near = shot.fogNear;
     sky.place(new THREE.Vector3(0, g, 0));

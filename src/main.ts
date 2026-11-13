@@ -29,11 +29,43 @@ let liveP: Promise<Live> | null = null;
 let latest: StartChoice | null = null;
 let broken: Notice | null = null;
 
+/**
+ * Start loading what a release from c needs (the winds manifest and tiles round it, the terrain archive's
+ * header and the start's ground) straight away, from a small chunk with no three.js in it, rather than
+ * after the 3D world has arrived.
+ */
+function warmup(c: StartChoice) {
+  import('./app/data').then((d) => d.warm(c)).catch(() => {});
+}
+
+/** Why the world is not here: it could not be fetched, or this browser cannot draw it (no WebGL). */
+class WorldError extends Error {
+  constructor(readonly kind: 'fetch' | 'webgl') {
+    super(kind);
+  }
+}
+
+function hasWebGL(): boolean {
+  try {
+    const c = document.createElement('canvas');
+    return !!(c.getContext('webgl2') ?? c.getContext('webgl'));
+  } catch {
+    return false;
+  }
+}
+
 /** The world, loaded once; a failed load (a flaky connection, a new deploy) is tried again next time. */
 function loadLive(): Promise<Live> {
-  liveP ??= import('./app/live')
+  liveP ??= (hasWebGL() ? import('./app/live') : Promise.reject(new WorldError('webgl')))
+    .catch((e) => {
+      throw e instanceof WorldError ? e : new WorldError('fetch');
+    })
     .then((m) => {
-      live = m.createLive({ start, sceneEl, hudEl, noticeEl, setView }, latest ?? start.start);
+      try {
+        live = m.createLive({ start, sceneEl, hudEl, noticeEl, setView }, latest ?? start.start);
+      } catch {
+        throw new WorldError('webgl'); // the 3D context could not be made
+      }
       return live;
     })
     .catch((e) => {
@@ -43,25 +75,41 @@ function loadLive(): Promise<Live> {
   return liveP;
 }
 
-/** The world could not load: say so plainly, and let the visitor try again. */
-function cannotLoad(retry: () => void) {
+/** Back to the start screen from a notice, with the address cleared of any balloon link. */
+function toStart() {
+  noticeEl.replaceChildren();
+  if (live) return live.backToStart();
+  history.replaceState(null, '', '/');
+  setView('start');
+}
+
+/**
+ * The world, or a balloon, could not be shown: say which plainly (never that the winds failed), and
+ * offer Try again where it can help. Spec 6.7's map fallback for browsers with no WebGL replaces the
+ * second message (Task 22).
+ */
+function cannotShow(e: unknown, retry: () => void) {
   setView('error');
-  showNotice(noticeEl, COPY.windsUnavailable, [
-    { label: COPY.tryAgain, primary: true, onClick: retry },
-    { label: COPY.cancel, onClick: () => { noticeEl.replaceChildren(); setView('start'); } },
+  if (e instanceof WorldError && e.kind === 'webgl') {
+    showNotice(noticeEl, COPY.noWorld, [{ label: COPY.cancel, onClick: toStart }]);
+    return;
+  }
+  showNotice(noticeEl, COPY.didNotLoad, [
+    { label: COPY.tryAgain, primary: true, onClick: () => { noticeEl.replaceChildren(); retry(); } },
+    { label: COPY.cancel, onClick: toStart },
   ]);
 }
 
 function letGo(c: StartChoice) {
   if (live) return live.letGo(c);
   setView('launch');
-  loadLive().then((l) => l.letGo(c), () => cannotLoad(() => letGo(c)));
+  loadLive().then((l) => l.letGo(c), (e) => cannotShow(e, () => letGo(c)));
 }
 
 function open(b: SavedBalloon) {
-  if (live) return void live.open(b);
-  setView('link');
-  loadLive().then((l) => l.open(b), () => cannotLoad(() => open(b)));
+  if (!live) setView('link');
+  const opening = live ? live.open(b) : loadLive().then((l) => l.open(b));
+  opening.catch((e) => cannotShow(e, () => open(b)));
 }
 
 const start = mountStart(
@@ -71,6 +119,7 @@ const start = mountStart(
     onOpenBalloon: open,
     onStartChange(c) {
       latest = c;
+      warmup(c);
       live?.setStart(c);
     },
   },
@@ -107,7 +156,14 @@ if (!route()) setView('start');
 // a link pasted into the address bar of an open page
 window.addEventListener('hashchange', () => {
   broken?.remove();
-  route();
+  broken = null;
+  if (route()) return;
+  // the link was taken out of the address: back to the start screen from a link's screens
+  const v = html.dataset.view;
+  if (v === 'broken' || v === 'link' || v === 'flight') {
+    if (live) live.backToStart();
+    else setView('start');
+  }
 });
 
 // the world loads once the first frame of the chrome is on screen (not under a ?backdrop= test colour,

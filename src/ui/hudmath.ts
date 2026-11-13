@@ -93,6 +93,23 @@ export function clockText(utcMs: number, p: LatLon): string {
   return localTime(utcMs, p).label.split(' ').pop() ?? '';
 }
 
+/**
+ * A clock for every frame: the time zone lookup and formatting run once a minute (a balloon crosses no
+ * zone line in less), and the same string comes back in between.
+ */
+export function clockFor(): (utcMs: number, p: LatLon) => string {
+  let minute = Number.NaN;
+  let text = '';
+  return (utcMs, p) => {
+    const m = Math.floor(utcMs / 60e3);
+    if (m !== minute) {
+      minute = m;
+      text = clockText(utcMs, p);
+    }
+    return text;
+  };
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -125,6 +142,8 @@ export type AnnounceState = {
   landing: Landing | null;
   /** The visitor's own balloon (launched here or saved), or one opened from someone's link. */
   own: boolean;
+  /** Let go just now on this page (not reopened later from a link or "Your balloons"). */
+  launched: boolean;
 };
 
 const whose = (own: boolean) => (own ? 'Your balloon' : 'This balloon');
@@ -149,10 +168,15 @@ export function announcement(prev: AnnounceState | null, next: AnnounceState): s
   if (next.phase === 'landed') {
     return prev?.phase === 'landed' ? null : `${whose(next.own)} ${landedWords(next.landing)}`;
   }
-  if (!prev) return next.own ? `${whose(true)} is on its way from ${next.home}` : null;
+  if (!prev) return next.launched ? `${whose(next.own)} is on its way from ${next.home}` : null;
   const ref = prev.country ?? prev.lastCountry ?? null;
   if (next.country && ref && next.country !== ref) return `${whose(next.own)} is over ${next.country} now`;
   return null;
+}
+
+/** The 3D canvas's label on the start screen: "A person standing in London, holding an orange balloon". */
+export function startLabel(c: { name: string; kind: string }): string {
+  return `A person standing ${c.kind === 'gps' ? 'where you are' : `in ${c.name}`}, holding an orange balloon`;
 }
 
 /** The 3D canvas's label: "Your balloon is over the North Sea, 412 km from Manchester". */

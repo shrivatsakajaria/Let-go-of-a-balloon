@@ -3,6 +3,7 @@ import type { Route, RoutePoint } from '../../src/flight/route';
 import {
   announcement,
   clockText,
+  clockFor,
   dayLine,
   heightText,
   midnightTicks,
@@ -10,6 +11,7 @@ import {
   sceneAltitude,
   speedText,
   sceneLabel,
+  startLabel,
   brightLuminance,
   type AnnounceState,
 } from '../../src/ui/hudmath';
@@ -97,6 +99,13 @@ describe('stats', () => {
     expect(speedText(8.6)).toBe('31 km/h');
     expect(speedText(0.1)).toBe('0 km/h');
   });
+  test('the clock is worked out once a minute (time zone lookups are not per frame)', () => {
+    const clock = clockFor();
+    const t = Date.parse('2026-11-13T15:07:10Z');
+    expect(clock(t, { lat: 51.5, lon: -0.12 })).toBe('15:07');
+    expect(clock(t + 20_000, { lat: 35.68, lon: 139.76 })).toBe('15:07'); // same minute: kept
+    expect(clock(t + 60_000, { lat: 35.68, lon: 139.76 })).toBe('00:08'); // next minute: read again
+  });
   test('clock is the local 24-hour time at the place', () => {
     expect(clockText(Date.parse('2026-11-13T15:07:00Z'), { lat: 51.5, lon: -0.12 })).toBe('15:07');
     expect(clockText(Date.parse('2026-11-13T15:07:00Z'), { lat: 35.68, lon: 139.76 })).toBe('00:07');
@@ -127,12 +136,15 @@ describe('sceneAltitude', () => {
 });
 
 describe('announcements: only the launch, a change of country and the landing', () => {
-  const base: AnnounceState = { phase: 'flying', home: 'London', country: 'United Kingdom', landing: null, own: true };
+  const base: AnnounceState = { phase: 'flying', home: 'London', country: 'United Kingdom', landing: null, own: true, launched: true };
   test('launch', () => {
     expect(announcement(null, { ...base })).toBe('Your balloon is on its way from London');
   });
+  test('reopening your own balloon hours later is not a launch either', () => {
+    expect(announcement(null, { ...base, launched: false })).toBeNull();
+  });
   test('a shared balloon opened in flight is not a launch', () => {
-    expect(announcement(null, { ...base, own: false })).toBeNull();
+    expect(announcement(null, { ...base, own: false, launched: false })).toBeNull();
   });
   test('nothing for the same country, or over the sea', () => {
     expect(announcement(base, { ...base })).toBeNull();
@@ -168,5 +180,12 @@ describe('brightLuminance', () => {
     for (let i = 0; i < 100; i++) px.set(i < 85 ? [20, 20, 30, 255] : [255, 255, 255, 255], i * 4);
     expect(brightLuminance(px)).toBeGreaterThan(0.9);
     expect(brightLuminance(new Uint8Array(4 * 10))).toBe(0);
+  });
+});
+
+describe('startLabel', () => {
+  test('names the place, or "where you are" for a GPS start, and the balloon is orange', () => {
+    expect(startLabel({ name: 'London', kind: 'default' })).toBe('A person standing in London, holding an orange balloon');
+    expect(startLabel({ name: 'Your location', kind: 'gps' })).toBe('A person standing where you are, holding an orange balloon');
   });
 });

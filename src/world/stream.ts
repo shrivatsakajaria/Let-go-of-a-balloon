@@ -486,7 +486,7 @@ export class WorldStream {
           skirtM: level.skirtM,
           split: level.split,
           pack: true,
-          hiddenFootprints: this.hidden,
+          hiddenFootprints: this.hiddenIn(b),
         },
         [],
         { signal: ac.signal },
@@ -503,6 +503,18 @@ export class WorldStream {
           this.fail(e, err?.message ?? String(err));
         },
       );
+  }
+
+  /** The landmark footprints that reach into a tile (buildings are kept or not by their centroid). */
+  private hiddenIn(b: { south: number; north: number; west: number; east: number }): HiddenFootprint[] {
+    const out: HiddenFootprint[] = [];
+    for (const h of this.hidden) {
+      const dLat = h.radiusM / M_PER_DEG, dLon = dLat / Math.max(0.01, Math.cos(h.lat * D2R));
+      if (h.lat + dLat < b.south || h.lat - dLat > b.north) continue;
+      if (lonDelta(b.west, h.lon) < -dLon || lonDelta(b.east, h.lon) > dLon) continue;
+      out.push(h);
+    }
+    return out;
   }
 
   private fail(e: Entry, message: string): void {

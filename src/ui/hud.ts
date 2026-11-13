@@ -13,7 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
-import { clockText, dayLine, heightText, progress, speedText } from './hudmath';
+import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
 export type HudHandlers = {
@@ -54,7 +54,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean } = {}): Hud {
   root.classList.add('hud');
   root.innerHTML = `
-    <div class="hud-shade" aria-hidden="true"></div>
+    <div class="hud-shade ink-bottom" aria-hidden="true"></div>
     <div class="hud-top">
       <div class="where">
         <p class="clock"><span class="sr">Local time </span><span class="clock-time"></span></p>
@@ -98,6 +98,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   let cardOpen: (() => void) | null = null;
   showCard.addEventListener('click', () => cardOpen?.());
 
+  let clockNow = clockFor();
   let release = 0;
   let facts: string[] = [];
   let idx = 0;
@@ -166,6 +167,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   return {
     el: root,
     setFlight(f) {
+      clockNow = clockFor(); // another balloon may be in another time zone
       release = f.release;
       lastP = -1;
       again.textContent = f.own ? COPY.letGoAnother : COPY.letGoYourOwn;
@@ -179,7 +181,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       requestAnimationFrame(fit);
     },
     frame(f) {
-      text(clock, clockText(f.now, f.point));
+      text(clock, clockNow(f.now, f.point));
       text(height, f.landed ? '0 m' : heightText(f.aglM));
       text(speed, speedText(f.landed ? 0 : f.speedMs));
       text(day, dayLine(release, f.now));

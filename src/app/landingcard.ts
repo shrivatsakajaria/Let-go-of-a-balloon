@@ -34,7 +34,8 @@ export type CardHook = {
 };
 
 export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0, world: farStats };
-(globalThis as unknown as { __card: CardHook }).__card = cardHook;
+// only for browser tests, as window.__live is (they set window.__lgoabTest before the page loads)
+if (typeof window !== 'undefined' && (window as unknown as { __lgoabTest?: boolean }).__lgoabTest) (window as unknown as { __card: CardHook }).__card = cardHook;
 
 /** A "Use my location" start goes by the place it is in (startName), never "Your location". */
 async function homeName(saved: SavedBalloon): Promise<string> {
