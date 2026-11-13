@@ -601,6 +601,20 @@ test('a bridge inside a landmark hiding circle is not draped on the ground (the 
   expect(hi).toBeGreaterThan(895);
 });
 
+test('outsideCircles: a polyline cut exactly at circle edges, its pieces joined across vertices', async () => {
+  const { outsideCircles } = await import('../../src/world/lines');
+  const c = [{ x: 50, z: 0, r: 10 }];
+  // a line through the circle: two pieces, cut at x 40 and 60
+  expect(outsideCircles([0, 0, 100, 0], c)).toEqual([[0, 0, 40, 0], [60, 0, 100, 0]]);
+  // vertices outside the circle keep the piece in one polyline
+  expect(outsideCircles([0, 0, 20, 0, 20, 20], c)).toEqual([[0, 0, 20, 0, 20, 20]]);
+  // all inside: nothing; untouched: the line as it was
+  expect(outsideCircles([45, 0, 55, 0], c)).toEqual([]);
+  expect(outsideCircles([0, 30, 100, 30], c)).toEqual([[0, 30, 100, 30]]);
+  // two overlapping circles cut as one
+  expect(outsideCircles([0, 0, 100, 0], [...c, { x: 62, z: 0, r: 8 }])).toEqual([[0, 0, 40, 0], [70, 0, 100, 0]]);
+});
+
 test('trees: none on the protected-area (park layer) polygon, some in the city parks', () => {
   const historic = f.park.filter((a) => a.cls === 'historic').map((a) => a.polygon);
   expect(historic.length).toBeGreaterThan(0); // Mamucium Roman fort
