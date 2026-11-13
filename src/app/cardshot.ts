@@ -283,9 +283,11 @@ export function viewTiles(tiles: TileKey[], shot: FarShot, groundM: number): Til
 
 export function cardScene(live: LiveScene): CardScene {
   return {
-    cardFrame: (route, w, h, alive) => {
+    cardFrame: async (route, w, h, alive, gate) => {
       if (live.gone) return null;
-      return isFarRoute(route) ? farFrame(live, route, w, h, alive) : cardFrame(live, route, w, h);
+      if (isFarRoute(route)) return farFrame(live, route, w, h, alive, gate);
+      if (gate) await gate;
+      return live.gone || (alive && !alive()) ? null : cardFrame(live, route, w, h);
     },
   };
 }
@@ -474,7 +476,7 @@ async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Ca
 export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0 };
 
 /** Far: a card world of its own, drawn once and disposed. */
-export async function farFrame(live: LiveScene, route: Route, w: number, h: number, alive: () => boolean = () => true): Promise<CardFrame | null> {
+export async function farFrame(live: LiveScene, route: Route, w: number, h: number, alive: () => boolean = () => true, gate?: Promise<void>): Promise<CardFrame | null> {
   const going = () => !live.gone && alive();
   const shot = farShot(route);
   const g = live.stream.groundAt(shot.landing);
@@ -520,6 +522,9 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
       { maxMs: FAR_WAIT_MS, everyMs: 100, alive: going },
     );
     if (how === 'cancelled') return null;
+    // the picture waits for its moment (the end of the replay), the land drawing meanwhile
+    if (gate) await gate;
+    if (!going()) return null;
     // twice, a second apart: tiles that came in just now are placed by the first and faded fully in
     // by the second (a tile still fading shows as haze)
     stream.update(here, performance.now() + 1000);

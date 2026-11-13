@@ -28,7 +28,7 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
-import { cardHook, homeFor, presentCard } from './landingcard';
+import { cardHook, homeFor, prepareCard, presentCard } from './landingcard';
 import { cardScene, farStats, isFarRoute, settledWorld } from './cardshot';
 import { closeCardView } from '../ui/cardview';
 import { watchContextLoss, type ContextWatch } from './contextloss';
@@ -421,6 +421,13 @@ export class Live {
     this.scene.setPaused(false);
     this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
     const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
+    // the landing card is made while the replay plays (its land loads meanwhile) and pictured at the end,
+    // so it is ready as the replay holds on the landing; Back to live before the end cancels it
+    let ended = () => {};
+    const gate = new Promise<void>((r) => (ended = r));
+    ctl.signal.addEventListener('abort', () => ended());
+    const replaying = () => this.replayRun === ctl && this.flight === fl && !this.scene.gone;
+    void prepareCard({ scene: cardScene(this.scene), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate });
     void playReplay(fl.route, {
       host: {
         scene: this.scene,
@@ -435,6 +442,7 @@ export class Live {
       home: fl.home.name,
       signal: ctl.signal,
       onEnd: () => {
+        ended();
         this.hook.replayMs = performance.now() - t0;
         this.onReplayEnd(fl.route);
       },

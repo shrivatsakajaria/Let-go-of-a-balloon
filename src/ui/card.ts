@@ -407,8 +407,11 @@ export type CardFrame = {
   start?: { x: number; y: number; a: number } | null;
 };
 
-/** `alive` says whether the card is still wanted (a long render stops early when it is not). */
-export type CardScene = { cardFrame(route: Route, w: number, h: number, alive?: () => boolean): CardFrame | null | Promise<CardFrame | null> };
+/**
+ * `alive` says whether the card is still wanted (a long render stops early when it is not); `gate`,
+ * when given, holds the picture itself back until it resolves (the land can load meanwhile).
+ */
+export type CardScene = { cardFrame(route: Route, w: number, h: number, alive?: () => boolean, gate?: Promise<void>): CardFrame | null | Promise<CardFrame | null> };
 
 const PAPER = '247, 243, 236';
 const INK = '10, 14, 28';
@@ -549,7 +552,7 @@ function drawFade(ctx: CanvasRenderingContext2D, L: CardLayout): void {
 export type DrawnCard = { canvas: HTMLCanvasElement; layout: CardLayout; frame: 'scene' | 'sketch' };
 
 /** Draw the card onto a new canvas (not yet encoded). */
-export async function drawCard(route: Route, scene: CardScene | null, words: CardWords, alive?: () => boolean): Promise<DrawnCard> {
+export async function drawCard(route: Route, scene: CardScene | null, words: CardWords, alive?: () => boolean, gate?: Promise<void>): Promise<DrawnCard> {
   await fontsReady();
   const canvas = document.createElement('canvas');
   canvas.width = CARD_W;
@@ -561,7 +564,7 @@ export async function drawCard(route: Route, scene: CardScene | null, words: Car
   ctx.fillRect(0, 0, CARD_W, CARD_H);
   let frame: CardFrame | null = null;
   try {
-    frame = (await scene?.cardFrame(route, CARD_W, CARD_SCENE_H, alive)) ?? null;
+    frame = (await scene?.cardFrame(route, CARD_W, CARD_SCENE_H, alive, gate)) ?? null;
   } catch {
     frame = null;
   }

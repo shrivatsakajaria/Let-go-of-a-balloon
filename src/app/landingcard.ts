@@ -27,13 +27,14 @@ export type CardHook = {
   waitedMs: number;
   /** How many cards have been rendered (a card is made once per landed route and kept). */
   renders: number;
-  /** When the last card was asked for (UTC ms). */
+  /** When the last card was asked for, and when it opened (UTC ms). */
   startedAt: number;
+  openedAt: number;
   /** The card world of a long route: tiles wanted, drawn, failed, and ms to draw them (set by the 3D flight). */
   world: Record<string, number>;
 };
 
-export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0, world: {} };
+export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0, renders: 0, startedAt: 0, openedAt: 0, world: {} };
 // only for browser tests, as window.__live is (they set window.__lgoabTest before the page loads)
 if (typeof window !== 'undefined' && (window as unknown as { __lgoabTest?: boolean }).__lgoabTest) (window as unknown as { __card: CardHook }).__card = cardHook;
 
@@ -89,6 +90,8 @@ export type PresentOpts = {
   isCurrent(): boolean;
   /** False once the balloon itself is off the screen: the card stops being made (a newer request for it shares it). */
   alive?(): boolean;
+  /** Hold the picture back until this resolves (the replay makes its card while it plays, and takes the picture at its end). */
+  gate?: Promise<void>;
   closeLabel?: string;
   onClose?(): void;
 };
@@ -107,12 +110,18 @@ async function makeCard(o: PresentOpts): Promise<Made | null> {
   cardHook.waitedMs = o.settle ? await o.settle() : 0;
   if (!alive()) return null;
   const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: Date.now() }));
-  const drawn = await drawCard(o.route, o.scene, words, alive);
+  const drawn = await drawCard(o.route, o.scene, words, alive, o.gate);
   if (!alive()) return null;
   cardHook.renders++;
   const blob = await toPng(drawn.canvas);
   const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
   return { blob, words, link, layout: drawn.layout, frame: drawn.frame };
+}
+
+/** Start making the card for a route without showing it (a later presentCard for the route waits on it). */
+export function prepareCard(o: PresentOpts): Promise<unknown> {
+  const landed = Date.now() >= landedAt(o.route);
+  return onceFor(landed ? made.down : made.air, o.route, () => makeCard(o), (c) => c.frame !== 'sketch').catch(() => null);
 }
 
 export async function presentCard(o: PresentOpts): Promise<CardView | null> {
@@ -150,7 +159,7 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
     const L = card.layout;
     const heads = L.headline.lines.map((l) => l.map((s) => s.text).join(''));
     const widths = L.headline.lines.map((_, i) => lineWidthOf(L, i));
-    Object.assign(cardHook, { state: 'open', sentence: words.sentence, kicker: words.kicker, shareText: words.shareText, headline: { size: L.headline.size, lines: heads, widths }, frame: card.frame, bytes: blob.size, inApp });
+    Object.assign(cardHook, { openedAt: Date.now(), state: 'open', sentence: words.sentence, kicker: words.kicker, shareText: words.shareText, headline: { size: L.headline.size, lines: heads, widths }, frame: card.frame, bytes: blob.size, inApp });
     return view;
   } catch (e) {
     cardHook.state = 'failed';

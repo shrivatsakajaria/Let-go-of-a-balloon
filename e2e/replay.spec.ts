@@ -134,15 +134,15 @@ test('the replay ends on the landing card ("Expected to land near ..." over the 
   await liveWorld(context);
   await openFlight(page, 30);
   const trip = page.getByRole('button', { name: 'Show me the whole trip' });
+  const t0 = await page.evaluate(() => Date.now());
   await trip.click();
-  const t0 = Date.now();
   const card = page.getByRole('dialog');
-  // the replay itself is 20 s; the card is made from the held landing (a long route's card world is quick on fixtures)
+  // the card is made while the replay plays and pictured at its end: it is up within 22 s of the tap
   await expect(card).toBeVisible({ timeout: 60_000 });
-  const c = await page.evaluate(() => (window as unknown as { __card: { kicker: string; startedAt: number } }).__card);
+  const c = await page.evaluate(() => (window as unknown as { __card: { kicker: string; openedAt: number } }).__card);
   const ms = (await hook(page)).replayMs!;
   expect(ms).toBeLessThan(22_000);
-  expect(c.startedAt - t0).toBeLessThan(22_000);
+  expect(c.openedAt - t0).toBeLessThan(22_000);
   expect(c.kicker).toMatch(/^Expected to (land near|land in|come down in)$/);
   // still the replay behind it, holding on the landing
   expect((await hook(page)).replay).toBe(true);
