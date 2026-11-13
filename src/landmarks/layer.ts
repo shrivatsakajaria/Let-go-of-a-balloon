@@ -5,6 +5,8 @@
  * - Every SCAN_M of movement it asks the registry which sites are within LOAD_KM; their models are
  *   imported (lazily, once) and built, and the groups go into the scene. Past DROP_KM a group is
  *   removed and its geometry freed (the model's code stays loaded).
+ *   A model that fails to import (offline) is tried again after RETRY_MS (5 s, 20 s, then every
+ *   60 s), whether or not the focus moves.
  * - Each frame (update) every group stands on the drawn ground at its site through the stream's
  *   floating origin (toScene), turned to its heading; the ground is eased as finer tiles arrive,
  *   and a landmark waits out of sight until its street's fine tile is in (as the person does).
@@ -35,6 +37,8 @@ export const DROP_KM = 20;
 const SCAN_M = 300;
 /** Height grid cell (m). */
 const CELL_M = 6;
+/** A model that failed to import (offline) is tried again after these waits (ms), the last repeating. */
+export const RETRY_MS = [5000, 20000, 60000];
 
 export type LandmarkHost = {
   scene: THREE.Object3D;
@@ -89,6 +93,10 @@ export class LandmarkLayer {
   private readonly glow: THREE.MeshStandardMaterial;
   private readonly tmp = { x: 0, z: 0 };
   private lastScan: LatLon | null = null;
+  /** Failed imports by site id: how many in a row, and when to try again (now() ms). */
+  private readonly failed = new Map<string, { n: number; at: number }>();
+  /** The earliest retry due (now() ms), Infinity for none. */
+  private retryAt = Infinity;
   private lastTime = 0;
   private disposed = false;
 
@@ -111,7 +119,7 @@ export class LandmarkLayer {
     const dt = Math.min(0.25, Math.max(0, (t - this.lastTime) / 1000));
     this.lastTime = t;
     const s = this.lastScan;
-    if (!s || Math.abs(focus.lat - s.lat) * M_PER_DEG > SCAN_M || Math.abs(lonDelta(s.lon, focus.lon)) * M_PER_DEG * Math.cos(focus.lat * D2R) > SCAN_M) {
+    if (!s || t >= this.retryAt || Math.abs(focus.lat - s.lat) * M_PER_DEG > SCAN_M || Math.abs(lonDelta(s.lon, focus.lon)) * M_PER_DEG * Math.cos(focus.lat * D2R) > SCAN_M) {
       this.lastScan = { lat: focus.lat, lon: focus.lon };
       this.scan(focus);
     }
@@ -171,19 +179,31 @@ export class LandmarkLayer {
   // ---- internals ----
 
   private scan(focus: LatLon): void {
+    const now = this.now();
     const near = sitesNear(focus, LOAD_KM, this.sites);
+    this.retryAt = Infinity;
     for (const site of near) {
       if (this.entries.has(site.id)) continue;
+      const f = this.failed.get(site.id);
+      if (f && f.at > now) {
+        this.retryAt = Math.min(this.retryAt, f.at);
+        continue;
+      }
       const e: Entry = { site, state: 'loading', landmark: null, group: null, slot: SLOT_ALWAYS, born: NaN, fade: 0, groundS: NaN, placedAt: 0, tops: null };
       this.entries.set(site.id, e);
       loadLandmark(site, this.models).then(
         (l) => {
+          this.failed.delete(site.id);
           if (this.disposed || this.entries.get(site.id) !== e) return;
           this.show(e, l);
         },
         (err: Error) => {
-          // offline or a broken module: forget it, so a later scan tries again
+          // offline or a broken module: forget it, and try again after a wait (or when a later scan finds it due)
           if (this.entries.get(site.id) === e) this.entries.delete(site.id);
+          const n = (this.failed.get(site.id)?.n ?? 0) + 1;
+          const at = this.now() + RETRY_MS[Math.min(n, RETRY_MS.length) - 1];
+          this.failed.set(site.id, { n, at });
+          this.retryAt = Math.min(this.retryAt, at);
           console.warn(`landmark ${site.id}: ${err?.message ?? err}`);
         },
       );

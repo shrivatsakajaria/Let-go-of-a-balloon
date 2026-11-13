@@ -108,13 +108,13 @@ test('landmarks are dropped and freed once the focus is far away, and wait for f
 });
 
 /** A layer with one site at SQUARE, its model built by `build` (or loaded by `models`). */
-function oneModel(build: () => THREE.Group, models?: Record<string, () => Promise<LandmarkModel>>) {
+function oneModel(build: () => THREE.Group, models?: Record<string, () => Promise<LandmarkModel>>, id = 'test-thing') {
   const scene = new THREE.Scene();
   const stream = new WorldStream(scene, never, () => DEFAULT_REGION, { vectorUrl: 'x/{z}/{x}/{y}', origin: SQUARE });
   let t = 0;
-  const site: LandmarkSite = { id: 'test-thing', cityId: 'test', name: 'Thing', at: SQUARE, headingDeg: 0, footprintRadiusM: 150 };
+  const site: LandmarkSite = { id, cityId: 'test', name: 'Thing', at: SQUARE, headingDeg: 0, footprintRadiusM: 150 };
   const host = { scene, toScene: stream.toScene.bind(stream), groundAt: () => 10, zoomAt: () => 14, materials: stream.materials };
-  const layer = new LandmarkLayer(host, { sites: [site], models: models ?? { 'test-thing': async () => ({ build }) }, now: () => t });
+  const layer = new LandmarkLayer(host, { sites: [site], models: models ?? { [id]: async () => ({ build }) }, now: () => t });
   return { scene, layer, site, tick: (ms: number) => (t += ms) };
 }
 
@@ -142,4 +142,50 @@ test('thin overhead parts marked userData.noTops (ropes, chains) do not count as
   // under the ropes, 50 m west of it, there is nothing for the camera to keep out of
   expect(layer.topAt(modelToLatLon(site, -50, 10), 3)).toBe(-Infinity);
   layer.dispose();
+});
+
+test('a model that fails to import (offline) is tried again after 5 s, 20 s, then every 60 s, without the focus moving', async () => {
+  let calls = 0;
+  const build = () => {
+    const k = new Kit();
+    k.box('walls', LANDMARK_COLOURS.stone, 0, 0, 0, 10, 30, 10);
+    return k.group('test-retry');
+  };
+  const models = {
+    'test-retry': async (): Promise<LandmarkModel> => {
+      calls++;
+      if (calls <= 3) throw new Error('offline');
+      return { build };
+    },
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const { layer, tick } = oneModel(build, models, 'test-retry');
+    const day = lightFor(30);
+    const step = async (ms: number) => {
+      tick(ms);
+      layer.update(SQUARE, 0, day);
+      await flush();
+    };
+    await step(0);
+    expect(calls).toBe(1);
+    await step(4900);
+    expect(calls).toBe(1);
+    await step(200); // 5.1 s
+    expect(calls).toBe(2);
+    await step(19000);
+    expect(calls).toBe(2);
+    await step(1200); // 20 s after the second
+    expect(calls).toBe(3);
+    await step(59000);
+    expect(calls).toBe(3);
+    await step(1200); // 60 s after the third
+    expect(calls).toBe(4);
+    await step(16);
+    expect(layer.shown()).toEqual(['test-retry']);
+    layer.dispose();
+  } finally {
+    console.warn = warn;
+  }
 });
