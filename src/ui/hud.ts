@@ -110,6 +110,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     clearTimeout(swap);
     if (opts.reducedMotion || !fact.textContent) {
       fact.textContent = s;
+      fact.classList.remove('out');
       return;
     }
     fact.classList.add('out');
@@ -127,7 +128,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   // ---- the bottom shading fits the stack ----
   const fit = () => {
     const h = bottom.getBoundingClientRect().height;
-    root.style.setProperty('--hud-shade-h', `${Math.max(300, Math.ceil(h + 70))}px`);
+    // tall enough that the fact line, the top of the stack, still sits where the shading is at 80% (the
+    // 79% stop), which keeps 16 px text at 4.5:1 over snow
+    root.style.setProperty('--hud-shade-h', `${Math.max(300, Math.ceil(h / 0.78))}px`);
   };
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
   ro?.observe(bottom);
@@ -164,7 +167,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       facts = [];
       idx = 0;
       shown = '';
+      clearTimeout(swap);
       fact.textContent = '';
+      fact.classList.remove('out');
       requestAnimationFrame(fit);
     },
     frame(f) {

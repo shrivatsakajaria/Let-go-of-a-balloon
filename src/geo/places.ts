@@ -15,7 +15,7 @@ const LANDMARK_KINDS = new Set(['park', 'peak', 'mountain_peak', 'nature_reserve
 const WATER_LABEL_KM = 3;
 /** Seas, bays and straits: their labels count from WATER_LABEL_KM. Lakes and rivers only from this close. */
 const OPEN_WATER = new Set(['ocean', 'sea', 'bay', 'strait', 'channel']);
-const INLAND_WATER_KM = 1;
+const INLAND_WATER_KM = 0.5;
 const SMALL_WATER = /\b(fountains?|pond|pool|basin|lido|moat|reflecting)\b/i;
 const TOWN_LABEL_KM = 5;
 const LANDMARK_KM = 5;
