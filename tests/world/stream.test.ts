@@ -650,3 +650,46 @@ describe('WorldStream wanted tiles', () => {
     expect(pool.open().map((j) => `${j.msg.z}/${j.msg.x}/${j.msg.y}`).sort()).toEqual(['7/63/41', '7/64/40', '7/64/41']);
   });
 });
+
+describe('WorldStream settled (the detail budget waits for it between steps)', () => {
+  /** Answer every build, one frame at a time, until nothing is loading; returns the clock. */
+  async function loadAll(pool: FakePool, stream: WorldStream, c: LodCamera, t: number, fail?: string): Promise<number> {
+    for (let k = 0; k < 400; k++) {
+      for (const j of pool.open()) {
+        if (`${j.msg.z}/${j.msg.x}/${j.msg.y}` === fail) {
+          (j as { done?: boolean }).done = true;
+          j.resolve({ type: 'error', z: j.msg.z, x: j.msg.x, y: j.msg.y, message: 'no tile' });
+        } else pool.answer(j);
+      }
+      await tick();
+      stream.update(c, (t += 16));
+      if (pool.open().length === 0 && stream.tiles().every((x) => x.state === 'live')) return t;
+    }
+    throw new Error('never loaded');
+  }
+
+  it('is false while a tile is loading or still fading in, true once every wanted tile is in', async () => {
+    const { pool, stream } = setup();
+    const c = cam(MANCHESTER);
+    await start(stream, c);
+    expect(stream.settled).toBe(false); // loading
+    let t = await loadAll(pool, stream, c, 100);
+    // every tile is live, but the last ones in are still fading in
+    expect(stream.tiles().some((x) => !x.settled)).toBe(true);
+    expect(stream.settled).toBe(false);
+    stream.update(c, (t += 500));
+    expect(stream.tiles().every((x) => x.settled)).toBe(true);
+    expect(stream.settled).toBe(true);
+  });
+
+  it('a tile backing off after a failure does not hold it up', async () => {
+    const { pool, stream } = setup();
+    const c = cam(MANCHESTER);
+    await start(stream, c);
+    const bad = tileAt(MANCHESTER, 12);
+    let t = await loadAll(pool, stream, c, 100, bad);
+    stream.update(c, (t += 500));
+    expect(stream.stats().failed).toBe(1);
+    expect(stream.settled).toBe(true);
+  });
+});

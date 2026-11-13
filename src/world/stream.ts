@@ -270,9 +270,20 @@ export class WorldStream {
     return this.scale;
   }
 
-  /** Nothing loading or leaving: the tiles wanted are in (the detail budget waits for this between steps). */
+  /**
+   * The tiles wanted are in: nothing loading, leaving or still fading in, and every wanted tile alive
+   * (but one backing off after a failure). An unwanted tile kept until the coarser land under it is in
+   * holds this up while that land is wanted and on its way. The detail budget waits for this between
+   * steps.
+   */
   get settled(): boolean {
-    for (const e of this.entries.values()) if (e.state !== 'live') return false;
+    for (const e of this.entries.values()) if (e.state !== 'live' || !e.settled) return false;
+    for (let i = 0; i < this.wantedStr.length; i++) {
+      const key = this.wantedStr[i];
+      if (this.entries.has(key)) continue;
+      const f = this.failed.get(key);
+      if (!f || f.until <= this.time) return false;
+    }
     return true;
   }
 
