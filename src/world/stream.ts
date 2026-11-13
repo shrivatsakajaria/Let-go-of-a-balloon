@@ -68,17 +68,13 @@ export type StreamOptions = {
   fadeMs?: number;
   /** Ground height where no tile is loaded (default: the route's coarse ground, else 0). */
   fallbackGround?: (p: LatLon) => number | undefined;
-  /**
-   * Triangles of arriving tiles taken into the scene per update (default ARRIVE_TRIANGLES, one z14 tile
-   * at most); Infinity takes every built tile at once (an offscreen world drawn once, the card's).
-   */
-  arriveTriangles?: number;
   /** Landmark footprints whose map buildings are not drawn. */
   hidden?: HiddenFootprint[];
-  /** The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's corridor). */
+  /**
+   * The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's
+   * corridor: an offscreen world drawn once, so its built tiles all go in at once, not a few a frame).
+   */
   want?: (camera: LodCamera, budget: number) => TileKey[];
-  /** The level of detail each zoom is built at (default lod.ts levelFor; the card builds its far land coarser). */
-  levelOf?: (z: number) => LodLevel;
 };
 
 type Ground = GroundGrid & { south: number; north: number; west: number; dLon: number; mLon: number };
@@ -156,7 +152,6 @@ export class WorldStream {
   private readonly recentreM: number;
   private readonly fadeMs: number;
   private readonly arriveTriangles: number;
-  private readonly levelOf: (z: number) => LodLevel;
   private readonly fallbackGround: (p: LatLon) => number | undefined;
   private readonly hidden: HiddenFootprint[];
   private readonly want: StreamOptions['want'];
@@ -206,8 +201,7 @@ export class WorldStream {
     this.maxInFlight = opts.maxInFlight ?? MAX_IN_FLIGHT;
     this.recentreM = opts.recentreM ?? 5000;
     this.fadeMs = opts.fadeMs ?? 400;
-    this.arriveTriangles = opts.arriveTriangles ?? ARRIVE_TRIANGLES;
-    this.levelOf = opts.levelOf ?? levelFor;
+    this.arriveTriangles = opts.want ? Infinity : ARRIVE_TRIANGLES;
     this.hidden = opts.hidden ?? [];
     this.want = opts.want;
     this.fallbackGround = opts.fallbackGround ?? (() => undefined);
@@ -677,7 +671,7 @@ export class WorldStream {
   }
 
   private build(t: TileKey, key: string): void {
-    const level = this.levelOf(t.z);
+    const level = levelFor(t.z);
     const b = tileBounds(t.z, t.x, t.y);
     const centre = { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
     const ac = new AbortController();

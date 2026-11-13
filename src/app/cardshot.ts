@@ -30,7 +30,7 @@ import { bearingDeg, destination, haversineKm, lonLatToTile, tileBounds, type La
 import { seaAt } from '../geo/gazetteer';
 import { tameWarm, type CardFrame, type CardScene } from '../ui/card';
 import { M_PER_DEG } from '../world/frame';
-import { levelFor, tilesFor, tileKey, type TileKey } from '../world/lod';
+import { tilesFor, tileKey, type TileKey } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { Sky } from '../world/sky';
 import { WorldStream } from '../world/stream';
@@ -480,7 +480,7 @@ async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Ca
 }
 
 /** The last card world: how many tiles it wanted, how many were drawn, and how long it took (for checks). */
-export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0, readyAt: 0, compiledAt: 0, gateAt: 0, triangles: 0, calls: 0 };
+export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0, readyAt: 0, compiledAt: 0, gateAt: 0 };
 
 /** Far: a card world of its own, drawn once and disposed. */
 export async function farFrame(live: LiveScene, route: Route, w: number, h: number, alive: () => boolean = () => true, gate?: Promise<void>): Promise<CardFrame | null> {
@@ -515,11 +515,6 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     maxTiles: tiles.length + 4,
     fadeMs: 1,
     recentreM: 1e12,
-    // drawn once, offscreen: every built tile goes in at once (no spreading of uploads over frames)
-    arriveTriangles: Infinity,
-    // the far land is a few pixels a cell from 520 m up: z7 at half the ground cells (a quarter of
-    // its triangles), so the picture's one draw stays near a live frame's budget on a phone
-    levelOf: (z) => (z === 7 ? { ...levelFor(7), lcSize: 32 } : levelFor(z)),
   });
   try {
     // the stream is told it stands at the landing, so its origin (and the shot's frame) stays there
@@ -562,9 +557,6 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     sky.fog.near = shot.fogNear;
     sky.place(new THREE.Vector3(0, g, 0));
     const image = picture(live.renderer, scene, camera, w, h);
-    // what the picture's one draw cost (its shadow pass included), for the performance checks
-    farStats.triangles = live.renderer.info.render.triangles;
-    farStats.calls = live.renderer.info.render.calls;
     if (!image) return null;
     // the trail clear by the landing, fading with the haze toward the start but never lost
     const clarity = (d: number) => 1 - 0.65 * smooth(shot.fogNear * 0.8, shot.fogFar, d);

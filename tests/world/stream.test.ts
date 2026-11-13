@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { destination, lonLatToTile, tileBounds, type LatLon } from '../../src/geo/coords';
 import { tileFrame } from '../../src/world/frame';
 import { DEFAULT_REGION } from '../../src/world/palette';
-import { levelFor, type LodCamera } from '../../src/world/lod';
-import { WorldStream, type BuildPool, type RecentreEvent } from '../../src/world/stream';
+import { levelFor, tilesFor, type LodCamera } from '../../src/world/lod';
+import { WorldStream, type BuildPool, type RecentreEvent, type StreamOptions } from '../../src/world/stream';
 import type { BuildReply, BuildRequest } from '../../src/world/worker';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
@@ -57,14 +57,14 @@ class FakePool implements BuildPool {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function setup(opts: { origin?: LatLon; fallback?: number; arriveTriangles?: number } = {}) {
+function setup(opts: { origin?: LatLon; fallback?: number; want?: StreamOptions['want'] } = {}) {
   const scene = new THREE.Scene();
   const pool = new FakePool();
   const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, {
     vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf',
     origin: opts.origin ?? MANCHESTER,
     fallbackGround: () => opts.fallback,
-    arriveTriangles: opts.arriveTriangles,
+    want: opts.want,
   });
   return { scene, pool, stream };
 }
@@ -511,8 +511,8 @@ describe('WorldStream: review carries', () => {
     expect(live()).toBe(3);
   });
 
-  it('an offscreen world drawn once (arriveTriangles Infinity) takes every built tile at once, z14 too', async () => {
-    const { pool, stream } = setup({ arriveTriangles: Infinity });
+  it('an offscreen world drawn once (a fixed want list: the card\'s) takes every built tile at once, z14 too', async () => {
+    const { pool, stream } = setup({ want: (c, budget) => tilesFor(c, budget) });
     await start(stream, cam(MANCHESTER));
     const jobs = pool.open();
     expect(jobs.some((j) => j.msg.z === 14)).toBe(true);

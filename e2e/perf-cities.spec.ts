@@ -152,7 +152,7 @@ async function midRangePhone(page: Page) {
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 165, downloadThroughput: (9e6 * 0.9) / 8, uploadThroughput: (1.5e6 * 0.9) / 8 });
 }
 
-type CardWorld = { tiles: number; settled: number; failed: number; ms: number; readyAt: number; compiledAt: number; gateAt: number; triangles: number; calls: number };
+type CardWorld = { tiles: number; settled: number; failed: number; ms: number; readyAt: number; compiledAt: number; gateAt: number };
 
 test('the card world on a mid-range phone: made while the replay plays, on the real coarse land', async ({ context, page }, info) => {
   test.skip(!!process.env.PERF_CITY && !process.env.PERF_CITY.split(',').includes('card'), 'PERF_CITY leaves it out (add card)');
@@ -169,7 +169,7 @@ test('the card world on a mid-range phone: made while the replay plays, on the r
   const c = await page.evaluate(() => (window as unknown as { __card: { startedAt: number; openedAt: number; world: CardWorld } }).__card);
   const replayMs = await page.evaluate(() => (window as unknown as { __live: { replayMs: number | null } }).__live.replayMs);
   const w = c.world;
-  const line = `card world: ${w.tiles} tiles wanted, ${w.settled} in, ${w.failed} failed; its land ${w.readyAt ? 'ready' : 'not ready'} ${w.readyAt && w.gateAt ? `${((w.readyAt - w.gateAt) / 1000).toFixed(1)} s from the replay's end` : ''}; picture ${w.calls} calls ${Math.round(w.triangles / 1000)}k triangles; replay ${replayMs} ms; card asked ${((c.startedAt - t0) / 1000).toFixed(1)} s and up ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap`;
+  const line = `card world: ${w.tiles} tiles wanted, ${w.settled} in, ${w.failed} failed; its land ${w.readyAt ? 'ready' : 'not ready'} ${w.readyAt && w.gateAt ? `${((w.readyAt - w.gateAt) / 1000).toFixed(1)} s from the replay's end` : ''}; replay ${replayMs} ms; card asked ${((c.startedAt - t0) / 1000).toFixed(1)} s and up ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap`;
   info.annotations.push({ type: 'card world', description: line });
   console.log(`perf-cities: ${line}`);
   expect(w.tiles).toBeGreaterThan(0);
