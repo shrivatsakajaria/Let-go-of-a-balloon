@@ -81,7 +81,8 @@ export class LiveScene {
   onFirstFrame: (() => void) | null = null;
 
   private readonly canvas: HTMLCanvasElement;
-  private readonly pool: WorkerPool<BuildRequest, BuildReply>;
+  /** The mesh workers (the landing card's own coarse world builds on them too). */
+  readonly pool: WorkerPool<BuildRequest, BuildReply>;
   private readonly reduced: boolean;
   private start: LatLon;
   private route: Route | null = null;

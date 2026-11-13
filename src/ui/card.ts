@@ -404,7 +404,7 @@ export type CardFrame = {
   start?: { x: number; y: number; a: number } | null;
 };
 
-export type CardScene = { cardFrame(route: Route, w: number, h: number): CardFrame | null };
+export type CardScene = { cardFrame(route: Route, w: number, h: number): CardFrame | null | Promise<CardFrame | null> };
 
 const PAPER = '247, 243, 236';
 const INK = '10, 14, 28';
@@ -557,7 +557,7 @@ export async function drawCard(route: Route, scene: CardScene | null, words: Car
   ctx.fillRect(0, 0, CARD_W, CARD_H);
   let frame: CardFrame | null = null;
   try {
-    frame = scene?.cardFrame(route, CARD_W, CARD_SCENE_H) ?? null;
+    frame = (await scene?.cardFrame(route, CARD_W, CARD_SCENE_H)) ?? null;
   } catch {
     frame = null;
   }
