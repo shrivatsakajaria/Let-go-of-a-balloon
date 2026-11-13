@@ -7,10 +7,10 @@ import {
   LC,
   type LandcoverGrid,
 } from '../../src/world/terrain';
-import { overzoomTile, makeRouteGround, type TerrainTile } from '../../src/world/terrainsrc';
+import { overzoomTile, makeRouteGround, makeRouteTileLoader, type TerrainTile } from '../../src/world/terrainsrc';
 import { CONTOUR, parseHex } from '../../src/world/palette';
 import { lonLatToTile } from '../../src/geo/coords';
-import { BALLOON_HEX } from '../../src/config';
+import { BALLOON_HEX, ROUTE_GROUND_ZOOM } from '../../src/config';
 
 function saturation(hex: string): number {
   const [r, g, b] = parseHex(hex).map((v) => v / 255);
@@ -143,12 +143,19 @@ function fixture(px: number, py: number) {
   return { heights, size };
 }
 function pixelOf(lat: number, lon: number, size: number) {
-  const t = lonLatToTile(lat, lon, 7);
+  const t = lonLatToTile(lat, lon, ROUTE_GROUND_ZOOM);
   return { x: Math.floor(t.x), y: Math.floor(t.y), px: Math.floor((t.x % 1) * size), py: Math.floor((t.y % 1) * size) };
+}
+/** A point inside the route-ground tile containing (50, 10.5), at fraction (fx, fy) of the tile. */
+function inTile(fx: number, fy: number) {
+  const n = 2 ** ROUTE_GROUND_ZOOM;
+  const t = lonLatToTile(50, 10.5, ROUTE_GROUND_ZOOM);
+  const x = Math.floor(t.x) + fx, y = Math.floor(t.y) + fy;
+  return { lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI, lon: (x / n) * 360 - 180 };
 }
 
 test('routeGround returns the max of the 3x3 window', async () => {
-  const p = { lat: 50, lon: 10.5 };
+  const p = inTile(3.5 / 8, 2.5 / 8);
   const { px, py } = pixelOf(p.lat, p.lon, 8);
   expect(px).toBeGreaterThan(0); expect(px).toBeLessThan(6);
   expect(py).toBeGreaterThan(0); expect(py).toBeLessThan(5);
@@ -167,9 +174,59 @@ test('routeGround caches tiles and handles poles', async () => {
     calls++;
     return { heights: new Float32Array(64).fill(7), size: 8 };
   });
-  await rg({ lat: 50.0, lon: 10.5 });
-  await rg({ lat: 50.001, lon: 10.501 });
+  await rg(inTile(0.4, 0.4));
+  await rg(inTile(0.41, 0.41));
   expect(calls).toBe(1);
   expect(await rg({ lat: 89, lon: 0 })).toBe(7);
   expect(await rg({ lat: -90, lon: 180 })).toBe(7);
+});
+
+test('routeGround.peek answers only once every tile of the 3x3 window is loaded, with the same value', async () => {
+  const p = inTile(3.5 / 8, 2.5 / 8);
+  const { px, py } = pixelOf(p.lat, p.lon, 8);
+  const rg = makeRouteGround(async () => fixture(px, py));
+  expect(rg.peek(p)).toBeUndefined();
+  expect(await rg(p)).toBe(321);
+  expect(rg.peek(p)).toBe(321);
+  // A point on the tile's west edge also needs the western neighbour, which is not loaded yet.
+  const edge = { lat: p.lat, lon: inTile(0, 0).lon + 1e-6 };
+  expect(rg.peek(edge)).toBeUndefined();
+  const v = await rg(edge);
+  expect(rg.peek(edge)).toBe(v);
+});
+
+test('routeGround.peek stays unknown after a failed load', async () => {
+  const rg = makeRouteGround(async () => {
+    throw new Error('offline');
+  });
+  await expect(rg({ lat: 10, lon: 10 })).rejects.toThrow('offline');
+  expect(rg.peek({ lat: 10, lon: 10 })).toBeUndefined();
+});
+
+test('route tiles: a tile the planet archive leaves out is open sea (0 m), without asking the fallbacks', async () => {
+  let fallbacks = 0;
+  const land: TerrainTile = { heights: new Float32Array(16).fill(12), size: 4 };
+  const load = makeRouteTileLoader(
+    async (_z, x) => (x === 1 ? land : null),
+    async () => {
+      fallbacks++;
+      return land;
+    },
+  );
+  expect(await load(7, 1, 1)).toBe(land);
+  const sea = await load(7, 2, 1);
+  expect(sea.size).toBe(512);
+  expect(Math.max(...sea.heights.subarray(0, 1024))).toBe(0);
+  expect(fallbacks).toBe(0);
+});
+
+test('route tiles: a planet archive error uses the fallback sources', async () => {
+  const land: TerrainTile = { heights: new Float32Array(16).fill(12), size: 4 };
+  const load = makeRouteTileLoader(
+    async () => {
+      throw new Error('range requests blocked');
+    },
+    async () => land,
+  );
+  expect(await load(7, 1, 1)).toBe(land);
 });

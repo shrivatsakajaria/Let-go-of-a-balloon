@@ -179,30 +179,75 @@ export function terrainTile(z: number, x: number, y: number): Promise<TerrainTil
   return p;
 }
 
+let seaTile: TerrainTile | null = null;
+
+/**
+ * Tile loader for the route ground. Mapterhorn leaves fully submerged tiles out of the planet
+ * archive, and the route floors the ground at 0 m, so a tile the archive does not have is open sea
+ * (0 m) and needs no further requests. Only an archive error goes to the fallback sources.
+ */
+export function makeRouteTileLoader(
+  planetTile: (z: number, x: number, y: number) => Promise<TerrainTile | null>,
+  fallback: TileLoader,
+): TileLoader {
+  return async (z, x, y) => {
+    let t: TerrainTile | null;
+    try {
+      t = await planetTile(z, x, y);
+    } catch {
+      return fallback(z, x, y);
+    }
+    return t ?? (seaTile ??= { heights: new Float32Array(512 * 512), size: 512 });
+  };
+}
+
+async function planetTile(z: number, x: number, y: number): Promise<TerrainTile | null> {
+  planet ??= new PMTiles(TERRAIN_PLANET_PMTILES);
+  const t = await pmtilesTile(planet, z, x, y);
+  if (t) lastSource = 'pmtiles';
+  return t;
+}
+
+/** Route ground: async height, plus `peek` that answers synchronously once the tiles are loaded. */
+export type RouteGroundFn = ((p: LatLon) => Promise<number>) & { peek: (p: LatLon) => number | undefined };
+
 /**
  * Build a ground-height function for the route: the highest of the 3 x 3 pixels around the point,
  * at zoom ROUTE_GROUND_ZOOM, floored at 0 so the sea counts as 0 m. Tiles are cached and in-flight
- * fetches deduped; the window may straddle tile edges. `load` is injectable for tests.
+ * fetches deduped; the window may straddle tile edges. `peek` gives the same answer without waiting
+ * when every tile it needs has loaded, else undefined. `load` is injectable for tests.
  */
-export function makeRouteGround(load: TileLoader): (p: LatLon) => Promise<number> {
+export function makeRouteGround(load: TileLoader): RouteGroundFn {
   const cache = new Map<string, Promise<TerrainTile>>();
+  const ready = new Map<string, TerrainTile>();
   const get = (z: number, x: number, y: number) => {
     const k = `${z}/${x}/${y}`;
     let p = cache.get(k);
     if (!p) {
       p = load(z, x, y);
       cache.set(k, p);
-      p.catch(() => cache.delete(k));
+      p.then(
+        (t) => void ready.set(k, t),
+        () => void cache.delete(k),
+      );
     }
     return p;
   };
   const z = ROUTE_GROUND_ZOOM;
   const n = 2 ** z;
-  return async (p) => {
+  const centreOf = (p: LatLon) => {
     const t = lonLatToTile(p.lat, wrapLon(p.lon), z); // latitude is clamped to the Mercator limit inside
     const tx = Math.min(n - 1, Math.floor(t.x));
     const ty = Math.min(n - 1, Math.max(0, Math.floor(t.y)));
-    const centre = await get(z, tx, ty);
+    return { t, tx, ty };
+  };
+  /** The 3 x 3 window's maximum, or the x, y of the first tile it needs that `tileAt` lacks. */
+  const windowMax = (
+    c: ReturnType<typeof centreOf>,
+    centre: TerrainTile,
+    tileAt: (x: number, y: number) => TerrainTile | undefined,
+  ): number | { need: [number, number] } => {
+    const { t, tx, ty } = c;
     const size = centre.size;
     const gx = Math.floor(t.x * size), gy = Math.floor(Math.min(t.y, n - 1e-9) * size);
     let best = 0;
@@ -211,7 +256,8 @@ export function makeRouteGround(load: TileLoader): (p: LatLon) => Promise<number
         const px = gx + dx, py = gy + dy;
         const ttx = ((Math.floor(px / size) % n) + n) % n;
         const tty = Math.min(n - 1, Math.max(0, Math.floor(py / size)));
-        const tile = ttx === tx && tty === ty ? centre : await get(z, ttx, tty);
+        const tile = ttx === tx && tty === ty ? centre : tileAt(ttx, tty);
+        if (!tile) return { need: [ttx, tty] };
         const lx = ((px % size) + size) % size;
         const ly = py < 0 ? 0 : py >= n * size ? size - 1 : ((py % size) + size) % size;
         const h = tile.heights[Math.floor((ly * tile.size) / size) * tile.size + Math.floor((lx * tile.size) / size)];
@@ -220,7 +266,25 @@ export function makeRouteGround(load: TileLoader): (p: LatLon) => Promise<number
     }
     return best;
   };
+  const peekTile = (x: number, y: number) => ready.get(`${z}/${x}/${y}`);
+  const ground = async (p: LatLon): Promise<number> => {
+    const c = centreOf(p);
+    const centre = await get(z, c.tx, c.ty);
+    for (;;) {
+      const r = windowMax(c, centre, peekTile);
+      if (typeof r === 'number') return r;
+      await get(z, r.need[0], r.need[1]);
+    }
+  };
+  const peek = (p: LatLon): number | undefined => {
+    const c = centreOf(p);
+    const centre = peekTile(c.tx, c.ty);
+    if (!centre) return undefined;
+    const r = windowMax(c, centre, peekTile);
+    return typeof r === 'number' ? r : undefined;
+  };
+  return Object.assign(ground, { peek });
 }
 
-/** Real route ground function: Mapterhorn z7 tiles, cached. */
-export const routeGround: (p: LatLon) => Promise<number> = makeRouteGround(terrainTile);
+/** Real route ground function: Mapterhorn planet tiles at ROUTE_GROUND_ZOOM, cached. */
+export const routeGround: RouteGroundFn = makeRouteGround(makeRouteTileLoader(planetTile, terrainTile));

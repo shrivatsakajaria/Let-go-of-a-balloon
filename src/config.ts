@@ -26,5 +26,10 @@ export const TERRAIN_XYZ = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'; // f
 export const TERRAIN_AWS = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'; // fallback 2, 256 px, max z15
 export const TERRAIN_PLANET_MAX_ZOOM = 12;
 export const TERRAIN_AWS_MAX_ZOOM = 15;
-/** Zoom of the tiles the route reads ground height from. */
-export const ROUTE_GROUND_ZOOM = 7;
+/**
+ * Zoom of the tiles the route reads ground height from: the spec's coarse terrain. z5 pixels are
+ * ~2.4 km at the equator, so the 3 x 3 max covers ~7 km; a typical route needs ~5 tiles (~0.6 MB)
+ * instead of ~15-25 at z7 (1.6-3.3 MB). Mountain peaks read lower than at z7 (Mont Blanc 4352 m vs
+ * 4644 m) and valleys higher, which can change the cruise level over high ground.
+ */
+export const ROUTE_GROUND_ZOOM = 5;

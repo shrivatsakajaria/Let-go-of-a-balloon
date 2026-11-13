@@ -37,15 +37,56 @@ async function withTiles<T>(wind: WindField, p: LatLon, utcMs: number, fn: () =>
   }
 }
 
-/** Integrate a 72 h route (RK2 midpoint, 10-minute steps) through the forecast winds. */
+/**
+ * Ground height under the route. `peek`, when present, answers synchronously once the terrain for a
+ * point is already loaded (and returns undefined otherwise); it must agree with the async call.
+ */
+export type RouteGround = ((p: LatLon) => Promise<number>) & { peek?: (p: LatLon) => number | undefined };
+
+/** Scouting passes before falling back to awaiting the ground at every step (bounds retries of failing tiles). */
+const SCOUT_PASSES = 8;
+
+/**
+ * Integrate a 72 h route (RK2 midpoint, 10-minute steps) through the forecast winds.
+ *
+ * Awaiting the ground at every step would fetch each terrain tile only when the route reaches it,
+ * one after another. With a peekable ground the route is instead scouted: a pass runs with the
+ * ground heights already loaded (0 m where unknown) and starts loading every tile it touched, all
+ * at once; once they arrive the next pass runs. A pass that needed no unknown ground is exactly the
+ * route the step-by-step version computes, and is returned. Wind tiles still load on demand.
+ */
 export async function computeRoute(
   start: LatLon,
   releaseUtcMs: number,
   wind: WindField,
-  ground: (p: LatLon) => Promise<number>,
+  ground: RouteGround,
+): Promise<Route> {
+  const p0: LatLon = { lat: start.lat, lon: wrapLon(start.lon) };
+  const peek = ground.peek;
+  if (peek) {
+    for (let pass = 0; pass < SCOUT_PASSES; pass++) {
+      const pending: Promise<unknown>[] = [];
+      const route = await integrate(p0, releaseUtcMs, wind, (p) => {
+        const g = peek(p);
+        if (g !== undefined) return g;
+        pending.push(ground(p).catch(() => undefined)); // a failure surfaces in the final pass
+        return 0;
+      });
+      if (pending.length === 0) return route;
+      await Promise.all(pending);
+    }
+  }
+  return integrate(p0, releaseUtcMs, wind, ground);
+}
+
+async function integrate(
+  start: LatLon,
+  releaseUtcMs: number,
+  wind: WindField,
+  ground: (p: LatLon) => number | Promise<number>,
 ): Promise<Route> {
   const points: RoutePoint[] = [];
-  let p: LatLon = { lat: start.lat, lon: wrapLon(start.lon) };
+  let p: LatLon = start;
   const ground0 = await ground(p);
   let climbing = true;
   let alt = 0;

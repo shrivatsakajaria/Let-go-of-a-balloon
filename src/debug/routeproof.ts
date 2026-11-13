@@ -8,7 +8,11 @@ import { routeGround } from '../world/terrainsrc';
 import { loadManifest, WindField, WindUnavailableError } from '../wind/loader';
 import { ageText, fitView, mercator, nearestPlace, project, summarise, tilesFor, unwrapLons, type Place, type TileRef, type View } from './proofmath';
 
-const START: LatLon = { lat: 53.4794, lon: -2.2453 };
+/** Albert Square, Manchester; `?from=lat,lon` overrides it for live checks from other places. */
+const START: LatLon = ((): LatLon => {
+  const m = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(new URLSearchParams(location.search).get('from') ?? '');
+  return m ? { lat: Number(m[1]), lon: Number(m[2]) } : { lat: 53.4794, lon: -2.2453 };
+})();
 const ORANGE = '#ff5a12';
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -165,9 +169,13 @@ async function run(): Promise<void> {
     const manifest = await loadManifest('/winds', countingFetch);
     const wind = new WindField(manifest, countingFetch, '/winds');
     const now = Date.now();
+    performance.mark('route:start');
     const t0 = performance.now();
     const route = await computeRoute(START, now, wind, routeGround);
     const computeMs = Math.round(performance.now() - t0);
+    performance.mark('route:end');
+    // Exposed for the live measurement harness (timing, bytes, route deviation checks).
+    (window as unknown as { __proof?: unknown }).__proof = { computeMs, windBytes, runId: wind.runId, release: now, hourly: route.hourly };
 
     const un = unwrapLons(route.points.map((p) => p.lon));
     const merc = route.points.map((p, i) => mercator(p.lat, un[i]));

@@ -112,3 +112,64 @@ test('positionAt interpolates longitude across the date line and heading the sho
   expect(Math.abs(m.lon)).toBeCloseTo(180, 5);
   expect(m.headingDeg === 0 || m.headingDeg > 359.999 || m.headingDeg < 0.001).toBe(true);
 });
+
+/** A tiled ground (1° cells) that loads slowly and can answer synchronously once a cell is loaded. */
+function tiledGround(height: (lon: number) => number, opts: { delayMs?: number; neverPeek?: boolean; fail?: boolean } = {}) {
+  const loaded = new Map<number, number>();
+  const inflight = new Map<number, Promise<number>>();
+  const stats = { loads: 0, inflight: 0, maxInflight: 0 };
+  const cellOf = (p: LatLon) => Math.floor(p.lon);
+  const load = (c: number): Promise<number> => {
+    let pr = inflight.get(c);
+    if (!pr) {
+      stats.loads++;
+      stats.inflight++;
+      stats.maxInflight = Math.max(stats.maxInflight, stats.inflight);
+      pr = new Promise<number>((res, rej) =>
+        setTimeout(() => {
+          stats.inflight--;
+          if (opts.fail) return rej(new Error('no terrain'));
+          loaded.set(c, height(c));
+          res(height(c));
+        }, opts.delayMs ?? 2),
+      );
+      inflight.set(c, pr);
+    }
+    return pr;
+  };
+  const g = Object.assign((p: LatLon) => load(cellOf(p)), {
+    peek: (p: LatLon) => (opts.neverPeek ? undefined : loaded.get(cellOf(p))),
+  });
+  return { g, stats };
+}
+const mountains = (lon: number) => (lon >= 8 && lon < 14 ? 2240 : 80);
+
+test('a peekable ground gives exactly the same route as awaiting ground every step', async () => {
+  const gh = (l: number) => ({ 0: 1500, 1: 2000, 2: 2500, 3: 3100, 4: 4300, 5: 5800 })[l as 0 | 1 | 2 | 3 | 4 | 5]!;
+  const serial = await computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10, 0, gh), async (p) => mountains(Math.floor(p.lon)));
+  const { g } = tiledGround(mountains);
+  const fast = await computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10, 0, gh), g);
+  expect(fast).toEqual(serial);
+  expect(Math.max(...fast.points.map((p) => p.groundM))).toBe(2240);
+});
+
+test('a peekable ground loads the tiles along the route in parallel, not one per step', async () => {
+  const { g, stats } = tiledGround(mountains, { delayMs: 5 });
+  const wind = await makeWind([-10], [0, 20], 10);
+  // Winds ready up front, so a scouting pass never yields to timers and the count is deterministic.
+  for (const lon of [10, 30]) await wind.prepare({ lat: 0, lon }, [ISSUED, ISSUED + 72 * HOUR], { radius: 0 });
+  await computeRoute({ lat: 0, lon: 0 }, ISSUED, wind, g);
+  expect(stats.loads).toBeGreaterThan(20); // ~2592 km east at the equator crosses ~24 one-degree cells
+  expect(stats.maxInflight).toBeGreaterThan(15);
+});
+
+test('a ground that never answers synchronously still gives the exact route (serial fallback)', async () => {
+  const serial = await computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10), async (p) => mountains(Math.floor(p.lon)));
+  const { g } = tiledGround(mountains, { neverPeek: true });
+  expect(await computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10), g)).toEqual(serial);
+});
+
+test('a peekable ground that fails makes computeRoute reject', async () => {
+  const { g } = tiledGround(mountains, { fail: true });
+  await expect(computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10), g)).rejects.toThrow('no terrain');
+});
