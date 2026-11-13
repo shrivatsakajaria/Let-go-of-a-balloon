@@ -3,11 +3,11 @@
  * an accessible combobox (WAI-ARIA 1.2: input role=combobox with aria-expanded, aria-controls and
  * aria-activedescendant over a listbox of options; arrow keys, Enter and Escape).
  */
+import { GEOCODING_URL } from '../config';
 import { COPY } from './copy';
 
 export type Place = { name: string; admin1?: string; admin2?: string; country: string; lat: number; lon: number };
 
-export const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 export const SEARCH_DEBOUNCE_MS = 250;
 const MIN_CHARS = 2;
 

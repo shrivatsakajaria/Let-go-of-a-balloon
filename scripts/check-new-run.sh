@@ -6,7 +6,8 @@
 set -u
 
 BUCKET="https://noaa-gfs-bdp-pds.s3.amazonaws.com"
-MANIFEST_URL="${MANIFEST_URL:-https://let-go-of-a-balloon.pages.dev/winds/manifest.json}"
+# SITE_URL is set once, in .github/workflows/deploy.yml.
+MANIFEST_URL="${MANIFEST_URL:-${SITE_URL:?SITE_URL is not set}/winds/manifest.json}"
 
 latest=""
 for day_offset in 0 1; do

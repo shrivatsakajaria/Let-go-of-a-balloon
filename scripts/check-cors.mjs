@@ -1,6 +1,8 @@
 // One-off check: do the map and data hosts allow requests from the preview domain?
 // Prints a markdown table. Never fails the build (exit code is always 0).
-const ORIGIN = 'https://let-go-of-a-balloon.pages.dev';
+// SITE_URL is set once, in .github/workflows/deploy.yml.
+const ORIGIN = process.env.SITE_URL;
+if (!ORIGIN) throw new Error('SITE_URL is not set');
 const rows = [];
 
 async function check(name, url, headers = {}) {

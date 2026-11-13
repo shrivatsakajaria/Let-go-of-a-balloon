@@ -38,4 +38,8 @@ export const ROUTE_GROUND_ZOOM = 5;
  * OpenFreeMap vector tiles (OpenMapTiles schema). The TileJSON is versioned: read its `tiles[0]`
  * template once at boot rather than hard-coding a planet version.
  */
+/** Open-Meteo's place-name search (the only service that sees what the visitor types). */
+export const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+/** Where the wind pipeline's tiles and manifest are served from (same origin as the site). */
+export const WINDS_BASE = '/winds';
 export const OPENFREEMAP_TILEJSON = 'https://tiles.openfreemap.org/planet';

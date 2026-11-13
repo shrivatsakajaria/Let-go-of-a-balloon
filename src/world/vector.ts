@@ -190,6 +190,12 @@ export function vectorTileTemplate(tilejson = OPENFREEMAP_TILEJSON): Promise<str
   return template;
 }
 
+/** One vector tile's bytes (null when the server has none). The single place vector tiles are requested. */
+export async function fetchVectorTile(tpl: string, z: number, x: number, y: number, signal?: AbortSignal): Promise<Uint8Array | null> {
+  const res = await fetch(vectorTileUrl(tpl, z, x, y), { signal });
+  return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+}
+
 /** Fill a {z}/{x}/{y} template (a URL without placeholders is returned as is). */
 export function vectorTileUrl(tpl: string, z: number, x: number, y: number): string {
   return tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));

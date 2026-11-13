@@ -1,5 +1,6 @@
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
+import { WINDS_BASE } from '../config';
 import { computeRoute, type Route } from '../flight/route';
 import { haversineKm, type LatLon } from '../geo/coords';
 import { localTime } from '../geo/time';
@@ -166,8 +167,8 @@ async function run(): Promise<void> {
   status.textContent = "Working out the route from today's winds…";
   windBytes = 0;
   try {
-    const manifest = await loadManifest('/winds', countingFetch);
-    const wind = new WindField(manifest, countingFetch, '/winds');
+    const manifest = await loadManifest(WINDS_BASE, countingFetch);
+    const wind = new WindField(manifest, countingFetch, WINDS_BASE);
     const now = Date.now();
     performance.mark('route:start');
     const t0 = performance.now();

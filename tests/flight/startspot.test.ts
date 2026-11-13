@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { toOpenSpace } from '../../src/flight/startspot';
 import { haversineKm, type LatLon } from '../../src/geo/coords';
 import { pointInPolygon, ringCentroid } from '../../src/world/geom';
-import { decodeVectorTile, emptyFeatures, type Features, type Polygon } from '../../src/world/vector';
+import { decodeVectorTile, emptyFeatures, fetchVectorTile, type Features, type Polygon } from '../../src/world/vector';
 import { tileFrame } from '../../src/world/frame';
 
 const frame = tileFrame(14, 8089, 5300); // central Manchester
@@ -84,5 +84,25 @@ describe('toOpenSpace', () => {
     const out = toOpenSpace(p, f, frame);
     expect(insideAny(f, out)).toBe(false);
     expect(m(out, p)).toBeLessThanOrEqual(150);
+  });
+});
+
+describe('fetchVectorTile (the one place vector tiles are requested)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test('requests the filled template URL and returns the bytes', async () => {
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      seen.push(url);
+      return new Response(new Uint8Array([1, 2, 3]));
+    });
+    const bytes = await fetchVectorTile('https://t.example/{z}/{x}/{y}.pbf', 14, 8, 9);
+    expect(seen).toEqual(['https://t.example/14/8/9.pbf']);
+    expect([...bytes!]).toEqual([1, 2, 3]);
+  });
+
+  test('gives null for a missing tile', async () => {
+    vi.stubGlobal('fetch', async () => new Response('', { status: 404 }));
+    expect(await fetchVectorTile('https://t.example/{z}/{x}/{y}', 14, 8, 9)).toBeNull();
   });
 });

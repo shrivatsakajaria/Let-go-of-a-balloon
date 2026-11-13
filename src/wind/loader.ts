@@ -1,3 +1,4 @@
+import { WINDS_BASE } from '../config';
 import { decodeTile, type WindTile } from './format';
 import type { LatLon } from '../geo/coords';
 import { wrapLon } from '../geo/coords';
@@ -40,7 +41,7 @@ const CLIMB_LAT_MAX = 85;
 
 /** Load the manifest and keep only runs issued less than 24 h ago, newest first. */
 export async function loadManifest(
-  base = '/winds',
+  base = WINDS_BASE,
   fetchFn: FetchFn = pageFetch,
   nowMs: number = Date.now(),
 ): Promise<Manifest> {
@@ -73,7 +74,7 @@ export class WindField {
   constructor(
     private readonly manifest: Manifest,
     private readonly fetchFn: FetchFn = pageFetch,
-    private readonly base = '/winds',
+    private readonly base = WINDS_BASE,
   ) {
     if (manifest.runs.length === 0) throw new WindUnavailableError('no wind runs');
   }

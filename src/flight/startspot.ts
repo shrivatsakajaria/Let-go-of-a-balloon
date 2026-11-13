@@ -7,7 +7,7 @@
 import { lonLatToTile, type LatLon } from '../geo/coords';
 import { bbox, pointInPolygon, type BBox } from '../world/geom';
 import { tileFrame, type TileFrame } from '../world/frame';
-import { decodeVectorTile, vectorTileTemplate, vectorTileUrl, type Features, type Polygon } from '../world/vector';
+import { decodeVectorTile, fetchVectorTile, vectorTileTemplate, type Features, type Polygon } from '../world/vector';
 
 export const OPEN_SPACE_MAX_M = 150;
 const STEP_M = 2;
@@ -94,9 +94,9 @@ export async function openSpaceFor(p: LatLon, signal?: AbortSignal): Promise<Lat
     const t = lonLatToTile(p.lat, p.lon, ZOOM);
     const x = Math.floor(t.x), y = Math.floor(t.y);
     const tpl = await vectorTileTemplate();
-    const res = await fetch(vectorTileUrl(tpl, ZOOM, x, y), { signal });
-    if (!res.ok) return p;
-    const features = decodeVectorTile(new Uint8Array(await res.arrayBuffer()), ZOOM, x, y);
+    const bytes = await fetchVectorTile(tpl, ZOOM, x, y, signal);
+    if (!bytes) return p;
+    const features = decodeVectorTile(bytes, ZOOM, x, y);
     return toOpenSpace(p, features, tileFrame(ZOOM, x, y));
   } catch {
     return p;
