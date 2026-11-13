@@ -115,13 +115,17 @@ export class LandmarkLayer {
   }
 
   /** Call every frame: the focus (camera ground point), the time (UTC ms) and the light of the moment. */
-  update(focus: LatLon, utcMs: number, light: Light): void {
+  /**
+   * `scan: false` (the whole-trip replay, seen from high up): no landmarks are looked for, loaded or
+   * dropped; the ones shown are still placed and animated.
+   */
+  update(focus: LatLon, utcMs: number, light: Light, opts: { scan?: boolean } = {}): void {
     if (this.disposed) return;
     const t = this.now();
     const dt = Math.min(0.25, Math.max(0, (t - this.lastTime) / 1000));
     this.lastTime = t;
     const s = this.lastScan;
-    if (!s || t >= this.retryAt || Math.abs(focus.lat - s.lat) * M_PER_DEG > SCAN_M || Math.abs(lonDelta(s.lon, focus.lon)) * M_PER_DEG * Math.cos(focus.lat * D2R) > SCAN_M) {
+    if (opts.scan !== false && (!s || t >= this.retryAt || Math.abs(focus.lat - s.lat) * M_PER_DEG > SCAN_M || Math.abs(lonDelta(s.lon, focus.lon)) * M_PER_DEG * Math.cos(focus.lat * D2R) > SCAN_M)) {
       this.lastScan = { lat: focus.lat, lon: focus.lon };
       this.scan(focus);
     }

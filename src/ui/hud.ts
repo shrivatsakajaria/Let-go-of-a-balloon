@@ -13,6 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
+import { MAP_CREDIT, creditHtml } from './credits';
 import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
@@ -21,6 +22,9 @@ export type HudHandlers = {
   onPause(paused: boolean): void;
   /** "Let go of another" (own balloon) or "Let go of your own" (a shared link). */
   onAgain(): void;
+  /** "Show me the whole trip" and, during the replay, "Back to live" (Task 18). */
+  onTrip?(): void;
+  onBack?(): void;
 };
 
 export type HudFrame = { now: number; point: LatLon; aglM: number; speedMs: number; landed: boolean };
@@ -44,12 +48,22 @@ export type Hud = {
   announce(text: string): void;
   /** The fact on show (for checks). */
   readonly fact: string;
+  /** Show "Show me the whole trip" (once a flight's route is in). */
+  setTrip(on: boolean): void;
+  /** The replay's chrome: its label under the clock, the names slot, "Back to live" for the main action. */
+  setReplay(on: boolean): void;
+  /** Where the replay writes its place names (at the top of the bottom stack, in the fact line's place). */
+  readonly replaySlot: HTMLElement;
   destroy(): void;
 };
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean } = {}): Hud {
+/**
+ * `note`: a sentence in place of the view switch, for the 2D map, which has no camera views
+ * ("Your phone can't show the 3D world, so here is the route on a map.").
+ */
+export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean; note?: string } = {}): Hud {
   root.classList.add('hud');
   root.innerHTML = `
     <div class="hud-shade ink-bottom" aria-hidden="true"></div>
@@ -64,6 +78,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </dl>
     </div>
     <div class="hud-bottom">
+      <div class="replay-slot" aria-hidden="true"></div>
       <p class="fact" aria-live="off"></p>
       <div class="string" aria-hidden="true">
         <span class="track"></span><span class="fill"></span><span class="ticks"></span><span class="ring"></span><span class="knot"></span>
@@ -72,16 +87,17 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         <p class="day"></p>
         <button type="button" class="link pause">${COPY.pause}</button>
       </div>
-      <div class="views" role="group" aria-label="${COPY.view}">
+      ${opts.note ? `<p class="hud-note">${esc(opts.note)}</p>` : `<div class="views" role="group" aria-label="${COPY.view}">
         ${VIEWS.map(([m, label], i) => `${i ? '<span class="dot" aria-hidden="true">·</span>' : ''}<button type="button" class="link view" data-view="${m}" aria-pressed="${m === 'film'}">${label}</button>`).join('')}
-      </div>
+      </div>`}
       <div class="actions">
-        <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
+        <button type="button" class="trip main-action" hidden>${COPY.wholeTrip}</button>
+        <button type="button" class="back main-action" hidden>${COPY.backToLive}</button>
         <button type="button" class="link again"></button>
       </div>
       <div class="fineprint">
         <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
       </div>
     </div>
     <p class="sr status" role="status" aria-live="polite"></p>`;
@@ -157,6 +173,10 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     handlers.onPause(paused);
   });
   again.addEventListener('click', () => handlers.onAgain());
+  const trip = $<HTMLButtonElement>('.trip'), back = $<HTMLButtonElement>('.back'), replaySlot = $('.replay-slot');
+  let tripOn = false;
+  trip.addEventListener('click', () => handlers.onTrip?.());
+  back.addEventListener('click', () => handlers.onBack?.());
 
   return {
     el: root,
@@ -178,7 +198,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       text(clock, clockNow(f.now, f.point));
       text(height, f.landed ? '0 m' : heightText(f.aglM));
       text(speed, speedText(f.landed ? 0 : f.speedMs));
-      text(day, dayLine(release, f.now));
+      text(day, dayLine(release, f.now, { forecast: root.classList.contains('is-replay') }));
       const p = progress(release, f.now);
       if (Math.abs(p - lastP) > 1e-5) {
         lastP = p;
@@ -212,6 +232,21 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     get fact() {
       return shown;
     },
+    setTrip(on) {
+      tripOn = on && !!handlers.onTrip;
+      if (!root.classList.contains('is-replay')) trip.hidden = !tripOn;
+    },
+    setReplay(on) {
+      const had = root.contains(document.activeElement) && (document.activeElement === trip || document.activeElement === back);
+      root.classList.toggle('is-replay', on);
+      trip.hidden = on || !tripOn;
+      again.hidden = on;
+      back.hidden = !on;
+      if (!on) replaySlot.replaceChildren();
+      // the button pressed goes away: keyboard focus moves to the one in its place
+      if (had) (on ? back : tripOn ? trip : again).focus({ preventScroll: true });
+    },
+    replaySlot,
     destroy() {
       clearInterval(timer);
       clearTimeout(swap);

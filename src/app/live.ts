@@ -23,10 +23,13 @@ import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
+import { playReplay, replayNames, type ReplayName } from '../ui/replay';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
+import { watchContextLoss, type ContextWatch } from './contextloss';
+import { resumeAction, type Handover } from './world';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -37,6 +40,12 @@ export type LiveDeps = {
   hudEl: HTMLElement;
   noticeEl: HTMLElement;
   setView(v: View): void;
+  /** The WebGL context was lost twice (or never came back): the page moves to the 2D map. */
+  onNoWebGL?(h: Handover): void;
+  /** The WebGL context was lost and has come back: the page builds the 3D world again from h. */
+  onReload?(h: Handover): void;
+  /** Contexts the page lost before this world was built. */
+  contextLosses?: number;
 };
 
 type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean };
@@ -64,6 +73,19 @@ export type LiveHook = {
   routeError: string | null;
   groundM: number;
   feetM: number;
+  /** The whole-trip replay is on, its trail is in the scene, and the time the scene shows (UTC ms). */
+  replay: boolean;
+  trail: boolean;
+  now: number;
+  /** The last replay: ms from the tap to its end (onEnd), or null. */
+  replayMs: number | null;
+  /** Floating-origin re-centres so far. */
+  recentres: number;
+  /** What the last frame drew (renderer.info, shadow pass included): for the performance checks. */
+  triangles: number;
+  calls: number;
+  /** WebGL context losses so far. */
+  contextLosses: number;
 };
 
 export class Live {
@@ -87,6 +109,15 @@ export class Live {
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
+  private readonly reduced: boolean;
+  /** The whole-trip replay on screen (aborted by Back to live), and its names worked out in the background. */
+  private replayRun: AbortController | null = null;
+  private replayPrep: { route: Route; names: Promise<ReplayName[]>; landing: Promise<Place | null>; ac: AbortController } | null = null;
+  private overLine = '';
+  /** Pause as it was before the replay (the replay plays; Back to live puts it back). */
+  private pausedBefore = false;
+  /** Where the whole-trip replay ends (it then holds on the landing): by default, back to live. */
+  onReplayEnd: (route: Route) => void = () => this.backToLive();
   /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
   private unwatch: () => void = () => {};
   private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
@@ -94,11 +125,13 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.reduced = reduced;
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'world';
     this.canvas.setAttribute('role', 'img');
@@ -118,10 +151,15 @@ export class Live {
         onView: (m: DirectorMode) => this.scene.setView(m),
         onPause: (p) => this.scene.setPaused(p),
         onAgain: () => this.backToStart(),
+        onTrip: () => this.showTrip(),
+        onBack: () => this.backToLive(),
       },
       { reducedMotion: reduced },
     );
     if (this.testing) {
+      // read when asked, not per frame: a starved renderer can go seconds without one
+      Object.defineProperty(this.hook, 'replay', { enumerable: true, get: () => this.replayRun !== null });
+      Object.defineProperty(this.hook, 'trail', { enumerable: true, get: () => !!this.scene.scene.getObjectByName('replay-trail') });
       (window as unknown as { __live: LiveHook }).__live = this.hook;
       // for the browser test of dispose: how many objects are left in the 3D scene afterwards
       (window as unknown as { __liveDispose: () => number }).__liveDispose = () => {
@@ -131,6 +169,20 @@ export class Live {
         return this.scene.scene.children.length;
       };
     }
+    this.hook.contextLosses = deps.contextLosses ?? 0;
+    this.context = watchContextLoss(
+      this.canvas,
+      {
+        // a replay stops cleanly (its trail, timer and key listener go; Pause as it was comes back)
+        onLost: () => {
+          this.hook.contextLosses++;
+          this.backToLive();
+        },
+        onRestored: () => deps.onReload?.(this.handover()),
+        onGiveUp: () => deps.onNoWebGL?.(this.handover()),
+      },
+      { losses: deps.contextLosses ?? 0 },
+    );
     this.watchBand();
     this.setStart(choice);
   }
@@ -179,9 +231,12 @@ export class Live {
 
   /** Take the live flight down: the scene and its GL context, the HUD and its timer, the listeners. */
   dispose(): void {
+    this.backToLive(); // a running replay: its key listener and end timer go with it
+    this.cancelReplayPrep();
     this.opening++;
     this.windAsk++;
     this.unwatch();
+    this.context.dispose();
     this.clearNotice();
     this.hud.destroy();
     this.scene.dispose();
@@ -255,6 +310,7 @@ export class Live {
   // ---- a balloon from a link or from "Your balloons" ----
 
   async open(b: SavedBalloon): Promise<void> {
+    this.backToLive();
     // a launch still waiting for its route never lets go now: this balloon takes over
     if (this.state === 'launch' || this.state === 'error') this.scene.cancelLaunch();
     this.clearNotice();
@@ -282,7 +338,14 @@ export class Live {
   }
 
   private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean): void {
+    this.backToLive();
+    this.cancelReplayPrep();
     this.flight = { route, home, own, launched };
+    this.overLine = '';
+    // a link is in flight at once: its replay names are worked out when the page is idle; a launch waits
+    // until the camera has settled (frame), so the lookups never compete with the launch's tiles
+    if (!launched) this.prepareReplaySoon();
+    this.hud.setTrip(true);
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
     this.lastCountry = null;
@@ -295,6 +358,9 @@ export class Live {
   }
 
   backToStart(): void {
+    this.backToLive();
+    this.cancelReplayPrep();
+    this.hud.setTrip(false);
     this.opening++;
     this.clearNotice();
     this.flight = null;
@@ -307,6 +373,125 @@ export class Live {
     this.scene.setStart(this.choice, landmarkHeading(this.choice.cityId));
     this.askWind(this.choice);
     this.canvas.setAttribute('aria-label', startLabel(this.choice));
+  }
+
+  // ---- the whole trip ----
+
+  /** "Show me the whole trip": the forecast route in 20 seconds, then the landing (spec 6.4). */
+  showTrip(): void {
+    const fl = this.flight;
+    if (!fl || this.replayRun || this.state !== 'flight') return;
+    const ctl = new AbortController();
+    this.replayRun = ctl;
+    const t0 = performance.now();
+    this.hook.replayMs = null;
+    // names and the landing arrive in the background (asked now if they were not yet); the first name is
+    // not due until the climb is over, the landing not until the descent
+    const prep = this.prepareReplay();
+    const names: ReplayName[] = [];
+    prep.names.then((n) => this.replayRun === ctl && names.push(...n));
+    const landing = prep.landing.then((l) => (l ? { name: l.name, kind: l.kind } : null));
+    this.deps.start.setBackdropLuminance(1, 1);
+    // a paused camera would not climb: the replay plays (it has Back to live, not Pause), and Back to live
+    // puts Pause back as it was
+    this.pausedBefore = this.hud.paused;
+    this.hud.setPaused(false);
+    this.scene.setPaused(false);
+    this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
+    const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
+    void playReplay(fl.route, {
+      host: {
+        scene: this.scene,
+        hud: this.hud,
+        layer: this.deps.sceneEl,
+        band: () => ({ top: (top?.getBoundingClientRect().bottom ?? 120) + 16, bottom: (bottom?.getBoundingClientRect().top ?? innerHeight - 220) - 16 }),
+        reducedMotion: this.reduced,
+        exit: () => this.backToLive(),
+      },
+      names,
+      landing,
+      home: fl.home.name,
+      signal: ctl.signal,
+      onEnd: () => {
+        this.hook.replayMs = performance.now() - t0;
+        this.onReplayEnd(fl.route);
+      },
+    });
+  }
+
+  /** Back to live from the replay (or nothing, if none is on): the live clock and view, at now. */
+  backToLive(): void {
+    const run = this.replayRun;
+    if (!run) return;
+    this.replayRun = null;
+    run.abort();
+    if (this.pausedBefore) {
+      this.hud.setPaused(true);
+      this.scene.setPaused(true);
+    }
+    this.pausedBefore = false;
+    this.hud.setOver(this.overLine);
+    this.placeAt = -Infinity; // the facts, the label and "Over ..." for now, straight away
+  }
+
+  /** The replay's names and landing for this flight: asked once, cancelled when the flight goes. */
+  private prepareReplay(): NonNullable<Live['replayPrep']> {
+    const fl = this.flight!;
+    if (this.replayPrep?.route === fl.route) return this.replayPrep;
+    this.cancelReplayPrep();
+    const ac = new AbortController();
+    const landing = landingPlace(fl.route).catch(() => null);
+    const names = landing
+      .then((l) => (ac.signal.aborted ? [] : replayNames(fl.route, { home: fl.home.name, landing: l?.name, signal: ac.signal })))
+      .catch(() => [] as ReplayName[]);
+    this.replayPrep = { route: fl.route, names, landing, ac };
+    return this.replayPrep;
+  }
+
+  /** In idle time (or shortly), for the flight on screen now. */
+  private prepareReplaySoon(): void {
+    const fl = this.flight;
+    // the flight checked when it runs: a later flight or the start screen makes it a no-op
+    const go = () => {
+      if (this.flight === fl && fl) this.prepareReplay();
+    };
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    if (w.requestIdleCallback) w.requestIdleCallback(go, { timeout: 3000 });
+    else window.setTimeout(go, 500);
+  }
+
+  private cancelReplayPrep(): void {
+    this.replayPrep?.ac.abort();
+    this.replayPrep = null;
+  }
+
+  /** What the 2D map needs to carry on from here. */
+  handover(): Handover {
+    // during a replay, Pause as it was before it (the replay itself plays unpaused)
+    return { choice: this.choice, state: this.state, flight: this.flight, paused: this.replayRun ? this.pausedBefore : this.hud.paused };
+  }
+
+  /**
+   * Carry on from what a world before this one was showing (its context was lost and came back): the
+   * flight, seen as open() would show it (a landed balloon from the side); a launch that had not let go
+   * yet starts again; anything else goes back to the start screen.
+   */
+  resume(h: Handover): void {
+    const a = resumeAction(h, Date.now());
+    if (a.kind === 'fly' && h.flight) {
+      const { route, home, own } = h.flight;
+      this.state = 'flight';
+      this.scene.fly(route, a.mode);
+      this.hud.setPaused(!!h.paused);
+      this.scene.setPaused(!!h.paused);
+      this.hud.setView(a.mode);
+      this.beginFlight(route, home, own, h.flight.launched ?? false);
+      this.deps.setView('flight');
+      // a launched flight's names are otherwise asked when its launch settles, which a resumed one skips
+      this.prepareReplaySoon();
+    } else if (a.kind === 'launch') this.letGo(h.choice);
+    else if (a.kind === 'start') this.backToStart();
+    // 'stay': the start screen as it was (the constructor has already set the start place)
   }
 
   // ---- every frame ----
@@ -332,6 +517,8 @@ export class Live {
     } else h.route = null;
     h.groundM = f.groundM;
     h.feetM = f.feetM;
+    h.now = f.now;
+    h.recentres = this.scene.stream.stats().recentres;
     const person = this.scene.person;
     if (f.waiting && person?.root.visible) {
       const cam = this.scene.camera;
@@ -342,19 +529,25 @@ export class Live {
       this.subject[1] = px(person.root.getWorldPosition(this.v2));
       h.subjectPx = this.subject;
     } else h.subjectPx = null;
+    const info = this.scene.renderer.info.render;
+    h.triangles = info.triangles;
+    h.calls = info.calls;
   }
 
   private frame(f: SceneFrame): void {
     if (this.testing) this.updateHook(f);
 
-    this.scene.measurePaused = this.state === 'launch';
+    // nor in the replay, whose scene changes faster than a reading a second can follow: its shading stays
+    // at full strength (set in showTrip), and no read-back stalls its 20 seconds
+    this.scene.measurePaused = this.state === 'launch' || this.replayRun !== null;
     if (this.state === 'launch' && f.released && f.settled) {
       this.state = 'flight';
       this.deps.setView('flight');
+      this.prepareReplaySoon(); // the launch's tiles are in: the replay's names can be looked up now
     }
     if (this.state === 'start' || this.state === 'error') return;
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });
-    if (!this.flight) return;
+    if (!this.flight || this.replayRun) return;
 
     // the sun crossing the horizon is a film event
     const up = f.sunElevationDeg > 0;
@@ -391,10 +584,11 @@ export class Live {
         landed ? Promise.resolve(null) : townAhead(here).catch(() => null),
         nearestPlace(here).catch(() => null),
       ]);
-      if (this.flight !== fl) return;
+      if (this.flight !== fl || this.replayRun) return;
       this.over = over;
       const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
-      this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
+      this.overLine = landed ? landedOver(landing ?? null) : over ? overText(over) : '';
+      this.hud.setOver(this.overLine);
       this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
 
       // film events: a coast crossed, a town reached

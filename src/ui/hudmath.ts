@@ -20,11 +20,16 @@ export function progress(releaseMs: number, nowMs: number): number {
   return Number.isFinite(f) ? Math.min(1, Math.max(0, f)) : 0;
 }
 
-/** "Day 1 of 3 · 14 h aloft"; minutes in the first hour; "Landed · 72 h aloft" after 72 hours. */
-export function dayLine(releaseMs: number, nowMs: number): string {
-  const ms = Math.max(0, nowMs - releaseMs);
-  if (!Number.isFinite(ms)) return 'Day 1 of 3 · 0 min aloft';
-  if (ms >= FLIGHT_MS) return `Landed · ${FLIGHT_HOURS} h aloft`;
+/**
+ * "Day 1 of 3 · 14 h aloft"; minutes in the first hour; "Landed · 72 h aloft" after 72 hours, except in
+ * the forecast (the whole-trip replay), which ends on "Day 3 of 3 · 72 h aloft".
+ */
+export function dayLine(releaseMs: number, nowMs: number, opts: { forecast?: boolean } = {}): string {
+  const raw = Math.max(0, nowMs - releaseMs);
+  if (!Number.isFinite(raw)) return 'Day 1 of 3 · 0 min aloft';
+  if (raw >= FLIGHT_MS && !opts.forecast) return `Landed · ${FLIGHT_HOURS} h aloft`;
+  const ms = Math.min(raw, FLIGHT_MS - 1);
+  if (raw >= FLIGHT_MS) return `Day 3 of 3 · ${FLIGHT_HOURS} h aloft`;
   const day = Math.min(3, Math.floor(ms / (24 * H)) + 1);
   const aloft = ms < H ? `${Math.floor(ms / 60e3)} min` : `${Math.floor(ms / H)} h`;
   return `Day ${day} of 3 · ${aloft} aloft`;

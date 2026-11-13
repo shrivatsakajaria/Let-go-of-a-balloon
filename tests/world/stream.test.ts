@@ -224,6 +224,42 @@ describe('WorldStream', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('re-centred on the focus before a frame is placed, nothing moves under the camera while the frame is drawn (land, balloon, trail)', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    for (const j of pool.open()) pool.answer(j);
+    await tick();
+    stream.update(cam(MANCHESTER), 50);
+    const key = tileAt(MANCHESTER, 14);
+    const group = stream.groupOf(key)!;
+    // the balloon has flown 6 km on; the replay's camera sits 37 km behind it
+    const focus = destination(MANCHESTER, 45, 6);
+    const camAt = destination(focus, 225, 37);
+    const events: RecentreEvent[] = [];
+    stream.onRecentre = (e) => events.push(e);
+    // 1. the frame starts: re-centre on the focus (the balloon), then place everything from toScene
+    expect(stream.recentre(focus)).toBe(true);
+    expect(events).toHaveLength(1);
+    const balloon = stream.toScene(focus, { x: 0, z: 0 });
+    const camera = stream.toScene(camAt, { x: 0, z: 0 });
+    const trailPoint = stream.toScene(destination(MANCHESTER, 45, 3), { x: 0, z: 0 });
+    group.updateMatrixWorld(true);
+    const land0 = new THREE.Vector3().setFromMatrixPosition(group.matrixWorld);
+    const rel0 = [land0.x - camera.x, land0.z - camera.z, balloon.x - camera.x, balloon.z - camera.z, trailPoint.x - camera.x, trailPoint.z - camera.z];
+    // 2. the stream updates from the far camera with that focus: no second re-centre, nothing moves
+    stream.update(cam(camAt, 45, 42000), 100, { focus });
+    expect(events).toHaveLength(1);
+    group.updateMatrixWorld(true);
+    const land1 = new THREE.Vector3().setFromMatrixPosition(group.matrixWorld);
+    const b1 = stream.toScene(focus), c1 = stream.toScene(camAt), t1 = stream.toScene(destination(MANCHESTER, 45, 3));
+    const rel1 = [land1.x - c1.x, land1.z - c1.z, b1.x - c1.x, b1.z - c1.z, t1.x - c1.x, t1.z - c1.z];
+    rel1.forEach((v, i) => expect(v).toBeCloseTo(rel0[i], 6));
+    // and close to the focus no re-centre at all (5 km by default; a caller may ask for a wider step)
+    expect(stream.recentre(destination(focus, 45, 4))).toBe(false);
+    expect(stream.recentre(destination(focus, 45, 20), 30000)).toBe(false);
+    expect(stream.recentre(destination(focus, 45, 31), 30000)).toBe(true);
+  });
+
   it('a first camera far from the origin moves the origin there, and says so even with no tile in', () => {
     const { stream } = setup({ origin: { lat: 51.5, lon: -0.12 } });
     const events: RecentreEvent[] = [];
