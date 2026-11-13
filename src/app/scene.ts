@@ -307,8 +307,8 @@ export class LiveScene {
     if (!this.route || !this.released) return;
     this.stopReplay();
     this.replay = { drive, trail: new ReplayTrail(this.scene), mode: this.director.mode };
-    this.person?.dispose();
-    this.person = null;
+    // the person (still in the street early in a flight) waits out of sight and is there again after
+    if (this.person) this.person.root.visible = false;
     this.freshBalloon();
     this.clouds.mesh.visible = false;
     this.groundS = Number.NaN;
@@ -441,7 +441,7 @@ export class LiveScene {
     this.groundS = Number.isNaN(this.groundS) || Math.abs(g - this.groundS) > 200 ? g : this.groundS + (g - this.groundS) * (1 - Math.exp(-dt / 0.8));
 
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
-    this.updatePerson(dt);
+    if (!rp) this.updatePerson(dt);
     let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
     if (rp) {
       // the replay's balloon settles at the end, resting on the ground at the size it is drawn
@@ -468,7 +468,7 @@ export class LiveScene {
     // near plane: just short of the nearest thing drawn close by (the balloon and its string, the person)
     const dB = this.camera.position.distanceTo(this.target);
     let near = (dB - 1.4 - 0.2 * displayScale(dB)) * 0.5;
-    if (this.person) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
+    if (this.person && !rp) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
     const camGround = this.stream.groundAt(this.stream.fromScene(this.camera.position.x, this.camera.position.z));
     near = Math.min(near, (this.camera.position.y - camGround) * 0.5);
     this.camera.near = Math.min(rp ? 500 : 10, Math.max(0.08, near));
@@ -538,7 +538,7 @@ export class LiveScene {
     }
 
     // done with the person once the balloon is well away
-    if (this.person && this.released && agl > 300 && !this.director.waiting) {
+    if (this.person && this.released && agl > 300 && !this.director.waiting && !rp) {
       this.person.dispose();
       this.person = null;
     }

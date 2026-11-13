@@ -97,8 +97,10 @@ export class Live {
   private readonly reduced: boolean;
   /** The whole-trip replay on screen (aborted by Back to live), and its names worked out in the background. */
   private replayRun: AbortController | null = null;
-  private replayPrep: { route: Route; names: Promise<ReplayName[]> } | null = null;
+  private replayPrep: { route: Route; names: Promise<ReplayName[]>; landing: Promise<Place | null>; ac: AbortController } | null = null;
   private overLine = '';
+  /** Pause as it was before the replay (the replay plays; Back to live puts it back). */
+  private pausedBefore = false;
   /** Where the whole-trip replay ends (it then holds on the landing): by default, back to live. */
   onReplayEnd: (route: Route) => void = () => this.backToLive();
   /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
@@ -200,6 +202,7 @@ export class Live {
   /** Take the live flight down: the scene and its GL context, the HUD and its timer, the listeners. */
   dispose(): void {
     this.backToLive(); // a running replay: its key listener and end timer go with it
+    this.cancelReplayPrep();
     this.opening++;
     this.windAsk++;
     this.unwatch();
@@ -305,13 +308,12 @@ export class Live {
 
   private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean): void {
     this.backToLive();
+    this.cancelReplayPrep();
     this.flight = { route, home, own, launched };
-    // the replay's names, worked out now in the background so "Show me the whole trip" never waits
-    const names = landingPlace(route)
-      .catch(() => null)
-      .then((l) => replayNames(route, { home: home.name, landing: l?.name }))
-      .catch(() => [] as ReplayName[]);
-    this.replayPrep = { route, names };
+    this.overLine = '';
+    // a link is in flight at once: its replay names are worked out when the page is idle; a launch waits
+    // until the camera has settled (frame), so the lookups never compete with the launch's tiles
+    if (!launched) this.prepareReplaySoon();
     this.hud.setTrip(true);
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
@@ -326,6 +328,7 @@ export class Live {
 
   backToStart(): void {
     this.backToLive();
+    this.cancelReplayPrep();
     this.hud.setTrip(false);
     this.opening++;
     this.clearNotice();
@@ -351,12 +354,16 @@ export class Live {
     this.replayRun = ctl;
     const t0 = performance.now();
     this.hook.replayMs = null;
-    // names arrive in the background; the first is not due until the climb is over
+    // names and the landing arrive in the background (asked now if they were not yet); the first name is
+    // not due until the climb is over, the landing not until the descent
+    const prep = this.prepareReplay();
     const names: ReplayName[] = [];
-    if (this.replayPrep?.route === fl.route) this.replayPrep.names.then((n) => this.replayRun === ctl && names.push(...n));
-    const landing = this.landingFor === fl.route && this.landing ? { name: this.landing.name, kind: this.landing.kind } : null;
+    prep.names.then((n) => this.replayRun === ctl && names.push(...n));
+    const landing = prep.landing.then((l) => (l ? { name: l.name, kind: l.kind } : null));
     this.deps.start.setBackdropLuminance(1, 1);
-    // a paused camera would not climb: the replay plays (it has Back to live, not Pause)
+    // a paused camera would not climb: the replay plays (it has Back to live, not Pause), and Back to live
+    // puts Pause back as it was
+    this.pausedBefore = this.hud.paused;
     this.hud.setPaused(false);
     this.scene.setPaused(false);
     this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
@@ -387,8 +394,44 @@ export class Live {
     if (!run) return;
     this.replayRun = null;
     run.abort();
+    if (this.pausedBefore) {
+      this.hud.setPaused(true);
+      this.scene.setPaused(true);
+    }
+    this.pausedBefore = false;
     this.hud.setOver(this.overLine);
     this.placeAt = -Infinity; // the facts, the label and "Over ..." for now, straight away
+  }
+
+  /** The replay's names and landing for this flight: asked once, cancelled when the flight goes. */
+  private prepareReplay(): NonNullable<Live['replayPrep']> {
+    const fl = this.flight!;
+    if (this.replayPrep?.route === fl.route) return this.replayPrep;
+    this.cancelReplayPrep();
+    const ac = new AbortController();
+    const landing = landingPlace(fl.route).catch(() => null);
+    const names = landing
+      .then((l) => (ac.signal.aborted ? [] : replayNames(fl.route, { home: fl.home.name, landing: l?.name, signal: ac.signal })))
+      .catch(() => [] as ReplayName[]);
+    this.replayPrep = { route: fl.route, names, landing, ac };
+    return this.replayPrep;
+  }
+
+  /** In idle time (or shortly), for the flight on screen now. */
+  private prepareReplaySoon(): void {
+    const fl = this.flight;
+    // the flight checked when it runs: a later flight or the start screen makes it a no-op
+    const go = () => {
+      if (this.flight === fl && fl) this.prepareReplay();
+    };
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    if (w.requestIdleCallback) w.requestIdleCallback(go, { timeout: 3000 });
+    else window.setTimeout(go, 500);
+  }
+
+  private cancelReplayPrep(): void {
+    this.replayPrep?.ac.abort();
+    this.replayPrep = null;
   }
 
   // ---- every frame ----
@@ -436,6 +479,7 @@ export class Live {
     if (this.state === 'launch' && f.released && f.settled) {
       this.state = 'flight';
       this.deps.setView('flight');
+      this.prepareReplaySoon(); // the launch's tiles are in: the replay's names can be looked up now
     }
     if (this.state === 'start' || this.state === 'error') return;
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });

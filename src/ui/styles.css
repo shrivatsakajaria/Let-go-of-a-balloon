@@ -639,9 +639,10 @@ a.link, .small a { color: var(--paper); }
   opacity: 0;
 }
 .hud.is-replay .replay-slot.is-still { display: none; }
+/* Pause steps aside but keeps the day row's height, so the string line does not move */
+.hud.is-replay .pause { visibility: hidden; }
 .hud.is-replay .fact,
 .hud.is-replay .views,
-.hud.is-replay .pause,
 .hud.is-replay .again,
 .hud.is-replay .stats { display: none; }
 .replay-slot p { margin: 0; }

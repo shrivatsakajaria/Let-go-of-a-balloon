@@ -24,7 +24,6 @@ import type { SceneReplay } from '../app/scene';
 import type { Route } from '../flight/route';
 import { lonDelta } from '../geo/coords';
 import { nearestPlace, townsNear } from '../geo/gazetteer';
-import { withArticle } from '../geo/places';
 import { COPY } from './copy';
 import type { Hud } from './hud';
 import {
@@ -55,7 +54,7 @@ export type { ReplayName } from './replaymath';
  * The names to show on the way: towns within 10 km of the route, named seas and regions under it, the
  * biggest at most five, never the start or the landing. Offline (no gazetteer): none.
  */
-export async function replayNames(route: Route, opts: { home: string; landing?: string | null }): Promise<ReplayName[]> {
+export async function replayNames(route: Route, opts: { home: string; landing?: string | null; signal?: AbortSignal }): Promise<ReplayName[]> {
   const cands: NameCandidate[] = [];
   const pts = route.points;
   const end = pts[pts.length - 1]?.tSec ?? FLIGHT_MS / 1000;
@@ -63,6 +62,7 @@ export async function replayNames(route: Route, opts: { home: string; landing?: 
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     if (p.tSec < at && i !== pts.length - 1) continue;
+    if (opts.signal?.aborted) return []; // another flight, or the start screen: stop looking
     at = p.tSec + SAMPLE_S;
     try {
       const [towns, place] = await Promise.all([townsNear(p, CROSS_KM), nearestPlace(p)]);
@@ -84,6 +84,7 @@ export async function replayNames(route: Route, opts: { home: string; landing?: 
     else if (c.tSec - e.t1 <= 2 * SAMPLE_S) e.t1 = c.tSec; // the same crossing goes on
   }
   const crossed = [...firstLast.values()].map(({ c, t0, t1 }) => ({ ...c, tSec: (t0 + t1) / 2 }));
+  if (opts.signal?.aborted) return [];
   return pickNames(crossed, { exclude: [opts.home, opts.landing ?? ''].filter(Boolean), flightSec: end });
 }
 
@@ -105,8 +106,8 @@ export type ReplayOpts = {
   host: ReplayHost;
   /** From replayNames, worked out before. */
   names?: ReplayName[];
-  /** Where it is expected to come down (gazetteer), when known. */
-  landing?: { name: string; kind: string } | null;
+  /** Where it is expected to come down (gazetteer): known, or still being looked up (picked up when it comes). */
+  landing?: Landing | null | Promise<Landing | null>;
   /** The start's name, for the still route view. */
   home?: string;
   /** Aborted by Back to live: the replay goes and the live view comes back. */
@@ -116,6 +117,9 @@ export type ReplayOpts = {
   /** A clock in ms (performance.now). */
   clock?: () => number;
 };
+
+type Landing = { name: string; kind: string };
+type LandingLines = { name: string; line: string };
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -131,8 +135,15 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   const names = opts.names ?? [];
   const last = route.points[route.points.length - 1];
   const landedMs = route.release + FLIGHT_MS;
-  const landing = opts.landing ? landingLines(opts.landing, last, landedMs, Date.now() >= landedMs) : null;
   const still = host.reducedMotion;
+  let landing: LandingLines | null = null;
+  let gone = false;
+  Promise.resolve(opts.landing ?? null).then(
+    (l) => {
+      if (l && !gone) landing = landingLines(l, last, landedMs, Date.now() >= landedMs);
+    },
+    () => {},
+  );
 
   host.hud.setReplay(true);
   // a number stays on its line with its unit and the word before it ("in 20 seconds")
@@ -145,7 +156,7 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   const t = () => (clock() - t0) / 1000;
   let map: { el: HTMLElement; draw(frac: number): void } | null = null;
 
-  if (still) map = routeMap(route, names, opts.home ?? '', opts.landing ?? null, host);
+  if (still) map = routeMap(route, names, opts.home ?? '', () => landing, host);
   else {
     const rf = replayFrame(0, total);
     host.scene.startReplay({
@@ -173,7 +184,6 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
     let raf = 0;
     let timer = 0;
     let ended = false;
-    let gone = false;
     const finish = () => {
       if (gone) return;
       gone = true;
@@ -200,6 +210,8 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       ended = true;
       cancelAnimationFrame(raf);
       clearTimeout(timer);
+      // what comes next (the landing card) owns Escape from here; Back to live stays on screen
+      removeEventListener('keydown', onKey);
       map?.draw(1);
       // the frame that shows the landing may not have come yet on a slow device: it is on screen at the end
       if (!still && landing) write(landing.name, landing.line, 1);
@@ -248,7 +260,7 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
  * names on the way, the balloon where it is now (orange: the balloon), and a ring where it is expected
  * to land. `draw(frac)` reveals the line up to frac and the names it has reached.
  */
-function routeMap(route: Route, names: ReplayName[], home: string, landing: { name: string; kind: string } | null, host: ReplayHost): { el: HTMLElement; draw(frac: number): void } {
+function routeMap(route: Route, names: ReplayName[], home: string, landing: () => LandingLines | null, host: ReplayHost): { el: HTMLElement; draw(frac: number): void } {
   const W = Math.max(200, innerWidth);
   const band = host.band();
   const top = Math.max(0, band.top), bottom = Math.max(top + 160, band.bottom);
@@ -295,12 +307,14 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: { na
     <path class="replay-line" d="${d}" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1"/>
     <g class="replay-mark" data-frac="0"><circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="3.5"/>${home ? label(sx, sy, home) : ''}</g>
     <g class="names"></g>
-    <g class="replay-mark" data-frac="1"><circle class="ring" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5"/>${landing ? label(lx, ly, standalone(withArticle(landing.name, landing.kind)), "strong") : ''}</g>
+    <g class="replay-mark" data-frac="1"><circle class="ring" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5"/><g class="landing"></g></g>
     <circle class="replay-balloon" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="4.5"/>
   </svg>`;
   host.layer.append(el);
   const path = el.querySelector('path')!;
   const namesEl = el.querySelector('.names')!;
+  const landingEl = el.querySelector('.landing')!;
+  let landed: LandingLines | null = null;
   let groups: SVGGElement[] = [];
   let drawn = -1;
   return {
@@ -311,6 +325,16 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: { na
         drawn = names.length;
         namesEl.innerHTML = names.map(mark).join('');
         groups = Array.from(el.querySelectorAll<SVGGElement>('.replay-mark'));
+      }
+      // where and when it is expected to come down (spec 6.4), once the gazetteer has said where
+      const l = landing();
+      if (l && l !== landed) {
+        landed = l;
+        const right = lx < W / 2;
+        const x = (lx + (right ? 9 : -9)).toFixed(1), anchor = right ? 'start' : 'end';
+        // above the ring when the route ends low on the map, else below it
+        const y0 = ly > h / 2 ? ly - 24 : ly + 4;
+        landingEl.innerHTML = `<text class="strong" x="${x}" y="${y0.toFixed(1)}" text-anchor="${anchor}">${esc(l.name)}</text><text x="${x}" y="${(y0 + 19).toFixed(1)}" text-anchor="${anchor}">${esc(l.line)}</text>`;
       }
       path.setAttribute('stroke-dashoffset', String(1 - frac));
       for (const g of groups) g.classList.toggle('on', Number(g.dataset.frac) <= frac + 1e-6);
