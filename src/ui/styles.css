@@ -676,3 +676,81 @@ a.link, .small a { color: var(--paper); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- the landing card (spec 6.5): the postcard over the dimmed scene, its actions under it ---- */
+
+.card-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: max(8px, env(safe-area-inset-top)) var(--gutter) max(20px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  background: rgba(var(--ink), 0.9);
+  animation: veil-in 320ms var(--ease);
+}
+.card-head { align-self: stretch; display: flex; justify-content: flex-end; }
+.card-close { margin-right: -8px; font-size: 15px; font-weight: 600; }
+.card-img {
+  display: block;
+  flex: 0 1 auto;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 176px);
+  aspect-ratio: 4 / 5;
+  border-radius: 4px;
+  /* a hairline, so the card's ink edge still reads against the dimmed scene */
+  box-shadow: 0 0 0 1px rgba(247, 243, 236, 0.14);
+  object-fit: contain;
+  animation: card-rise 420ms var(--ease);
+}
+@keyframes card-rise { from { opacity: 0; transform: translateY(12px); } }
+.card-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 16px; }
+.card-actions .link { font-size: 15px; font-weight: 600; }
+.card-actions [hidden] { display: none; }
+a.main-action { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
+
+/* the landed HUD's way back to the card: a quiet text action beside "Let go of …" (one main action) */
+.actions .show-card { margin-left: -8px; font-size: 15px; font-weight: 600; }
+.actions .show-card[hidden] { display: none; } /* .link sets display, which would undo [hidden] */
+/* the whole trip, the card and "Let go of ..." together (a landed balloon): the row wraps rather than overflows */
+.hud .actions { flex-wrap: wrap; row-gap: 0; }
+.actions .show-card:not([hidden]) + .again { margin-left: 0; }
+
+/* a link that could not be copied: said plainly, and shown to copy by hand */
+.card-note { margin: 0; max-width: 34ch; font-size: 15px; font-weight: 500; text-align: center; }
+.card-link {
+  width: 100%;
+  max-width: 420px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1.5px solid rgba(247, 243, 236, 0.6);
+  background: none;
+  color: var(--paper);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* the chrome behind steps back while the card is up (the scene stays, dimmed) */
+.card-open #app, .card-open #hud, .card-open #notice { visibility: hidden; }
+
+/* in an in-app browser: the card as large as the screen allows, to press and hold */
+.card-layer.in-app { gap: 12px; }
+.card-layer.in-app .card-img { max-height: calc(100dvh - 160px); }
+.card-layer.in-app .card-actions { flex-direction: column; gap: 12px; }
+.card-hint { margin: 0; font-size: 16px; font-weight: 500; }
+
+@media (min-width: 720px) {
+  .card-layer { gap: 20px; }
+  .card-img { max-height: calc(100dvh - 200px); }
+}

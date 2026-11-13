@@ -46,6 +46,8 @@ export type Hud = {
   readonly paused: boolean;
   /** Say something in the polite status region. */
   announce(text: string): void;
+  /** "Show the card" once the balloon is down (null hides it). */
+  setCard(open: (() => void) | null): void;
   /** The fact on show (for checks). */
   readonly fact: string;
   /** Show "Show me the whole trip" (once a flight's route is in). */
@@ -93,6 +95,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       <div class="actions">
         <button type="button" class="trip main-action" hidden>${COPY.wholeTrip}</button>
         <button type="button" class="back main-action" hidden>${COPY.backToLive}</button>
+        <button type="button" class="link show-card" hidden>${COPY.showCard}</button>
         <button type="button" class="link again"></button>
       </div>
       <div class="fineprint">
@@ -107,6 +110,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   const fact = $('.fact'), day = $('.day'), fill = $('.fill'), knot = $('.knot'), ticksEl = $('.ticks');
   const pauseBtn = $<HTMLButtonElement>('.pause'), again = $<HTMLButtonElement>('.again'), status = $('.status');
   const bottom = $('.hud-bottom');
+  const showCard = $<HTMLButtonElement>('.show-card');
+  let cardOpen: (() => void) | null = null;
+  showCard.addEventListener('click', () => cardOpen?.());
 
   let clockNow = clockFor();
   let release = 0;
@@ -228,6 +234,10 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       // cleared first so the same words twice are read twice
       status.textContent = '';
       requestAnimationFrame(() => (status.textContent = s));
+    },
+    setCard(open) {
+      cardOpen = open;
+      showCard.hidden = !open;
     },
     get fact() {
       return shown;

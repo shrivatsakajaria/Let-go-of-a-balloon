@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { resumeAction, type Handover } from '../../src/app/world';
+import { resumeAction, savedFor, type Handover } from '../../src/app/world';
 import type { Route } from '../../src/flight/route';
 
 const H = 3600e3;
@@ -33,4 +33,14 @@ test('the start screen stays as it is (a broken-link notice over it is kept)', (
 
 test('the winds error goes back to the start screen', () => {
   expect(resumeAction({ choice, state: 'error', flight: null }, now)).toEqual({ kind: 'start' });
+});
+
+test('a flight handed over (or on the 2D map) gives back the balloon it is, for the card and its link', () => {
+  const r: Route = { points: [], hourly: [{ lat: 53.48, lon: -2.25 }], release: now, runId: 'r1' };
+  expect(savedFor({ route: r, home, own: true })).toEqual({ v: 1, name: 'Manchester', start: { lat: 53.48, lon: -2.25 }, release: now, hourly: r.hourly, runId: 'r1' });
+  // a "Use my location" balloon is shown as "your location" and saved as "Your location"
+  expect(savedFor({ route: r, home: { ...home, name: 'your location' }, own: true }).name).toBe('Your location');
+  // a flight that carries its saved balloon gives that one
+  const saved = { v: 1 as const, name: 'X', start: { lat: 1, lon: 2 }, release: 5, hourly: [], runId: 'q' };
+  expect(savedFor({ route: r, home, own: true, saved })).toBe(saved);
 });

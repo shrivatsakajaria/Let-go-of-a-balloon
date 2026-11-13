@@ -107,6 +107,17 @@ export async function townsNear(p: LatLon, radiusKm: number): Promise<(Town & { 
   return out.sort((a, b) => a.distanceKm - b.distanceKm);
 }
 
+/** Whether p is sea (open or named), from the coarse grid of its tile; land where the tile has none. */
+export async function seaAt(p: LatLon): Promise<boolean> {
+  const { x, y, fx, fy } = locate(p);
+  const own = await loadTile(x, y);
+  if (!own.grid) return false;
+  const c = Math.min(own.side - 1, Math.floor(fx * own.side));
+  const r = Math.min(own.side - 1, Math.floor(fy * own.side));
+  const cell = own.grid[r * own.side + c];
+  return cell === 1 || (cell >= 2 && own.names[cell - 2]?.[1] === 's');
+}
+
 /**
  * What is under p: a sea (named, or "open sea"), else the nearest town within NEAREST_TOWN_KM,
  * else a named region, else "open countryside". A town carries the region it sits in, if any.
