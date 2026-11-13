@@ -83,7 +83,7 @@ describe('Sky', () => {
     expect(sky.haze.uNight.value).toBe(0);
     const s = sunPosition(at(12, 10), MANCHESTER);
     expect(sky.sunDir.distanceTo(sunDirection(s.elevationDeg, s.azimuthDeg))).toBeLessThan(1e-9);
-    expect(sky.light.dir.distanceTo(sky.sunDir)).toBeGreaterThan(-1); // placed below
+    expect(sky.key.dir.distanceTo(sky.sunDir)).toBeLessThan(1e-9); // by day the key light is the sun
     expect(sky.sunDisc.visible).toBe(true);
     expect(sky.stars.visible).toBe(false);
     expect(sky.fog.near).toBeCloseTo(0.2 * sky.fog.far, 9); // haze starts at 20% of the far distance
@@ -120,6 +120,30 @@ describe('Sky', () => {
     expect(sky.light.dir.distanceTo(sky.key.dir)).toBeLessThan(1e-9);
     sky.update(at(15, 40), MANCHESTER);
     expect(sky.place(focus)).toBe(true);
+  });
+
+  it('maps compass azimuth to scene axes: east is +x, north is -z', () => {
+    expect(sunDirection(0, 90).distanceTo(new THREE.Vector3(1, 0, 0))).toBeLessThan(1e-12);
+    expect(sunDirection(0, 0).distanceTo(new THREE.Vector3(0, 0, -1))).toBeLessThan(1e-12);
+    expect(sunDirection(0, 180).distanceTo(new THREE.Vector3(0, 0, 1))).toBeLessThan(1e-12);
+    expect(sunDirection(90, 33).y).toBeCloseTo(1, 12);
+  });
+
+  it("the moon's lit side faces the sun", () => {
+    const { sky, camera } = make();
+    // looking north at a moon 20 deg up; the sun (below the horizon) is to the east: lit on the right
+    camera.position.set(0, 1500, 0);
+    camera.lookAt(0, 1500 + Math.tan((20 * Math.PI) / 180) * 1000, -1000);
+    camera.updateMatrixWorld();
+    sky.apply({ elevationDeg: -10, azimuthDeg: 90 }, { elevationDeg: 20, azimuthDeg: 0, illumination: 0.5 });
+    sky.setView(camera, 40000, 600);
+    const u = sky.moonDisc.material.uniforms.uSun.value as THREE.Vector3;
+    expect(u.x).toBeGreaterThan(0.9); // to the right on the disc
+    expect(Math.abs(u.z)).toBeLessThan(0.2); // side-lit: half full
+    // the sun to the west: lit on the left
+    sky.apply({ elevationDeg: -10, azimuthDeg: 270 }, { elevationDeg: 20, azimuthDeg: 0, illumination: 0.5 });
+    sky.setView(camera, 40000, 600);
+    expect(u.x).toBeLessThan(-0.9);
   });
 
   it('the moon shows with its phase toward the sun', () => {

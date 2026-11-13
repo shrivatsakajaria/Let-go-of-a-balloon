@@ -198,6 +198,8 @@ export class WorldStream {
     if (this.disposed) return;
     this.time = nowMs;
     this.lastCamera = camera;
+    // the street lamps follow the shared night uniform (Sky sets it): no caller has to remember
+    if (this.haze.uNight.value !== this.night) this.setNight(this.haze.uNight.value);
     const moved = this.maybeRecentre(camera);
     this.takeArrival();
     if (!this.tpl) this.loadTemplate();
@@ -278,7 +280,7 @@ export class WorldStream {
     return o;
   }
 
-  /** Night 0..1 (palette Light.night): street lamps show from dusk. */
+  /** Night 0..1 (palette Light.night): street lamps show from dusk. update() also reads it from haze.uNight. */
   setNight(night: number): void {
     if (night === this.night) return;
     this.night = night;

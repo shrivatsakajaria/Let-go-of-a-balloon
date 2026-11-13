@@ -130,3 +130,32 @@ describe('Clouds ahead of the view', () => {
     expect(clouds.list().filter((c) => c.x < focus.x).length).toBeGreaterThanOrEqual(7);
   });
 });
+
+describe('Clouds over rising ground, and without garbage', () => {
+  it('re-read the ground as they drift and rise out of a hillside', () => {
+    const scene = new THREE.Scene();
+    const haze = createHaze(lightFor(30), sunDirection(30, 180));
+    let hill = 0;
+    const clouds = new Clouds(scene, { haze, seed: 3, groundAt: () => hill });
+    clouds.setFocus(new THREE.Vector3());
+    clouds.update(0.016, { u: 0, v: 0 });
+    hill = 900; // the land under every cloud rises 900 m
+    for (let k = 0; k < 200; k++) clouds.update(0.1, { u: 2, v: 0 });
+    for (const c of clouds.list()) {
+      expect(c.cy - c.ry).toBeGreaterThanOrEqual(hill + CLOUD_BAND.base - 2);
+      expect(c.cy + c.ry).toBeLessThanOrEqual(hill + CLOUD_BAND.top + 2);
+    }
+  });
+
+  it('reuse the kept spheres frame after frame', () => {
+    const { clouds } = make();
+    const p = new THREE.Vector3(0, 1500, 0), q = new THREE.Vector3(100, 1450, 50);
+    for (let k = 0; k < 100; k++) {
+      clouds.clearOf(p, 300);
+      clouds.clearOf(q, 300);
+      clouds.update(0.016, { u: 1, v: 1 });
+    }
+    const pools = clouds as unknown as { keep: unknown[]; kept: unknown[] };
+    expect(pools.keep.length + pools.kept.length).toBeLessThanOrEqual(4);
+  });
+});

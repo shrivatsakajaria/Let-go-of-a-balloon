@@ -181,6 +181,9 @@ export class Sky {
   /** Toward the real sun (not clamped), scene axes. */
   readonly sunDir = new THREE.Vector3(0, 1, 0);
   readonly moonDir = new THREE.Vector3(0, -1, 0);
+  private readonly v1 = new THREE.Vector3();
+  private readonly v2 = new THREE.Vector3();
+  private readonly v3 = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, opts: SkyOptions = {}) {
     this.current = lightFor(30);
@@ -265,10 +268,11 @@ export class Sky {
     this.placeDisc(this.moonDisc, this.moonDir, camera, R * 0.97, MOON_DISC_DEG);
     if (this.moonDisc.visible) {
       // the sun in the moon disc's own axes: its lit side faces the sun
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-      const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
-      this.moonDisc.material.uniforms.uSun.value.set(this.sunDir.dot(right), this.sunDir.dot(up), this.sunDir.dot(back));
+      const q = camera.quaternion, d = this.sunDir;
+      const right = this.v1.set(1, 0, 0).applyQuaternion(q).dot(d);
+      const up = this.v2.set(0, 1, 0).applyQuaternion(q).dot(d);
+      const back = this.v3.set(0, 0, 1).applyQuaternion(q).dot(d);
+      this.moonDisc.material.uniforms.uSun.value.set(right, up, back);
     }
   }
 

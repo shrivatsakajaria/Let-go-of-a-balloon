@@ -61,7 +61,8 @@ export const CLOUD_MAX = 14;
 
 /**
  * Soft cloud shadows on anything at p: the sun's ray from p meets each cloud's middle height, and
- * falls off from 45% to 100% of the cloud's shadow radius. Returns the light left (1 = none).
+ * falls off from 45% to 100% of the cloud's shadow radius. Ground above a cloud is not shaded.
+ * Returns the light left (1 = none).
  */
 export const CLOUD_SHADE_GLSL = `uniform vec4 uClouds[${CLOUD_MAX}]; uniform vec4 uCloudSun;
 float cloudShade(vec3 p) {
@@ -69,7 +70,7 @@ float cloudShade(vec3 p) {
   float sh = 0.0;
   for (int i = 0; i < ${CLOUD_MAX}; i++) {
     vec4 c = uClouds[i];
-    if (c.w <= 0.0) continue;
+    if (c.w <= 0.0 || c.y <= p.y) continue; // no shade on ground above the cloud
     vec2 q = p.xz + uCloudSun.xz * ((c.y - p.y) / uCloudSun.y) - c.xz;
     sh = max(sh, 1.0 - smoothstep(0.45 * c.w, c.w, length(q)));
   }

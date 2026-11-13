@@ -108,13 +108,13 @@ const FRAGMENT_CLIP = `
 #endif`;
 
 const FRAGMENT_FOG = `
-  gl_FragColor.rgb *= cloudShade(vWP);
   vec3 hz = hazeCol(normalize(vWP - cameraPosition));
   #ifdef USE_FOG
     float far = smoothstep(fogNear, fogFar, vFogDepth);
   #else
     float far = 0.0;
   #endif
+  if (far < 0.995) gl_FragColor.rgb *= cloudShade(vWP); // out in the full haze: nothing to shade
   float edge = min(min(vWP.x - uBlock.x, uBlock.y - vWP.x), min(vWP.z - uBlock.z, uBlock.w - vWP.z));
   float ring = max(1.0 - smoothstep(uHazeRing.x, uHazeRing.y, edge), smoothstep(uHazeRing.z, uHazeRing.w, length(vWP.xz)));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, hz, max(far, ring));

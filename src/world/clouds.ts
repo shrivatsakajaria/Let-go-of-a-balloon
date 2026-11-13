@@ -7,7 +7,9 @@
  * - One instanced draw (about 450 triangles a cloud), lit like the world, fading into the haze.
  * - Shadows: not shadow-map casters. Each cloud's shadow is a soft disc projected along the sun onto
  *   whatever is below, in the world materials' shader (haze.ts CLOUD_SHADE_GLSL), through the
- *   shared haze uniforms. It stretches with a low sun, fades out below about 4 deg and at night.
+ *   shared haze uniforms. A lower sun puts it further from its cloud (it stays a round, soft disc on
+ *   level ground); it fades out below about 4 deg of sun and at night. Nothing above the cloud is
+ *   shaded, and fragments out in the full haze skip the work.
  * - The camera is never inside a cloud (spec 8): clearOf(p, r) each frame keeps a sphere free. A
  *   cloud that comes within r shrinks away and returns elsewhere; one that holds p itself goes at
  *   once. New clouds never appear in a kept sphere.
@@ -35,6 +37,10 @@ export type Cloud = {
   leaving: boolean;
   /** Seconds to shrink away when leaving. */
   shrinkS: number;
+  /** Ground height under the cloud (re-read about once a second as it drifts). */
+  ground: number;
+  /** Seconds until the ground is read again. */
+  groundIn: number;
 };
 
 export type CloudOptions = {
@@ -133,9 +139,14 @@ export class Clouds {
   private hasLook = false;
   /** Placed for the first focus and look yet. */
   private placed = false;
-  /** Spheres to keep free: this frame's, and the last frame's for new clouds. */
+  /**
+   * Spheres to keep free: this frame's, and the last frame's for new clouds. Pooled: the two arrays
+   * swap each update and their vectors are reused (no garbage per frame).
+   */
   private keep: THREE.Vector4[] = [];
+  private keepN = 0;
   private kept: THREE.Vector4[] = [];
+  private keptN = 0;
   private seed: number;
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -150,7 +161,7 @@ export class Clouds {
     this.seed = (opts.seed ?? 1) >>> 0 || 1;
     const n = Math.min(CLOUD_MAX, Math.max(CLOUD_MIN, Math.round(opts.count ?? 11)));
     for (let i = 0; i < n; i++) {
-      const c: Cloud = { x: 0, cy: 0, z: 0, rx: 0, ry: 0, rz: 0, rot: 0, scale: 1, leaving: false, shrinkS: SHRINK_S };
+      const c: Cloud = { x: 0, cy: 0, z: 0, rx: 0, ry: 0, rz: 0, rot: 0, scale: 1, leaving: false, shrinkS: SHRINK_S, ground: 0, groundIn: (i % 10) * 0.1 };
       this.spawn(c, null);
       this.items.push(c);
     }
@@ -185,7 +196,8 @@ export class Clouds {
 
   /** Keep a sphere free of cloud (the balloon, the camera): call every frame. */
   clearOf(p: THREE.Vector3, radius: number): void {
-    this.keep.push(new THREE.Vector4(p.x, p.y, p.z, radius));
+    if (this.keepN === this.keep.length) this.keep.push(new THREE.Vector4());
+    this.keep[this.keepN++].set(p.x, p.y, p.z, radius);
   }
 
   /** The floating origin moved: (dx, dz) is the new origin in the old frame. */
@@ -196,9 +208,13 @@ export class Clouds {
     }
     this.focus.x -= dx;
     this.focus.z -= dz;
-    for (const k of [...this.keep, ...this.kept]) {
-      k.x -= dx;
-      k.z -= dz;
+    for (let i = 0; i < this.keepN; i++) {
+      this.keep[i].x -= dx;
+      this.keep[i].z -= dz;
+    }
+    for (let i = 0; i < this.keptN; i++) {
+      this.kept[i].x -= dx;
+      this.kept[i].z -= dz;
     }
     this.write();
   }
@@ -226,19 +242,31 @@ export class Clouds {
         continue;
       }
       if (c.scale < 1) c.scale = Math.min(1, c.scale + dt / GROW_S);
+      // drifting over rising ground: re-read it now and then and ease back into the band above it
+      c.groundIn -= dt;
+      if (c.groundIn <= 0) {
+        c.groundIn += 1;
+        c.ground = this.groundAt(c.x, c.z);
+      }
+      const lo = c.ground + CLOUD_BAND.base + c.ry, hi = c.ground + CLOUD_BAND.top - c.ry;
+      const target = Math.min(hi, Math.max(lo, c.cy));
+      c.cy += (target - c.cy) * Math.min(1, dt / 2);
       const dx = c.x - this.focus.x, dz = c.z - this.focus.z;
       const far = Math.hypot(dx, dz) > R * 1.2;
       // well behind the view, or behind a balloon outrunning the clouds: shrink slowly away
       const behind = this.hasLook ? dx * this.look.x + dz * this.look.y < -R * 0.3 : relLen > 0.5 && (dx * relX + dz * relZ) / relLen > R * 0.35;
       if (far) this.spawn(c, { x: relX, z: relZ });
-      else if (this.blocks(c, this.keep, 0)) {
+      else if (this.blocks(c, this.keep, this.keepN, 0)) {
         // something must be kept clear here: a cloud that holds the point itself goes at once
-        if (this.blocks(c, this.keep, -1)) this.spawn(c, { x: relX, z: relZ });
+        if (this.blocks(c, this.keep, this.keepN, -1)) this.spawn(c, { x: relX, z: relZ });
         else this.leave(c, SHRINK_S);
       } else if (behind) this.leave(c, GROW_S);
     }
+    const swap = this.kept;
     this.kept = this.keep;
-    this.keep = [];
+    this.keptN = this.keepN;
+    this.keep = swap;
+    this.keepN = 0;
     this.write();
   }
 
@@ -267,10 +295,11 @@ export class Clouds {
    * Does cloud c reach into any kept sphere? grow 0: the sphere's own radius; -1: only whether
    * the sphere's centre is inside the cloud.
    */
-  private blocks(c: Cloud, spheres: THREE.Vector4[], grow: number): boolean {
+  private blocks(c: Cloud, spheres: THREE.Vector4[], n: number, grow: number): boolean {
     const s = Math.max(1e-6, c.scale);
     const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
-    for (const k of spheres) {
+    for (let i = 0; i < n; i++) {
+      const k = spheres[i];
       const r = grow < 0 ? 0 : k.w;
       const dx = k.x - c.x, dz = k.z - c.z;
       const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs, ly = k.y - c.cy;
@@ -307,13 +336,15 @@ export class Clouds {
       c.ry = 70 + 90 * this.rnd();
       c.rot = this.rnd() * Math.PI * 2;
       const ground = this.groundAt(c.x, c.z);
+      c.ground = ground;
+      c.groundIn = 1;
       const room = CLOUD_BAND.top - CLOUD_BAND.base - 2 * c.ry;
       c.cy = ground + CLOUD_BAND.base + c.ry + room * this.rnd();
       c.scale = rel ? 0 : 1;
       c.leaving = false;
       const was = c.scale;
       c.scale = 1; // test the full-grown cloud against the kept spheres
-      const clear = !this.blocks(c, this.kept, 0) && !this.blocks(c, this.keep, 0);
+      const clear = !this.blocks(c, this.kept, this.keptN, 0) && !this.blocks(c, this.keep, this.keepN, 0);
       c.scale = was;
       if (clear) return;
     }
@@ -340,7 +371,7 @@ export class Clouds {
     // their own soft light fades at night: dim blue-grey shapes against the ink sky, not lamps
     const mat = this.mesh?.material as THREE.MeshStandardMaterial | undefined;
     if (mat) {
-      mat.emissiveIntensity = 0.22 * (1 - night) + 0.02;
+      mat.emissiveIntensity = 0.22 * (1 - smooth(0.05, 0.4, night)) + 0.02;
       mat.color.setScalar(1 - 0.6 * night);
     }
     this.haze.uCloudSun.value.set(sun.x, Math.max(0.05, sun.y), sun.z, strength);

@@ -449,3 +449,36 @@ describe('WorldStream: review carries', () => {
     expect(gone).toEqual([furthest]);
   });
 });
+
+describe('WorldStream: lamps follow the shared night', () => {
+  it('shows the street lamps when haze.uNight rises, with no setNight call', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const z14 = pool.jobs.find((j) => j.msg.z === 14)!;
+    (z14 as { done?: boolean }).done = true;
+    const { z, x, y } = z14.msg;
+    const f = tileFrame(z, x, y);
+    const n = z14.msg.lcSize!;
+    const e = () => ({ position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) });
+    z14.resolve({
+      type: 'built', z, x, y,
+      meshes: {
+        ground: { position: new Float32Array([0, 10, 0, f.widthM, 10, 0, 0, 10, -f.heightM]), normal: new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), color: new Float32Array(9).fill(0.5) },
+        water: e(), buildings: e(), roofs: e(), roads: e(), waterways: e(),
+        trees: new Float32Array(0), lamps: Float32Array.from([100, 10, -100, 200, 10, -200]), boats: new Float32Array(0), labels: [],
+        grid: new Float32Array((n + 1) * (n + 1)).fill(10), tops: new Float32Array(0),
+        stats: { buildings: 0, gapHouses: 0, trees: 0, lamps: 2, boats: 0 },
+      },
+    });
+    await tick();
+    stream.update(cam(MANCHESTER), 50);
+    const lamps = () => stream.groupOf(`14/${x}/${y}`)!.children.find((o) => (o as THREE.Points).isPoints)!;
+    expect(lamps().visible).toBe(false);
+    stream.haze.uNight.value = 1;
+    stream.update(cam(MANCHESTER), 66);
+    expect(lamps().visible).toBe(true);
+    stream.haze.uNight.value = 0;
+    stream.update(cam(MANCHESTER), 82);
+    expect(lamps().visible).toBe(false);
+  });
+});
