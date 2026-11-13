@@ -13,6 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
+import { MAP_CREDIT, creditHtml } from './credits';
 import { clockText, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
@@ -81,7 +82,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </div>
       <div class="fineprint">
         <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
       </div>
     </div>
     <p class="sr status" role="status" aria-live="polite"></p>`;

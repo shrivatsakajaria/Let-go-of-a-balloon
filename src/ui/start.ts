@@ -10,6 +10,7 @@ import type { LatLon } from '../geo/coords';
 import { sunPosition } from '../geo/sun';
 import { lightFor, parseHex } from '../world/palette';
 import { COPY } from './copy';
+import { CREDITS, MAP_CREDIT, creditHtml } from './credits';
 import { featuredCities } from './featured';
 import { mountSearch, type Place } from './search';
 
@@ -149,7 +150,7 @@ export function mountStart(
       <div class="mine" hidden></div>
       <div class="fineprint">
         <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
       </div>
     </div>
     <dialog class="credits" aria-labelledby="credits-title">
@@ -157,16 +158,10 @@ export function mountStart(
         <h2 id="credits-title">${COPY.credits}</h2>
         <button type="button" class="link credits-close">${COPY.close}</button>
       </div>
-      <ul>
-        <li>Map: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a></li>
-        <li>Terrain: <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></li>
-        <li>© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.</li>
-        <li>Winds: <a href="https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast" target="_blank" rel="noopener">NOAA GFS</a></li>
-        <li>Place search: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (<a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
-        <li>Place names: <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a></li>
-        <li>Type: Archivo, <a href="/fonts/OFL.txt" target="_blank" rel="noopener">SIL Open Font License</a></li>
-      </ul>
-      <p class="sig">${COPY.stillSignal}</p>
+      <footer>
+        <ul>${CREDITS.map((c) => `<li>${creditHtml(c)}</li>`).join('')}</ul>
+        <p class="sig">${COPY.stillSignal}</p>
+      </footer>
     </dialog>`;
 
   const $ = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
@@ -245,7 +240,6 @@ export function mountStart(
       st.textContent = ` · ${s.landed ? COPY.landed : COPY.aloft(Math.floor(s.hoursAloft))}`;
       btn.append(st);
       btn.addEventListener('click', () => {
-        window.dispatchEvent(new CustomEvent('lgoab:open', { detail: b }));
         handlers.onOpenBalloon(b);
       });
       mine.append(btn);
@@ -295,7 +289,6 @@ export function mountStart(
       }
     }
     writeLastPlace(choice);
-    window.dispatchEvent(new CustomEvent('lgoab:letgo', { detail: choice }));
     handlers.onLetGo(choice);
   });
 

@@ -1,6 +1,36 @@
-# Cloudflare Pages headers. Wind tiles are gzip files the browser unpacks itself
-# (DecompressionStream), so no Content-Encoding header. Files under a run id never change.
-# Rules are kept disjoint because Pages joins the values when several rules match a path.
+# Cloudflare Pages headers. Pages applies every rule that matches a path and joins repeated header
+# names with a comma, so each header is set by one rule only for any path (tests/headers.test.ts).
+
+# Security, for every response.
+# connect-src lists exactly the services the page reads (spec 9): OpenFreeMap vector tiles, Mapterhorn
+# terrain (PMTiles archives and the tile fallback), the AWS terrain fallback, and Open-Meteo place
+# search. Winds, place names and the font are this site's own files. The map worker is a file of this
+# site too. Styles allow 'unsafe-inline' for the first-paint <style> in index.html and the style
+# attributes the HUD writes; scripts never run inline.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org https://download.mapterhorn.com https://tiles.mapterhorn.com https://s3.amazonaws.com/elevation-tiles-prod/ https://geocoding-api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=(), usb=()
+
+# The page itself is checked on every visit, so a new deploy shows at once.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Scripts and styles have a content hash in their names: a new build gets new names.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The font keeps its name between builds: a month, then checked again.
+/fonts/*
+  Cache-Control: public, max-age=2592000
+
+# Wind tiles are gzip files the browser unpacks itself (DecompressionStream), so no Content-Encoding
+# header. Files under a run id never change; the manifest names the newest run and is read often.
 /winds/climb/*
   Content-Type: application/octet-stream
   Cache-Control: public, max-age=31536000, immutable

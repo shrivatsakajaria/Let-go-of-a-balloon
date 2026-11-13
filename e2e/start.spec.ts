@@ -1,20 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { decodeBalloon } from '../src/flight/codec';
 import { isFontsGoogle, offline } from './net';
 
 type Choice = { name: string; lat: number; lon: number; kind: string; cityId?: string };
 
-/** Resolves with the StartChoice of the next Let go. */
-function nextLetGo(page: Page): Promise<Choice> {
-  return page.evaluate(() => new Promise<Choice>((resolve) => {
-    window.addEventListener('lgoab:letgo', (e) => resolve((e as CustomEvent).detail), { once: true });
-  }));
-}
+const LAST_PLACE = 'lgoab.lastPlace.v1';
 
+/**
+ * Tap Let go and read the place it let go from: Let go remembers it as the last place used (the next
+ * visit starts there), which is the same choice the page hands to the flight.
+ */
 async function letGo(page: Page): Promise<Choice> {
-  const got = nextLetGo(page);
+  await page.evaluate((k) => localStorage.removeItem(k), LAST_PLACE);
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  return got;
+  await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), LAST_PLACE)).not.toBeNull();
+  return JSON.parse((await page.evaluate((k) => localStorage.getItem(k), LAST_PLACE))!) as Choice;
 }
 
 const fromButton = (page: Page) => page.getByRole('button', { name: /^From / });
@@ -403,9 +404,11 @@ test.describe('your balloons', () => {
     await page.reload();
     const group = page.getByRole('group', { name: 'Your balloons' });
     await expect(group.getByRole('button')).toHaveText('Lisbon · 14 h aloft');
-    const opened = page.evaluate(() => new Promise<string>((r) => window.addEventListener('lgoab:open', (e) => r((e as CustomEvent).detail.name), { once: true })));
     await group.getByRole('button').click();
-    expect(await opened).toBe('Lisbon');
+    // the balloon opens: its link is in the address (here on the 2D map, as these checks run without WebGL)
+    await expect.poll(() => page.evaluate(() => location.hash), { timeout: 10_000 }).toMatch(/^#b=/);
+    const opened = await decodeBalloon(await page.evaluate(() => location.hash.slice(3)));
+    expect(opened.name).toBe('Lisbon');
   });
 });
 
