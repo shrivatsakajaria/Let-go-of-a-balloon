@@ -24,6 +24,7 @@ import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
 import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
+import { streakTarget, WindStreaks } from '../world/windstreaks';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { createRenderer } from '../world/render';
@@ -102,6 +103,8 @@ export class LiveScene {
   private readonly ground: GroundSources = { groundAt: (p) => this.stream.groundAt(p), landmarkGroundAt: (p) => this.landmarks.groundAt(p) };
   readonly sky: Sky;
   readonly clouds: Clouds;
+  /** Wind streaks once the balloon is well up (owner's decision, 14 November 2026). */
+  readonly streaks: WindStreaks;
   readonly director: Director;
   balloon: Balloon;
   person: Person | null = null;
@@ -156,6 +159,8 @@ export class LiveScene {
   private readonly trailFrame: TrailFrame = {
     route: null as unknown as Route, tSec: 0, toScene: (p, out) => this.stream.toScene(p, out), head: this.target, camera: this.camera, viewportH: 1, balloonRadiusM: 0, lower: 0,
   };
+  private readonly streakFrame = { focus: this.target, camera: this.camera, groundM: 0, wind: { u: 0, v: 0 }, target: 0 };
+  private readonly streakState = { released: false, landed: false, replay: false, reduced: false, shot: '', aglM: 0, toLandS: Number.NaN };
   private readonly info: SceneFrame = {
     now: 0, point: this.point, aglM: 0, groundM: 0, feetM: 0, released: false, landed: false, settled: false, waiting: true, shot: '', sunElevationDeg: 0,
   };
@@ -181,7 +186,11 @@ export class LiveScene {
     });
     this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
-    this.stream.onRecentre = (e) => this.clouds.shift(e.dx, e.dz);
+    this.streaks = new WindStreaks(this.scene, { haze: this.sky.haze, enabled: !this.reduced, pixelRatio: this.renderer.getPixelRatio() });
+    this.stream.onRecentre = (e) => {
+      this.clouds.shift(e.dx, e.dz);
+      this.streaks.shift(e.dx, e.dz);
+    };
     this.stream.onChange = this.landmarks.onChange = () => {
       this.shadowAsked = performance.now();
     };
@@ -324,6 +333,7 @@ export class LiveScene {
     if (this.person) this.person.root.visible = false;
     this.freshBalloon();
     this.clouds.mesh.visible = false;
+    this.streaks.cut();
     this.groundS = Number.NaN;
     this.skyAt = -Infinity;
     this.director.cut('replay');
@@ -372,6 +382,7 @@ export class LiveScene {
     this.person = null;
     this.balloon.dispose();
     this.clouds.dispose();
+    this.streaks.dispose();
     this.sky.dispose();
     this.landmarks.dispose();
     this.stream.dispose();
@@ -562,6 +573,22 @@ export class LiveScene {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
     }
+
+    // wind streaks flow past once the balloon is well up (never in the launch, the replay or reduced motion)
+    const sf = this.streakFrame;
+    sf.groundM = this.groundS;
+    sf.wind.u = pt.speedMs * Math.sin(h);
+    sf.wind.v = pt.speedMs * Math.cos(h);
+    const st = this.streakState;
+    st.released = this.released;
+    st.landed = landed;
+    st.replay = !!rp;
+    st.reduced = this.reduced;
+    st.shot = this.director.shot;
+    st.aglM = agl;
+    st.toLandS = route ? (route.release + FLIGHT_HOURS * H - now) / 1000 : Number.NaN;
+    sf.target = streakTarget(st);
+    this.streaks.update(dt, sf);
 
     if (rp && route) {
       const tf = this.trailFrame;
