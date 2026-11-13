@@ -13,6 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
+import { MAP_CREDIT, creditHtml } from './credits';
 import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
@@ -51,7 +52,11 @@ export type Hud = {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean } = {}): Hud {
+/**
+ * `note`: a sentence in place of the view switch, for the 2D map, which has no camera views
+ * ("Your phone can't show the 3D world, so here is the route on a map.").
+ */
+export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean; note?: string } = {}): Hud {
   root.classList.add('hud');
   root.innerHTML = `
     <div class="hud-shade ink-bottom" aria-hidden="true"></div>
@@ -74,9 +79,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         <p class="day"></p>
         <button type="button" class="link pause">${COPY.pause}</button>
       </div>
-      <div class="views" role="group" aria-label="${COPY.view}">
+      ${opts.note ? `<p class="hud-note">${esc(opts.note)}</p>` : `<div class="views" role="group" aria-label="${COPY.view}">
         ${VIEWS.map(([m, label], i) => `${i ? '<span class="dot" aria-hidden="true">·</span>' : ''}<button type="button" class="link view" data-view="${m}" aria-pressed="${m === 'film'}">${label}</button>`).join('')}
-      </div>
+      </div>`}
       <div class="actions">
         <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
         <button type="button" class="link show-card" hidden>${COPY.showCard}</button>
@@ -84,7 +89,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </div>
       <div class="fineprint">
         <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
       </div>
     </div>
     <p class="sr status" role="status" aria-live="polite"></p>`;

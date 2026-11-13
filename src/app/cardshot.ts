@@ -220,6 +220,18 @@ export function corridorTiles(route: Route, shot: FarShot, z = 7): TileKey[] {
 
 // ---- drawing ----
 
+/** Until the live world round the camera has drawn (or `maxMs` has passed); how long it waited, ms. */
+export async function settledWorld(live: LiveScene, maxMs: number, isCurrent: () => boolean): Promise<number> {
+  const t0 = performance.now();
+  let calm = 0;
+  while (performance.now() - t0 < maxMs && isCurrent() && !live.gone) {
+    calm = live.stream.stats().ready ? calm + 1 : 0;
+    if (calm >= 2) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return performance.now() - t0;
+}
+
 export function cardScene(live: LiveScene): CardScene {
   return {
     cardFrame: (route, w, h) => {

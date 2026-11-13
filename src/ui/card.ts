@@ -22,8 +22,10 @@ import type { Route } from '../flight/route';
 import { haversineKm, type LatLon } from '../geo/coords';
 import { withArticle } from '../geo/places';
 import { localTime } from '../geo/time';
+import { CARD_CREDIT } from './credits';
 
-export const CARD_CREDIT = 'Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Terrain: © Mapterhorn · A Still Signal build';
+/** The card's credit line: the one in credits.ts, where every credit lives. */
+export { CARD_CREDIT };
 /** The address printed on the card. */
 export const CARD_SITE = 'let-go-of-a-balloon.pages.dev';
 

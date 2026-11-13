@@ -1,0 +1,18 @@
+/* ?fps=1 only: a checking tool, not part of the interface, so it may sit on a small ink plate. */
+.fps {
+  position: fixed;
+  z-index: 10;
+  top: max(4px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(10, 14, 28, 0.7);
+  color: #f7f3ec;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}

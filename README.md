@@ -23,6 +23,8 @@ pytest pipeline/tests -q       # wind pipeline tests (run inside the Python venv
 
 A few speed checks in the unit tests are skipped when the `CI` environment variable is set, because shared runners are too noisy for them.
 
+The browser tests build the site and serve it on port 4173; `E2E_PORT=4391 npm run e2e` uses another port (two copies of the project testing at once must not share one). `e2e/perf.spec.ts` measures the performance budget on a slowed CPU and network, and `e2e/security.spec.ts` runs the site under the security headers from `public/_headers`. Add `?fps=1` to the address to see a frame counter on a real phone.
+
 ## Wind pipeline
 
 `pipeline/build_tiles.py` downloads the newest NOAA GFS forecast run, cuts the winds into small tile files and writes them, with a `manifest.json`, to a folder that is published as `/winds` on the site. It keeps the newest four runs in a store folder between runs. GitHub Actions runs it every hour.
@@ -44,6 +46,8 @@ python pipeline/build_tiles.py --run latest --store .winds-store --out public/wi
 - On every push and manual run it checks types, runs the unit and pipeline tests, builds, adds the wind tiles and deploys. A failing check stops the deploy.
 - Every hour it checks for a newer GFS run and, only if there is one, rebuilds and deploys (tests are skipped then).
 - Pushes to `main` go to production. Any other branch becomes a preview link, shown in the run summary.
+- The proof pages (`/debug.html`, `/tileproof`, `/world.html`) are built for preview links only, not for production (`vite.config.ts`). `npm run dev` always serves them; `DEBUG_PAGES=1 npm run build` builds them locally.
+- `public/_headers` sets the security headers (a Content-Security-Policy that lists every outside service the page uses) and the cache times. A new outside service must be added to its `connect-src`, or the browser blocks it.
 - It needs two repository secrets: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (see `docs/for-sk/02-github-secrets.md`). Without them the build and tests still run and the deploy is skipped.
 
 ## More information
