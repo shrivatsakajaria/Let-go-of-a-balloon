@@ -7,12 +7,12 @@ import { eastward, linkTo, liveWorld, SWIFTSHADER } from './fixtures';
  * `window.__card` says when it is open and how its headline was set.
  */
 test.use(SWIFTSHADER);
-test.describe.configure({ mode: 'default', timeout: 120_000 });
+test.describe.configure({ mode: 'default', timeout: 240_000 });
 
 type CardHook = { state: string; sentence: string; kicker: string; shareText: string; headline: { size: number; lines: string[]; widths: number[] }; frame: string; bytes: number; inApp: boolean };
 const card = (page: Page) => page.evaluate(() => (window as unknown as { __card?: CardHook }).__card ?? null);
 const opened = async (page: Page) => {
-  await expect.poll(async () => (await card(page))?.state, { timeout: 60_000 }).toBe('open');
+  await expect.poll(async () => (await card(page))?.state, { timeout: 120_000 }).toBe('open');
   return (await card(page))!;
 };
 
@@ -49,17 +49,17 @@ test('a link opened after 72 hours opens on the card: a 1080x1350 postcard of th
 
 test('the card shows when a balloon comes down while it is being watched', async ({ context, page }) => {
   await liveWorld(context);
-  // released 72 hours ago, less 40 seconds (the software renderer on a busy machine can take 20 s to open it)
+  // released 72 hours ago, less 75 seconds: the flight view must be up well before it lands, even on
+  // the software renderer on a busy machine (it can take 20-30 s to open)
   const b = eastward(72);
-  const landsAt = Date.now() + 40_000;
+  const landsAt = Date.now() + 75_000;
   b.release = landsAt - 72 * 3600e3;
   await page.goto(await linkTo(b));
-  await page.waitForFunction(() => document.documentElement.dataset.view === 'flight', null, { timeout: 30_000 });
+  await page.waitForFunction(() => document.documentElement.dataset.view === 'flight', null, { timeout: 60_000 });
   // still in the air: no card yet
-  if (Date.now() < landsAt - 2000) {
-    expect((await card(page))?.state ?? 'idle').toBe('idle');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-  }
+  expect(Date.now()).toBeLessThan(landsAt - 2000);
+  expect((await card(page))?.state ?? 'idle').toBe('idle');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const c = await opened(page);
   expect(Date.now()).toBeGreaterThanOrEqual(landsAt);
   expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
