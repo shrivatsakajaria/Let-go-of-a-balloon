@@ -62,9 +62,12 @@ const SKEW_NEAR_DEG = 11;
 export const NEAR_START_KM = 28;
 /** Far: the horizon, the start and the landing, as fractions of the frame from its top. */
 const FAR = { horizonY: 0.14, startY: 0.25, landingY: 0.58, skewDeg: 8 };
-/** Far: the plain's sea and land (Contour's deep water and a mid sage). */
-const PLAIN_SEA = '#2b7fb0';
-const PLAIN_LAND = '#a0c078';
+/**
+ * Far: the plain's sea and land, unlit, as the z7 tiles' water and fields come out under the card's
+ * golden-hour light (measured off the rendered cards), so the plain and the tiles meet without a seam.
+ */
+const PLAIN_SEA = '#3d7f8a';
+const PLAIN_LAND = '#8e9a58';
 /** Far: how long the card world may take to draw before the picture is taken anyway. */
 const FAR_WAIT_MS = 20000;
 /** The trail is sampled this often along the route. */
@@ -349,7 +352,7 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
 }
 
 /** Far: the plain of sea and land under the card world (a grid over the ground the frame sees). */
-async function seaPlain(route: Route, shot: FarShot, y: number): Promise<THREE.Mesh> {
+async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Camera, hazeHex: string): Promise<THREE.Mesh> {
   const tanHalf = Math.tan((FOV / 2) * D2R);
   const pitch = Math.atan((0.5 - FAR.horizonY) * 2 * tanHalf);
   const near = (shot.up / Math.tan(pitch + Math.atan(tanHalf))) * 0.7;
@@ -361,7 +364,14 @@ async function seaPlain(route: Route, shot: FarShot, y: number): Promise<THREE.M
   const pos = new Float32Array((NF + 1) * (NS + 1) * 3);
   const col = new Float32Array(pos.length);
   const nor = new Float32Array(pos.length);
-  const sea = new THREE.Color(PLAIN_SEA), land = new THREE.Color(PLAIN_LAND);
+  const sea = new THREE.Color(PLAIN_SEA), land = new THREE.Color(PLAIN_LAND), haze = new THREE.Color(hazeHex);
+  // hazed by distance about as the map tiles are (three's linear fog takes far land to the sky's
+  // colour sooner than the tiles' own haze does, which left the plain's edge showing)
+  const tint = (c: THREE.Color, x: number, z: number, k: number) => {
+    const d = Math.hypot(x - camera.position.x, y - camera.position.y, z - camera.position.z);
+    tmp.copy(c).lerp(haze, 0.4 * smooth(shot.fogNear * 0.6, shot.fogFar * 1.1, d)).toArray(col, k);
+  };
+  const tmp = new THREE.Color();
   const jobs: Promise<void>[] = [];
   for (let i = 0; i <= NF; i++) {
     const f = near * (far / near) ** (i / NF); // closer rows nearer the camera
@@ -376,8 +386,8 @@ async function seaPlain(route: Route, shot: FarShot, y: number): Promise<THREE.M
       nor[k + 1] = 1;
       jobs.push(
         seaAt(fromLocal(shot.landing, x, z)).then(
-          (wet) => void (wet ? sea : land).toArray(col, k),
-          () => void land.toArray(col, k),
+          (wet) => tint(wet ? sea : land, x, z, k),
+          () => tint(land, x, z, k),
         ),
       );
     }
@@ -394,7 +404,7 @@ async function seaPlain(route: Route, shot: FarShot, y: number): Promise<THREE.M
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setIndex(index);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, fog: true }));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide }));
   mesh.frustumCulled = false;
   return mesh;
 }
@@ -412,7 +422,7 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
   const camera = farCamera(shot, g, w / h);
   // under everything, a plain of sea and land from the place-name grid (about 5 km cells): wherever a
   // map tile is not drawn in time, the coast still reads, softened by the haze, never a hole
-  const plain = await seaPlain(route, shot, Math.min(0, g) - 300);
+  const plain = await seaPlain(route, shot, Math.min(0, g) - 300, camera, L.skyHorizon);
   scene.add(plain);
   const camGround = fromLocal(shot.landing, camera.position.x, camera.position.z);
   const lod = { lat: camGround.lat, lon: camGround.lon, altM: camera.position.y, headingDeg: shot.viewDeg };
