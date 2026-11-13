@@ -63,6 +63,8 @@ test('the card shows when a balloon comes down while it is being watched', async
   expect(Date.now()).toBeLessThan(landsAt - 2000);
   expect((await card(page))?.state ?? 'idle').toBe('idle');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  // and no way to a card that is not there yet
+  await expect(page.getByRole('button', { name: 'Show the card' })).toBeHidden();
   // the landing is up to 135 s off, and a long route's card world takes up to 20 s more to draw
   const c = await opened(page, 260_000);
   // made a moment after touchdown, not on it
