@@ -3,7 +3,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   // e2e/ holds the Playwright browser tests (npm run e2e)
-  test: { exclude: [...configDefaults.exclude, 'e2e/**'] },
+  test: { exclude: [...configDefaults.exclude, 'e2e/**', '.claude/**'] },
   build: {
     outDir: 'dist',
     target: 'es2022',
