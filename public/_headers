@@ -11,3 +11,6 @@
 
 /winds/manifest.json
   Cache-Control: public, max-age=300
+
+/gazetteer/*
+  Cache-Control: public, max-age=604800

@@ -32,12 +32,12 @@ test('the Lake District from the map regions, away from a town', async () => {
   expect(await placeOver({ lat: 54.5, lon: -3.15 }, [])).toBe('the Lake District');
 });
 
-test('far from any town it says what is nearby', async () => {
+test('a gazetteer sea cell off the coast is the sea', async () => {
   expect(await placeOver({ lat: 56.9, lon: -1.2 }, [])).toBe('the North Sea');
 });
 
 test('open water and countryside fall back plainly', async () => {
-  expect(overText(await placeOver({ lat: 35, lon: -40 }, []))).toBe('Over the North Atlantic Ocean');
+  expect(overText(await placeOver({ lat: 35, lon: -40 }, []))).toBe('Over the Atlantic Ocean');
 });
 
 test('article rules', () => {
