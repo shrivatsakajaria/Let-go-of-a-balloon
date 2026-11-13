@@ -274,3 +274,24 @@ test('HUD text reaches 4.5:1 over snow, noon and sand with the shading at its br
     for (const r of results) expect(r.ratio, `${name}: ${r.what}`).toBeGreaterThanOrEqual(r.need);
   }
 });
+
+test('with the world live, the HUD never takes taps meant for the start screen (Credits on start, error and broken views)', async ({ context, page }) => {
+  await liveWorld(context, { windsDown: true });
+  await startAtAlbertSquare(context);
+  const credits = async () => {
+    await page.getByRole('button', { name: 'Credits' }).click({ timeout: 5000 });
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+  };
+  await page.goto('/');
+  await ready(page);
+  await credits(); // start
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 });
+  await credits(); // the winds error
+  await page.goto('/#b=AWkBlv4BCk1hbmNoZXN0ZXIKMjAy');
+  await expect(page.getByText('This balloon link is broken.')).toBeVisible();
+  await ready(page);
+  await credits(); // the broken link
+});

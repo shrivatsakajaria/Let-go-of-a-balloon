@@ -484,7 +484,10 @@ a.link, .small a { color: var(--paper); }
   pointer-events: none;
   visibility: hidden;
 }
-.hud > :not(.hud-shade) { pointer-events: auto; position: relative; }
+/* the HUD's boxes never take a tap (its empty top band sits over the start screen's Credits); only its
+   controls do, and only while they show */
+.hud > :not(.hud-shade) { position: relative; }
+.hud button, .hud a, .notice-layer button { pointer-events: auto; }
 .hud-shade {
   position: fixed;
   left: 0;
@@ -612,6 +615,7 @@ a.link, .small a { color: var(--paper); }
 /* ---- notices: the winds error and the broken link ---- */
 
 .notice-layer {
+  pointer-events: none;
   position: fixed;
   left: 0;
   right: 0;
