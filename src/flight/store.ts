@@ -1,20 +1,35 @@
-import { FLIGHT_HOURS } from '../config';
+import { FLIGHT_HOURS, LINK_POINTS } from '../config';
+import { wrapLon } from '../geo/coords';
 import type { SavedBalloon } from './codec';
 
 const KEY = 'lgoab.balloons.v1';
 const CAP = 20;
 const HOUR_MS = 3600_000;
 
-/** Deterministic id: release minute, run id and the rounded start. */
+const QUANT = 1e4; // the link's 1e-4 degree grid
+
+/**
+ * Deterministic id: release minute, run id and the start on the link's grid, so a balloon saved
+ * here and the same balloon opened from its link (which quantises the start) get the same id.
+ */
 export function balloonId(b: SavedBalloon): string {
-  return `${Math.round(b.release / 60000)}-${b.runId}-${b.start.lat.toFixed(3)},${b.start.lon.toFixed(3)}`;
+  const lat = Math.round(b.start.lat * QUANT);
+  const lon = Math.round(wrapLon(b.start.lon) * QUANT);
+  return `${Math.round(b.release / 60000)}-${b.runId}-${lat},${lon}`;
 }
+
+const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+const point = (p: unknown): boolean => {
+  const q = p as { lat?: unknown; lon?: unknown } | null;
+  return !!q && typeof q === 'object' && finite(q.lat) && finite(q.lon);
+};
 
 function valid(x: unknown): x is SavedBalloon {
   const b = x as SavedBalloon | null;
   return (
     !!b && typeof b === 'object' && b.v === 1 && typeof b.name === 'string' && typeof b.runId === 'string' &&
-    typeof b.release === 'number' && !!b.start && Array.isArray(b.hourly) && b.hourly.length > 1
+    finite(b.release) && point(b.start) &&
+    Array.isArray(b.hourly) && b.hourly.length === LINK_POINTS && b.hourly.every(point)
   );
 }
 
@@ -24,7 +39,7 @@ function read(): SavedBalloon[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(valid).map((b) => ({ ...b, id: b.id ?? balloonId(b) }));
+    return parsed.filter(valid).map((b) => ({ ...b, id: balloonId(b) }));
   } catch {
     return [];
   }
@@ -47,7 +62,7 @@ export const store = {
   /** Save a balloon at the front (replacing a duplicate), keep at most 20. Returns the new list. */
   add(b: SavedBalloon): SavedBalloon[] {
     try {
-      const entry = { ...b, id: b.id ?? balloonId(b) };
+      const entry = { ...b, id: balloonId(b) };
       const list = [entry, ...read().filter((x) => x.id !== entry.id)].slice(0, CAP);
       return write(list) ? list : [];
     } catch {
@@ -67,6 +82,7 @@ export const store = {
 /** Landed once 72 h have passed since release; hoursAloft is clamped to [0, 72]. */
 export function balloonStatus(b: SavedBalloon, nowMs: number): { landed: boolean; hoursAloft: number } {
   const hours = (nowMs - b.release) / HOUR_MS;
+  if (!Number.isFinite(hours)) return { landed: false, hoursAloft: 0 };
   return {
     landed: hours >= FLIGHT_HOURS,
     hoursAloft: Math.min(FLIGHT_HOURS, Math.max(0, Math.floor(hours * 1e6) / 1e6)),

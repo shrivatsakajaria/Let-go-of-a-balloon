@@ -149,6 +149,10 @@ export function linkFor(payload: string): string {
  * 1..72 as signed varint deltas of the quantised values (longitude unwrapped via lonDelta).
  */
 export async function encodeBalloon(b: SavedBalloon): Promise<string> {
+  if (b.hourly.length !== LINK_POINTS) throw new RangeError(`a balloon link holds ${LINK_POINTS} points, not ${b.hourly.length}`);
+  for (const p of [b.start, ...b.hourly]) {
+    if (!(Math.abs(p.lat) <= 90) || !Number.isFinite(p.lon)) throw new RangeError('latitude must be within 90 degrees and longitude finite');
+  }
   const w = new Writer();
   w.byte(b.v);
   w.str(utf8Capped(b.name, MAX_NAME_BYTES));

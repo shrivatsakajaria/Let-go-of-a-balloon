@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { SavedBalloon } from '../../src/flight/codec';
-import { balloonStatus, store } from '../../src/flight/store';
+import { decodeBalloon, encodeBalloon, type SavedBalloon } from '../../src/flight/codec';
+import { balloonId, balloonStatus, store } from '../../src/flight/store';
 
 class MemStorage {
   m = new Map<string, string>();
@@ -57,6 +57,35 @@ describe('store', () => {
     expect(store.add(bal(1))).toEqual([]);
   });
 
+  test('drops stored entries with bad numbers or the wrong number of points', () => {
+    const good = bal(1);
+    const bad: unknown[] = [
+      { ...good, start: { lat: Number.NaN, lon: 1 } },
+      { ...good, start: { lat: 1, lon: 'x' } },
+      { ...good, start: null },
+      { ...good, release: Number.POSITIVE_INFINITY },
+      { ...good, release: '1700000000000' },
+      { ...good, hourly: good.hourly.slice(0, 72) },
+      { ...good, hourly: [...good.hourly, good.hourly[0]] },
+      { ...good, hourly: good.hourly.map((p, i) => (i === 40 ? { lat: p.lat, lon: null } : p)) },
+      { ...good, hourly: good.hourly.map((p, i) => (i === 40 ? null : p)) },
+    ];
+    // JSON turns NaN and Infinity into null, so write them as they would arrive
+    localStorage.setItem('lgoab.balloons.v1', JSON.stringify([...bad, good]));
+    expect(store.list().map((b) => b.name)).toEqual(['B1']);
+  });
+
+  test('a balloon saved here and the same balloon opened from its link share an id', async () => {
+    const b = bal(3);
+    b.start = { lat: 51.50071234, lon: -0.12634567 };
+    b.release = Date.UTC(2026, 10, 12, 9, 30, 17);
+    const fromLink = await decodeBalloon(await encodeBalloon(b));
+    expect(balloonId(fromLink)).toBe(balloonId(b));
+    store.add(b);
+    store.add(fromLink);
+    expect(store.list()).toHaveLength(1);
+  });
+
   test('junk JSON gives an empty list and is overwritten on add', () => {
     localStorage.setItem('lgoab.balloons.v1', '{not json');
     expect(store.list()).toEqual([]);
@@ -78,6 +107,10 @@ describe('balloonStatus', () => {
     expect(balloonStatus(b, b.release + 71.99 * H).landed).toBe(false);
     expect(balloonStatus(b, b.release + 72 * H)).toEqual({ landed: true, hoursAloft: 72 });
     expect(balloonStatus(b, b.release + 500 * H)).toEqual({ landed: true, hoursAloft: 72 });
+  });
+  test('a NaN or infinite clock reads as not landed, zero hours', () => {
+    expect(balloonStatus(b, Number.NaN)).toEqual({ landed: false, hoursAloft: 0 });
+    expect(balloonStatus(b, Number.POSITIVE_INFINITY)).toEqual({ landed: false, hoursAloft: 0 });
   });
   test('before release is zero hours', () => {
     expect(balloonStatus(b, b.release - 5 * H)).toEqual({ landed: false, hoursAloft: 0 });

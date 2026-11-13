@@ -23,6 +23,17 @@ function expectClose(a: SavedBalloon, b: SavedBalloon, metres = 15) {
   }
 }
 
+async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
+  const out = new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(stream));
+  return new Uint8Array(await out.arrayBuffer());
+}
+const b64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const inflate = (payload: string) => pipe(b64(payload), new DecompressionStream('deflate-raw'));
+async function deflate(raw: Uint8Array): Promise<string> {
+  const packed = await pipe(raw, new CompressionStream('deflate-raw'));
+  return btoa(String.fromCharCode(...packed)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 describe('codec', () => {
   test('round trip keeps every hourly point within 15 m', async () => {
     const b = make(straight({ lat: 38.7223, lon: -9.1393 }, 70, 36, 25));
@@ -60,7 +71,6 @@ describe('codec', () => {
     expect(link.startsWith('/?b=')).toBe(true);
     expect(link.length).toBeLessThan(600);
     expect(link).toMatch(/^\/\?b=[A-Za-z0-9_-]+$/);
-    console.log('link length', link.length);
   });
 
   test('a non-Latin name with emoji round-trips', async () => {
@@ -84,8 +94,27 @@ describe('codec', () => {
 
   test('a payload with 72 points throws BadLinkError', async () => {
     const b = make(straight({ lat: 1, lon: 2 }, 10, 30));
-    const p = await encodeBalloon({ ...b, hourly: b.hourly.slice(0, 72) });
+    const raw = await inflate(await encodeBalloon(b));
+    // drop the last two varints (the final lat and lon deltas): 72 points left
+    let i = raw.length - 1;
+    for (let k = 0; k < 2; k++) {
+      i--;
+      while (i >= 0 && raw[i] & 0x80) i--;
+    }
+    const p = await deflate(raw.slice(0, i + 1));
     await expect(decodeBalloon(p)).rejects.toBeInstanceOf(BadLinkError);
+  });
+
+  test('encodeBalloon refuses anything but 73 points or a latitude past 90', async () => {
+    const b = make(straight({ lat: 1, lon: 2 }, 10, 30));
+    await expect(encodeBalloon({ ...b, hourly: b.hourly.slice(0, 72) })).rejects.toThrow(RangeError);
+    await expect(encodeBalloon({ ...b, hourly: [...b.hourly, b.hourly[72]] })).rejects.toThrow(RangeError);
+    await expect(encodeBalloon({ ...b, start: { lat: 91, lon: 0 } })).rejects.toThrow(RangeError);
+    const bad = b.hourly.slice();
+    bad[10] = { lat: -90.5, lon: 3 };
+    await expect(encodeBalloon({ ...b, hourly: bad })).rejects.toThrow(RangeError);
+    bad[10] = { lat: Number.NaN, lon: 3 };
+    await expect(encodeBalloon({ ...b, hourly: bad })).rejects.toThrow(RangeError);
   });
 
   test('an unknown version throws BadLinkError', async () => {
