@@ -157,6 +157,8 @@ export class WorldStream {
   private disposed = false;
   private arriveMsMax = 0;
   private started = false;
+  private readonly shadowFocus = { x: 0, z: 0, r: -1 };
+  private scale = 1;
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -218,6 +220,20 @@ export class WorldStream {
     this.startBuilds();
     this.animate();
     if (this.coverageDirty) this.refreshCoverage();
+  }
+
+  /**
+   * The reach of the buildings levels (lod.ts tilesFor `scale`, from DetailBudget): below 1 in a
+   * dense city whose view is over budget. A change takes effect on the next update.
+   */
+  set detailScale(s: number) {
+    if (s === this.scale) return;
+    this.scale = s;
+    this.lastWant.at = -Infinity;
+  }
+
+  get detailScale(): number {
+    return this.scale;
   }
 
   // ---- queries ----
@@ -316,6 +332,18 @@ export class WorldStream {
     for (const e of this.entries.values()) e.view?.setNight(night);
   }
 
+  /**
+   * Trees cast shadows only within `r` metres of scene point (x, z) (TileView.shadowTreesNear): call
+   * with the shadow focus when the shadow map is about to be redrawn. Tiles arriving later take it too.
+   */
+  setShadowFocus(x: number, z: number, r: number): void {
+    const f = this.shadowFocus;
+    f.x = x;
+    f.z = z;
+    f.r = r;
+    for (const e of this.entries.values()) e.view?.shadowTreesNear(x, z, r);
+  }
+
   /** Keys of the tiles alive, by state (for debugging and tests). */
   tiles(): { key: string; state: Entry['state']; settled: boolean; visible: boolean; wanted: boolean }[] {
     return [...this.entries.values()].map((e) => ({ key: e.key, state: e.state, settled: e.settled, visible: !!e.view?.group.visible, wanted: e.wanted }));
@@ -399,7 +427,7 @@ export class WorldStream {
   private retarget(camera: LodCamera): void {
     const keep = new Set<string>();
     for (const e of this.entries.values()) if (e.state !== 'leaving') keep.add(e.key);
-    this.wantedKeys = tilesFor(camera, this.maxTiles, { keep });
+    this.wantedKeys = tilesFor(camera, this.maxTiles, { keep, scale: this.scale });
     this.wantedStr = this.wantedKeys.map(tileKey);
     const wanted = new Set(this.wantedStr);
     for (const e of [...this.entries.values()]) {
@@ -562,6 +590,7 @@ export class WorldStream {
     }
     e.view.setNight(this.night);
     this.place(e);
+    if (this.shadowFocus.r >= 0) e.view.shadowTreesNear(this.shadowFocus.x, this.shadowFocus.z, this.shadowFocus.r);
     this.scene.add(e.view.group);
     e.state = 'live';
     e.born = NaN; // the fade starts on the next frame

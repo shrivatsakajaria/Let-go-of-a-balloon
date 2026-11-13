@@ -113,6 +113,10 @@ export class TileView {
   private readonly meshes: { mesh: THREE.Mesh; bucket: Bucket }[] = [];
   private readonly materials: ContourMaterials;
   private lamps: THREE.Points | null = null;
+  /** Tree instance matrices (tile frame), kept for the shadow-only copy of the trees near the focus. */
+  private treeData: Float32Array | null = null;
+  private treeShadow: THREE.InstancedMesh | null = null;
+  private readonly casts: boolean;
   private clipped: boolean;
   private disposed = false;
 
@@ -122,6 +126,7 @@ export class TileView {
     if (slot < 0) throw new Error('no free tile slot');
     this.slot = slot;
     this.clipped = o.clip;
+    this.casts = o.castShadow;
     try {
       this.triangles = this.build(b, o);
     } catch (e) {
@@ -164,7 +169,10 @@ export class TileView {
         trees.setColorAt(i, treeColours[Math.floor(h * treeColours.length)]);
       }
       trees.computeBoundingSphere();
-      trees.castShadow = o.castShadow;
+      // a whole tile of trees is tens of thousands of triangles in the shadow pass: only the ones
+      // near the balloon cast (shadowTreesNear), from a copy on the shadow layer
+      trees.castShadow = false;
+      if (o.castShadow) this.treeData = b.trees;
       trees.receiveShadow = true;
       trees.matrixAutoUpdate = false;
       tris += count * (sharedTree.getAttribute('position').count / 3);
@@ -225,6 +233,56 @@ export class TileView {
     this.group.add(mesh);
     this.meshes.push({ mesh, bucket });
     return mesh;
+  }
+
+  /**
+   * Trees within `r` metres of scene point (x, z) cast shadows (a shadow-only copy of just those, on
+   * SHADOW_LAYER); the rest of the tile's trees cast none. For tiles that cast shadows; call when the
+   * shadow focus moves and after `place`.
+   */
+  shadowTreesNear(x: number, z: number, r: number): void {
+    const data = this.treeData;
+    if (!this.casts || !data || this.disposed) return;
+    const n = data.length / 16;
+    let mesh = this.treeShadow;
+    if (!mesh) {
+      sharedTree ??= treeGeometry();
+      const geo = sharedTree.clone();
+      geo.setAttribute('aSlot', new THREE.InstancedBufferAttribute(new Uint8Array(n).fill(this.slot), 1));
+      mesh = new THREE.InstancedMesh(geo, (this.clipped ? this.materials.clip : this.materials.solid).trees, n);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.layers.set(SHADOW_LAYER);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.boundingSphere = new THREE.Sphere();
+      this.group.add(mesh);
+      mesh.updateMatrixWorld(true);
+      this.meshes.push({ mesh, bucket: 'trees' });
+      this.treeShadow = mesh;
+    }
+    // the focus in the tile's frame (tiles are only moved and scaled along x)
+    const g = this.group;
+    const lx = (x - g.position.x) / g.scale.x, lz = z - g.position.z;
+    const rx = r / g.scale.x, r2 = r * r;
+    const out = mesh.instanceMatrix.array as Float32Array;
+    let k = 0, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const dx = (data[i * 16 + 12] - lx) * g.scale.x, dz = data[i * 16 + 14] - lz;
+      if (dx * dx + dz * dz > r2) continue;
+      out.set(data.subarray(i * 16, i * 16 + 16), k * 16);
+      y0 = Math.min(y0, data[i * 16 + 13]);
+      y1 = Math.max(y1, data[i * 16 + 13]);
+      k++;
+    }
+    mesh.count = k;
+    mesh.visible = k > 0;
+    mesh.instanceMatrix.clearUpdateRanges();
+    mesh.instanceMatrix.addUpdateRange(0, k * 16);
+    mesh.instanceMatrix.needsUpdate = true;
+    // trees stand up to ~15 m tall and ~5 m wide round their point
+    mesh.boundingSphere!.center.set(lx, k ? (y0 + y1) / 2 : 0, lz);
+    mesh.boundingSphere!.radius = Math.max(rx, r) + (k ? (y1 - y0) / 2 : 0) + 20;
   }
 
   /** Switch between the clip and the solid material variants. */

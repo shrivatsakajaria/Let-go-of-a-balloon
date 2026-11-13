@@ -24,10 +24,11 @@ import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
 import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
-import { hazeFarM } from '../world/lod';
+import { DetailBudget, hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { createRenderer } from '../world/render';
 import { Sky } from '../world/sky';
+import { shadowBudget, TREE_SHADOW_M, type PassCount } from '../world/sunlight';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
 import { WorkerPool } from '../world/workerpool';
@@ -112,6 +113,13 @@ export class LiveScene {
   onLuminance: ((top: number, bottom: number) => void) | null = null;
   /** Skip measuring the brightness behind the text (the launch: only the clock shows). */
   measurePaused = false;
+  /** What the view alone drew last frame (the shadow pass gets the rest of the budget). */
+  private readonly plain: PassCount = { triangles: 0, calls: 0 };
+  /** What the last shadow redraw's pass drew (SunLight.fit counts it before the redraw). */
+  private readonly shadowPass: PassCount = { triangles: 0, calls: 0 };
+  private readonly detail = new DetailBudget();
+  /** The last frame drawn redrew the shadow map (for the performance checks). */
+  shadowDrawn = false;
   /** The first frame has been drawn. */
   onFirstFrame: (() => void) | null = null;
 
@@ -555,6 +563,13 @@ export class LiveScene {
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
+      // the shadow pass's budget: trees cast near the balloon only, and a dense city gets a smaller disc
+      if (!rp) {
+        this.stream.setShadowFocus(this.focus.x, this.focus.z, TREE_SHADOW_M);
+        const fit = this.sky.light.fit(this.scene, shadowBudget(this.plain));
+        this.shadowPass.triangles = fit.triangles;
+        this.shadowPass.calls = fit.calls;
+      }
     }
 
     if (rp && route) {
@@ -567,7 +582,16 @@ export class LiveScene {
       rp.trail.update(tf);
     }
 
+    this.shadowDrawn = this.renderer.shadowMap.needsUpdate;
     this.renderer.render(this.scene, this.camera);
+    if (!rp) {
+      // what the view drew (on a slow device every frame can redraw shadows: their pass is taken off)
+      const info = this.renderer.info.render;
+      this.plain.triangles = info.triangles - (this.shadowDrawn ? this.shadowPass.triangles : 0);
+      this.plain.calls = info.calls - (this.shadowDrawn ? this.shadowPass.calls : 0);
+      // over budget in a dense city: the buildings levels come nearer (the replay streams its own way)
+      this.stream.detailScale = this.detail.update(this.plain.triangles, t);
+    }
     if (this.frames++ === 0) this.onFirstFrame?.();
     // reading pixels back stalls the pipeline: only when text sits over the scene and nothing is being
     // worked out (not during the launch, when only the clock shows)

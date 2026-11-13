@@ -111,6 +111,43 @@ describe('TileView: lamps, boats and failures (Task 11)', () => {
   const boats = Float32Array.from([100, 0, -100, 0.5, 60]);
   const withAll = { ground: quad(0), water: empty(), waterways: empty(), roads: empty(), buildings: empty(), roofs: empty(), trees: new Float32Array(0), lamps, boats };
 
+  it('trees cast shadows only near the shadow focus, from a shadow-only copy of the near ones', () => {
+    const t = new Float32Array(16 * 3);
+    [10, 400, 650].forEach((x, i) => {
+      for (const d of [0, 5, 10, 15]) t[i * 16 + d] = 1;
+      t[i * 16 + 12] = x;
+      t[i * 16 + 14] = -10;
+    });
+    const v = new TileView({ ...withAll, trees: t }, mats, { zoom: 14, castShadow: true, clip: false });
+    v.place(1000, 0, 2000, 1);
+    const shadowTrees = () => v.group.children.filter((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(SHADOW_LAYER)) as THREE.InstancedMesh[];
+    const trees = v.group.children.find((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(0)) as THREE.InstancedMesh;
+    expect(trees.count).toBe(3);
+    expect(trees.castShadow).toBe(false);
+    v.shadowTreesNear(1400, 1990, 300);
+    const [near] = shadowTrees();
+    expect(near.castShadow).toBe(true);
+    expect(near.layers.isEnabled(0)).toBe(false);
+    expect(near.count).toBe(2);
+    const m = new THREE.Matrix4();
+    near.getMatrixAt(0, m);
+    expect(m.elements[12]).toBe(400);
+    near.getMatrixAt(1, m);
+    expect(m.elements[12]).toBe(650);
+    // its bounds hold the trees it draws, in the tile's frame
+    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(1400, 5, 1990), new THREE.Vector3(10, 10, 10));
+    expect(near.boundingSphere!.clone().applyMatrix4(near.matrixWorld).intersectsBox(box)).toBe(true);
+    v.shadowTreesNear(9000, 9000, 300);
+    expect(near.count).toBe(0);
+    expect(near.visible).toBe(false);
+    v.dispose();
+    // a tile that casts no shadows makes no copy
+    const quiet = new TileView({ ...withAll, trees: t }, mats, { zoom: 13, castShadow: false, clip: false });
+    quiet.shadowTreesNear(1400, 1990, 300);
+    expect(quiet.group.children.filter((c) => c.layers.isEnabled(SHADOW_LAYER))).toHaveLength(0);
+    quiet.dispose();
+  });
+
   it('street lamps are one point each on the shared lamp material, shown only at night', () => {
     const v = new TileView(withAll, mats, { zoom: 14, castShadow: false, clip: false });
     const pts = v.group.children.find((o) => (o as THREE.Points).isPoints) as THREE.Points;

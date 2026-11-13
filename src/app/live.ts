@@ -84,6 +84,11 @@ export type LiveHook = {
   /** What the last frame drew (renderer.info, shadow pass included): for the performance checks. */
   triangles: number;
   calls: number;
+  /**
+   * The most any frame drew since a test last zeroed it, apart for frames that redrew the shadow map
+   * (renderer.info, which a sample every 100 ms would mostly miss).
+   */
+  peak: { triangles: number; calls: number; shadowTriangles: number; shadowCalls: number };
   /** WebGL context losses so far. */
   contextLosses: number;
 };
@@ -125,7 +130,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
   private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -532,6 +537,14 @@ export class Live {
     const info = this.scene.renderer.info.render;
     h.triangles = info.triangles;
     h.calls = info.calls;
+    const pk = h.peak;
+    if (this.scene.shadowDrawn) {
+      pk.shadowTriangles = Math.max(pk.shadowTriangles, info.triangles);
+      pk.shadowCalls = Math.max(pk.shadowCalls, info.calls);
+    } else {
+      pk.triangles = Math.max(pk.triangles, info.triangles);
+      pk.calls = Math.max(pk.calls, info.calls);
+    }
   }
 
   private frame(f: SceneFrame): void {

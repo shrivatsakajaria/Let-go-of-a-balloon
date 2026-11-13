@@ -87,12 +87,72 @@ export function hazeFarM(altM: number): number {
 
 type Scored = TileKey & { ratio: number };
 
+/** The levels with buildings (z14, z13) are the ones a detail scale pulls in. */
+const SCALED_FROM_Z = 13;
+
+/** The reach of the buildings levels, step by step, while the view draws more than its share. */
+export const DETAIL_STEPS = [1, 0.8, 0.65, 0.5];
+/** The view (no shadow pass) should draw no more than this, leaving the shadow pass its share (sunlight.ts FRAME_BUDGET). */
+export const VIEW_TRIANGLES = 430_000;
+/** A step down waits this long after the last change (tiles leaving take a moment); a step up much longer. */
+const DOWN_AFTER_MS = 700;
+const UP_AFTER_MS = 4000;
+/** A step up only when the finer step's view (scaled by area) would stay this far under the limit. */
+const UP_MARGIN = 0.85;
+
+/**
+ * Level of detail by budget (spec 12: lower the detail when the frame is over budget). Fed the
+ * triangles the view drew each frame, it gives the reach scale for the buildings levels (tilesFor
+ * `scale`): a step down at once when over, a step back up after a quiet spell when the finer step's
+ * view, scaled by area, would still fit. Dense city centres get a nearer city; everywhere else full detail.
+ */
+export class DetailBudget {
+  private step = 0;
+  private changedAt = -Infinity;
+  private quietSince = NaN;
+  private readonly high: number;
+
+  constructor(opts: { high?: number } = {}) {
+    this.high = opts.high ?? VIEW_TRIANGLES;
+  }
+
+  get scale(): number {
+    return DETAIL_STEPS[this.step];
+  }
+
+  /** Once a frame (frames that redraw the shadow map left out): the scale to stream with. */
+  update(viewTriangles: number, nowMs: number): number {
+    if (viewTriangles > this.high) {
+      this.quietSince = NaN;
+      if (this.step < DETAIL_STEPS.length - 1 && nowMs - this.changedAt >= DOWN_AFTER_MS) {
+        this.step++;
+        this.changedAt = nowMs;
+      }
+      return this.scale;
+    }
+    if (this.step === 0) return 1;
+    const up = DETAIL_STEPS[this.step - 1] / this.scale;
+    if (viewTriangles * up * up >= this.high * UP_MARGIN) {
+      this.quietSince = NaN;
+      return this.scale;
+    }
+    if (Number.isNaN(this.quietSince)) this.quietSince = nowMs;
+    if (nowMs - this.quietSince >= UP_AFTER_MS && nowMs - this.changedAt >= UP_AFTER_MS) {
+      this.step--;
+      this.changedAt = nowMs;
+      this.quietSince = NaN;
+    }
+    return this.scale;
+  }
+}
+
 /**
  * The tiles wanted for `camera`, most wanted first (nearest relative to its level's reach, finer
  * first on ties), at most `budget`. Tiles in `opts.keep` (alive already) are kept a little longer.
  * Over budget, the tiles furthest out for their level go first; the coarsest level goes last.
  */
-export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: Set<string> } = {}): TileKey[] {
+export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: Set<string>; scale?: number } = {}): TileKey[] {
+  const scale = Math.min(1, Math.max(0.1, opts.scale ?? 1));
   const lat = camera.lat;
   const lon = wrapLon(camera.lon);
   const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
@@ -104,7 +164,8 @@ export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: S
   const out: Scored[] = [];
 
   for (const lvl of LOD_LEVELS) {
-    const reach = lvl.z === COARSEST ? far * 1.15 : Math.min(lvl.radiusM, far * 1.05);
+    const radius = lvl.z >= SCALED_FROM_Z ? lvl.radiusM * scale : lvl.radiusM;
+    const reach = lvl.z === COARSEST ? far * 1.15 : Math.min(radius, far * 1.05);
     const reachKeep = reach * KEEP_SLACK;
     if (lift >= reachKeep) continue;
     const z = lvl.z, n = 2 ** z;

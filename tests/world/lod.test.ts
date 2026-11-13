@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { destination, lonLatToTile, tileBounds, type LatLon } from '../../src/geo/coords';
-import { LOD_LEVELS, MAX_TILES, hazeFarM, tileKey, tilesFor, type LodCamera, type TileKey } from '../../src/world/lod';
+import { DETAIL_STEPS, DetailBudget, LOD_LEVELS, MAX_TILES, hazeFarM, tileKey, tilesFor, type LodCamera, type TileKey } from '../../src/world/lod';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
 const cruise = (p: LatLon, headingDeg = 70, altM = 1500): LodCamera => ({ ...p, altM, headingDeg });
@@ -105,5 +105,46 @@ describe('tilesFor', () => {
     expect(set.some((t) => t.z === 14)).toBe(false);
     expect(set.some((t) => t.z === 7)).toBe(true);
     expect(hazeFarM(9000)).toBeGreaterThan(hazeFarM(1500));
+  });
+});
+
+describe('tilesFor with a smaller detail scale', () => {
+  it('pulls the buildings levels (z14, z13) in and leaves the rest', () => {
+    const cam = cruise(MANCHESTER, 70, 450);
+    const full = tilesFor(cam);
+    const less = tilesFor(cam, MAX_TILES, { scale: 0.5 });
+    const count = (set: TileKey[], z: number) => set.filter((t) => t.z === z).length;
+    expect(count(less, 14)).toBeLessThan(count(full, 14));
+    expect(count(less, 13)).toBeLessThan(count(full, 13));
+    expect(count(less, 14)).toBeGreaterThan(0);
+    // land everywhere still: the coarser levels cover what the finer ones gave up
+    for (let km = 0; km < 12; km += 0.25) expect(finestAt(less, destination(MANCHESTER, 70, km))).toBeDefined();
+    expect(finestAt(less, destination(MANCHESTER, 70, 3.5))!.z).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('DetailBudget', () => {
+  it('steps the detail down at once when the view draws too much, a step at a time', () => {
+    const d = new DetailBudget({ high: 400 });
+    expect(d.update(300, 0)).toBe(1);
+    expect(d.update(500, 100)).toBe(DETAIL_STEPS[1]);
+    // the tiles need a moment to go: no second step straight away
+    expect(d.update(500, 200)).toBe(DETAIL_STEPS[1]);
+    expect(d.update(500, 1000)).toBe(DETAIL_STEPS[2]);
+    for (let t = 2000; t < 10000; t += 1000) d.update(900, t);
+    expect(d.scale).toBe(DETAIL_STEPS[DETAIL_STEPS.length - 1]);
+  });
+
+  it('steps back up only after a quiet spell, and only when the finer step would still fit', () => {
+    const d = new DetailBudget({ high: 400 });
+    d.update(500, 0);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    // would come back to 300 * (1 / 0.8)^2 = 469 > 400 * 0.85: stays
+    for (let t = 1000; t < 20000; t += 500) d.update(300, t);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    // the view emptied (the balloon left the city): back to full detail after a few seconds
+    d.update(100, 20000);
+    expect(d.update(100, 21000)).toBe(DETAIL_STEPS[1]);
+    expect(d.update(100, 25000)).toBe(1);
   });
 });

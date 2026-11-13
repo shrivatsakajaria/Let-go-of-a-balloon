@@ -20,6 +20,7 @@
  *   wind=u,v       wind at cruise for the clouds, m/s east and north (default 4,2)
  *   clouds=0       no clouds
  *   landmarks=0    no landmark models (default: shown near the camera, their map buildings hidden)
+ *   budget=0       no frame budget (the shadow disc stays at its full radius, the detail at its full reach)
  *   at=lat,lon,h   aim the camera at this point, h metres above the ground there (overrides
  *                  heading and pitch; the flight still follows heading)
  *
@@ -36,7 +37,8 @@ import { createRenderer } from '../world/render';
 import { Sky } from '../world/sky';
 import { Clouds } from '../world/clouds';
 import { WorldStream } from '../world/stream';
-import { hazeFarM } from '../world/lod';
+import { DetailBudget, hazeFarM } from '../world/lod';
+import { shadowBudget, TREE_SHADOW_M } from '../world/sunlight';
 import { StatsOverlay } from './overlay';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -124,6 +126,10 @@ const clouds = CLOUDS
   : null;
 stream.onRecentre = (e) => clouds?.shift(e.dx, e.dz);
 
+const detail = new DetailBudget();
+/** What the view alone drew last frame, and the last shadow pass (every frame redraws on a slow machine). */
+const view = { triangles: 0, calls: 0 };
+let shadowPass = { triangles: 0, calls: 0 };
 let shadowAsked = 0;
 stream.onChange = () => {
   shadowAsked = performance.now();
@@ -134,11 +140,13 @@ if (landmarks) landmarks.onChange = stream.onChange;
 
 const hook = {
   frames: 0, flownM: 0, groundM: 0, cameraY: 0,
-  calls: 0, triangles: 0, plain: { calls: 0, triangles: 0 }, shadow: { calls: 0, triangles: 0 },
+  calls: 0, triangles: 0, plain: { calls: 0, triangles: 0 }, view: { calls: 0, triangles: 0 },
+  /** The most any frame drew since a check last zeroed it. */
+  peak: { calls: 0, triangles: 0 }, shadow: { calls: 0, triangles: 0 },
   geometries: 0, textures: 0,
   alive: 0, loading: 0, settled: 0, wanted: 0, built: 0, failed: 0, cancelled: 0, recentres: 0, ready: false, stopped: false,
   sunEl: 0, night: 0, clouds: 0, boats: 0, lamps: 0, cloudsNear: [] as number[][], boatsNear: [] as number[][],
-  tileTriangles: 0, arriveMsMax: 0, byZoom: {} as Record<number, number>,
+  tileTriangles: 0, arriveMsMax: 0, detail: 1, byZoom: {} as Record<number, number>,
   /** Landmarks in the scene, with their triangles, and whether each is in sight (faded in). */
   landmarks: [] as { id: string; triangles: number; visible: boolean }[],
   /** Set to redraw the shadow map on the next frame (to read the shadow pass's numbers). */
@@ -149,9 +157,31 @@ const hook = {
   casters: {} as Record<string, number>,
   /** Triangles of every live tile by zoom and bucket (in view or not). */
   aliveTris: {} as Record<string, number>,
+  /** What the last plain frame and the last shadow frame drew, by pass, zoom and bucket: [calls, triangles]. */
+  draws: {} as Record<string, [number, number]>,
+  shadowDraws: {} as Record<string, [number, number]>,
 };
 (window as unknown as { __world: typeof hook }).__world = hook;
 const overlay = params.get('fps') === '1' ? new StatsOverlay() : null;
+
+// Every draw, by pass (view or shadow), zoom and bucket (renderer.info's delta round each draw call).
+let byCall: Record<string, [number, number]> = {};
+const zoomOf = new WeakMap<THREE.Object3D, string>();
+{
+  const direct = renderer.renderBufferDirect.bind(renderer);
+  renderer.renderBufferDirect = (cam, sc, geo, mat, obj, grp) => {
+    const before = renderer.info.render.triangles;
+    direct(cam, sc, geo, mat, obj, grp);
+    const pass = cam === sky.light.sun.shadow.camera ? 'shadow' : 'view';
+    const own = (obj as THREE.Mesh).material as THREE.Material | undefined;
+    const name = ((pass === 'shadow' ? own?.name : mat.name) || mat.name || obj.name || obj.type).replace(/^contour-/, '').replace(/-(solid|clip)$/, '');
+    const z = obj.parent ? zoomOf.get(obj.parent) : undefined;
+    const k = `${pass}.${z ?? 'other'}.${name}`;
+    const v = (byCall[k] ??= [0, 0]);
+    v[0]++;
+    v[1] += renderer.info.render.triangles - before;
+  };
+}
 
 let flown = 0;
 let groundS = NaN;
@@ -280,10 +310,26 @@ function frame(now: number) {
   if (redraw) {
     renderer.shadowMap.needsUpdate = true;
     shadowDrawnAt = now;
+    // the live scene's shadow budget (scene.ts): trees near the focus, a smaller disc in a dense city
+    stream.setShadowFocus(focus.x, focus.z, TREE_SHADOW_M);
+    shadowPass = params.get('budget') !== '0' ? sky.light.fit(scene, shadowBudget(view)) : sky.light.casters(scene);
   }
 
+  for (const t of stream.tiles()) {
+    const g = stream.groupOf(t.key);
+    if (g && !zoomOf.has(g)) zoomOf.set(g, `z${t.key.split('/')[0]}`);
+  }
+  byCall = {};
   renderer.render(scene, camera);
+  if (redraw) hook.shadowDraws = byCall;
+  else hook.draws = byCall;
   const info = renderer.info.render;
+  view.triangles = info.triangles - (redraw ? shadowPass.triangles : 0);
+  view.calls = info.calls - (redraw ? shadowPass.calls : 0);
+  hook.view = { ...view };
+  hook.peak.triangles = Math.max(hook.peak.triangles, info.triangles);
+  hook.peak.calls = Math.max(hook.peak.calls, info.calls);
+  if (params.get('budget') !== '0') stream.detailScale = detail.update(view.triangles, now);
   if (redraw) hook.shadow = { calls: info.calls, triangles: info.triangles };
   else hook.plain = { calls: info.calls, triangles: info.triangles };
   if (hook.frames === 0) canvas.classList.add('on');
@@ -306,6 +352,7 @@ function frame(now: number) {
   hook.cancelled = s.cancelled;
   hook.recentres = s.recentres;
   hook.ready = s.ready;
+  hook.detail = stream.detailScale;
   hook.stopped = flown >= STOP_M || SPEED === 0;
   hook.tileTriangles = s.triangles;
   hook.arriveMsMax = s.arriveMsMax;
