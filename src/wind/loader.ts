@@ -30,6 +30,9 @@ export interface Manifest {
 
 export type FetchFn = (url: string) => Promise<Response>;
 
+/** The page's fetch, called without a borrowed `this` (a stored `fetch` throws "Illegal invocation" in browsers). */
+const pageFetch: FetchFn = (url) => fetch(url);
+
 const HOUR_MS = 3.6e6;
 const MAX_RUN_AGE_MS = 24 * HOUR_MS;
 const CRUISE_LAT_MAX = 70;
@@ -38,7 +41,7 @@ const CLIMB_LAT_MAX = 85;
 /** Load the manifest and keep only runs issued less than 24 h ago, newest first. */
 export async function loadManifest(
   base = '/winds',
-  fetchFn: FetchFn = fetch,
+  fetchFn: FetchFn = pageFetch,
   nowMs: number = Date.now(),
 ): Promise<Manifest> {
   let m: Manifest;
@@ -69,7 +72,7 @@ export class WindField {
 
   constructor(
     private readonly manifest: Manifest,
-    private readonly fetchFn: FetchFn = fetch,
+    private readonly fetchFn: FetchFn = pageFetch,
     private readonly base = '/winds',
   ) {
     if (manifest.runs.length === 0) throw new WindUnavailableError('no wind runs');

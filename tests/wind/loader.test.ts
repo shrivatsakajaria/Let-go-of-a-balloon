@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest';
+import { test, expect, vi, afterEach } from 'vitest';
 import { WindField, WindUnavailableError, loadManifest } from '../../src/wind/loader';
 import { ISSUED, HOUR, BASE, addCruise, manifestJson, mockFetch, ghOf, CRUISE_LEVELS, type Files } from './helpers';
 
@@ -116,4 +116,27 @@ test('prepare with radius 0 requests only the tile under the point, one per wind
   const tiles = m.requests.filter((r) => r.endsWith('.bin.gz'));
   expect(tiles).toHaveLength(1);
   expect(w.sample(AROUND, 1500, ISSUED + 6 * HOUR).u).toBeCloseTo(10, 5);
+});
+
+// Browsers throw "Illegal invocation" when fetch is called with a `this` other than the window.
+afterEach(() => vi.unstubAllGlobals());
+function pickyFetch() {
+  const calls: string[] = [];
+  vi.stubGlobal('fetch', function (this: unknown, url: string) {
+    if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+    calls.push(String(url));
+    const body = url.endsWith('/manifest.json') ? manifestJson([{ id: NEW, issued: '2026-11-12T18:00:00Z' }]) : 'nope';
+    return Promise.resolve(new Response(body, { status: url.endsWith('/manifest.json') ? 200 : 404 }));
+  });
+  return calls;
+}
+
+test('the default fetch is called without a borrowed this (loadManifest and WindField)', async () => {
+  const calls = pickyFetch();
+  const manifest = await loadManifest(BASE, undefined, ISSUED + HOUR);
+  const field = new WindField(manifest, undefined, BASE);
+  const t0 = Date.parse('2026-11-12T18:00:00Z');
+  await field.prepare(AROUND, [t0, t0 + 6 * HOUR]).catch(() => undefined);
+  expect(calls.length).toBeGreaterThan(1);
+  expect(calls.some((u) => u.includes('/cruise/'))).toBe(true);
 });
