@@ -179,7 +179,7 @@ describe('Director', () => {
     expect(snap[8].y).toBeGreaterThan(snap[1].y + 5);
     expect(snap[20].dist).toBeGreaterThan(snap[8].dist + 20);
     expect(snap[20].fov).toBeGreaterThan(snap[1].fov + 5);
-    expect(d.mode).toBe('ride');
+    expect(d.mode).toBe('film');
     expect(d.shot).toBe('ride');
   });
 
@@ -228,5 +228,50 @@ describe('Director', () => {
     expect(Math.max(...w) - Math.min(...w)).toBeGreaterThan(0.005);
     expect(Math.min(...w)).toBeGreaterThan(0); // always turning one way, slowly
     expect(Math.max(...w)).toBeLessThan(0.1);
+  });
+
+  test('a huge dt (backgrounded tab) changes the shot at most once', () => {
+    const d = new Director(mkCam(), deps());
+    d.set('film');
+    run(d, 0, 10);
+    const seen: string[] = [d.shot];
+    d.update(balloon(310), 300);
+    seen.push(d.shot);
+    for (let i = 1; i <= 40; i++) {
+      d.update(balloon(310 + i * 0.1), 0.1);
+      seen.push(d.shot);
+    }
+    let changes = 0;
+    for (let i = 1; i < seen.length; i++) if (seen[i] !== seen[i - 1]) changes++;
+    expect(changes).toBeLessThanOrEqual(1);
+  });
+
+  test('non-finite dt or balloon values do not poison the camera', () => {
+    const cam = mkCam();
+    const d = new Director(cam, deps());
+    d.set('ride');
+    let t = run(d, 0, 10);
+    d.update(balloon(t), NaN);
+    d.update({ ...balloon(t), lat: NaN }, 0.1);
+    d.update({ ...balloon(t), altM: NaN }, 0.1);
+    t = run(d, t, 10);
+    expect(cam.position.toArray().every(Number.isFinite)).toBe(true);
+    expect(cam.position.distanceTo(ballPos(balloon(t)))).toBeLessThan(60);
+  });
+
+  test('paused freezes choreography but follows the balloon rigidly', () => {
+    const cam = mkCam();
+    const d = new Director(cam, deps());
+    d.set('film');
+    let t = run(d, 0, 35);
+    const shot = d.shot;
+    d.paused = true;
+    const off0 = cam.position.clone().sub(ballPos(balloon(t)));
+    t = run(d, t, 120);
+    expect(d.shot).toBe(shot);
+    expect(cam.position.clone().sub(ballPos(balloon(t))).distanceTo(off0)).toBeLessThan(1e-6);
+    d.paused = false;
+    run(d, t, 10);
+    expect(d.shot).toBe('circling'); // 5 s of the 40 s ride were left
   });
 });

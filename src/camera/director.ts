@@ -57,6 +57,8 @@ type Target = { pos: THREE.Vector3; look: THREE.Vector3; fov: number; anchor: 'w
 
 export class Director {
   mode: DirectorMode = 'ride';
+  /** Pause control (spec 7.3): choreography freezes, the camera still follows the balloon rigidly. */
+  paused = false;
   private _shot: ShotName = 'ride';
   private readonly reduced: boolean;
   private readonly tau: number;
@@ -68,7 +70,7 @@ export class Director {
   private orbit = 0;
   private launchT = 0;
   private launchOpts: { personAt: LatLon; landmarkHeadingDeg: number; startUtcMs: number } | null = null;
-  private afterLaunch: DirectorMode = 'ride';
+  private afterLaunch: DirectorMode = 'film';
   private ready = false;
   private prevB = new THREE.Vector3();
   private pos = new THREE.Vector3();
@@ -139,21 +141,33 @@ export class Director {
     this.switchShot(s);
   }
 
-  /** Street-level launch shot; runs 20 s from this call, then hands over to ride (or a view chosen meanwhile). */
+  /** Street-level launch shot; runs 20 s from this call, then hands over to film (whose first shot is ride) (or a view chosen meanwhile). */
   setLaunch(opts: { personAt: LatLon; landmarkHeadingDeg: number; startUtcMs: number }): void {
     this.launchOpts = opts;
     this.launchT = 0;
-    this.afterLaunch = 'ride';
+    this.afterLaunch = 'film';
     this.mode = 'launch';
     this._shot = 'launch';
     this.ready = false; // first frame snaps to the street position
   }
 
   update(b: RoutePoint, dtSec: number): void {
-    const dt = Math.max(0, dtSec);
-    this.clock += dt;
+    const dtFull = Number.isFinite(dtSec) ? Math.max(0, dtSec) : 0;
     const bs = this.deps.toScene(b);
+    if (!Number.isFinite(bs.x) || !Number.isFinite(bs.z) || !Number.isFinite(b.altM)) return; // skip the frame, state untouched
     const B = new THREE.Vector3(bs.x, b.altM, bs.z);
+    // Choreography clocks take small steps (a backgrounded tab must not skip shots); the spring gets the full dt to catch up.
+    const dt = this.paused ? 0 : Math.min(dtFull, 1);
+
+    if (this.paused && this.ready) {
+      const shift = B.clone().sub(this.prevB);
+      this.pos.add(shift);
+      this.look.add(shift);
+      this.prevB.copy(B);
+      this.apply(b, B);
+      return;
+    }
+    this.clock += dt;
 
     if (this._shot === 'launch') {
       this.launchT += dt;
@@ -194,10 +208,13 @@ export class Director {
     }
     this.prevB.copy(B);
 
-    spring3(this.pos, this.posV, tg.pos, this.tau, dt);
-    spring3(this.look, this.lookV, tg.look, this.tau, dt);
-    [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, this.tau, dt);
+    spring3(this.pos, this.posV, tg.pos, this.tau, dtFull);
+    spring3(this.look, this.lookV, tg.look, this.tau, dtFull);
+    [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, this.tau, dtFull);
+    this.apply(b, B);
+  }
 
+  private apply(b: RoutePoint, B: THREE.Vector3): void {
     const out = this.pos.clone();
     this.clamp(out, b, B);
     this.camera.position.copy(out);
