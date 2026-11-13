@@ -98,6 +98,10 @@ export type StreamStats = {
   /** Triangles in the live tiles (drawn or not). */
   triangles: number;
   recentres: number;
+  /** Tiles the camera wants now. */
+  wanted: number;
+  /** Every wanted tile is in and faded in, nothing is loading or leaving: the view is complete. */
+  ready: boolean;
 };
 
 const ease = (x: number) => 1 - Math.pow(2, -10 * Math.min(1, Math.max(0, x)));
@@ -229,7 +233,12 @@ export class WorldStream {
       if (e.view && !e.view.group.visible) hidden++;
       if (e.view) triangles += e.view.triangles;
     }
-    return { alive: this.entries.size, loading, live, leaving, settled, hidden, failed: this.counts.failed, built: this.counts.built, cancelled: this.counts.cancelled, triangles, recentres: this.counts.recentres };
+    let ready = loading === 0 && leaving === 0 && this.wantedKeys.length > 0;
+    for (let i = 0; ready && i < this.wantedKeys.length; i++) {
+      const e = this.entries.get(tileKey(this.wantedKeys[i]));
+      if (!e || !e.settled) ready = false;
+    }
+    return { alive: this.entries.size, loading, live, leaving, settled, hidden, failed: this.counts.failed, built: this.counts.built, cancelled: this.counts.cancelled, triangles, recentres: this.counts.recentres, wanted: this.wantedKeys.length, ready };
   }
 
   /** Keys of the tiles alive, by state (for debugging and tests). */

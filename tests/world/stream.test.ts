@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { destination, lonLatToTile, tileBounds, type LatLon } from '../../src/geo/coords';
 import { tileFrame } from '../../src/world/frame';
 import { DEFAULT_REGION } from '../../src/world/palette';
-import { levelFor, tileKey, type LodCamera } from '../../src/world/lod';
+import { levelFor, type LodCamera } from '../../src/world/lod';
 import { WorldStream, type BuildPool, type RecentreEvent } from '../../src/world/stream';
 import type { BuildReply, BuildRequest } from '../../src/world/worker';
 
