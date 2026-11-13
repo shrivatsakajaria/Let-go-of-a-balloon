@@ -387,3 +387,13 @@ test('disposing the live flight stops drawing and frees the scene, the HUD and t
   await page.setViewportSize({ width: 400, height: 700 }); // a resize after dispose throws nothing
   await page.waitForTimeout(300);
 });
+
+test('the HUD and the start screen share one bottom shading', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(3)));
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  const bg = (sel: string) => page.locator(sel).evaluate((e) => getComputedStyle(e).backgroundImage);
+  expect(await bg('.hud-shade')).toBe(await bg('.shade-bottom'));
+  expect(await page.locator('.hud-shade').getAttribute('class')).toContain('ink-bottom');
+  expect(await page.locator('.shade-bottom').getAttribute('class')).toContain('ink-bottom');
+});

@@ -52,7 +52,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean } = {}): Hud {
   root.classList.add('hud');
   root.innerHTML = `
-    <div class="hud-shade" aria-hidden="true"></div>
+    <div class="hud-shade ink-bottom" aria-hidden="true"></div>
     <div class="hud-top">
       <div class="where">
         <p class="clock"><span class="sr">Local time </span><span class="clock-time"></span></p>
