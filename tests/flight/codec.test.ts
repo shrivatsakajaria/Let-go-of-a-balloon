@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { BadLinkError, decodeBalloon, encodeBalloon, linkFor, type SavedBalloon } from '../../src/flight/codec';
+import { BadLinkError, decodeBalloon, encodeBalloon, linkFor, payloadFromLocation, type SavedBalloon } from '../../src/flight/codec';
 import { destination, haversineKm, lonDelta, wrapLon, type LatLon } from '../../src/geo/coords';
 
 function straight(start: LatLon, bearing: number, kmPerHour: number, wobble = 0): LatLon[] {
@@ -68,9 +68,9 @@ describe('codec', () => {
     const b = make(straight({ lat: 38.7223, lon: -9.1393 }, 60, 2600 / 72, 20), 'Lisbon, Portugal');
     expect(haversineKm(b.hourly[0], b.hourly[72])).toBeGreaterThan(2000);
     const link = linkFor(await encodeBalloon(b));
-    expect(link.startsWith('/?b=')).toBe(true);
+    expect(link.startsWith('/#b=')).toBe(true);
     expect(link.length).toBeLessThan(600);
-    expect(link).toMatch(/^\/\?b=[A-Za-z0-9_-]+$/);
+    expect(link).toMatch(/^\/#b=[A-Za-z0-9_-]+$/);
   });
 
   test('a non-Latin name with emoji round-trips', async () => {
@@ -121,4 +121,12 @@ describe('codec', () => {
     const p = await encodeBalloon({ ...make(straight({ lat: 1, lon: 2 }, 10, 30)), v: 2 as unknown as 1 });
     await expect(decodeBalloon(p)).rejects.toBeInstanceOf(BadLinkError);
   });
+});
+
+test('payloadFromLocation reads a #b= fragment and a legacy ?b= query, and nothing else', () => {
+  expect(payloadFromLocation({ hash: '#b=abc_-1', search: '' })).toBe('abc_-1');
+  expect(payloadFromLocation({ hash: '', search: '?b=abc_-1' })).toBe('abc_-1');
+  expect(payloadFromLocation({ hash: '#b=new', search: '?b=old' })).toBe('new');
+  expect(payloadFromLocation({ hash: '#other=1', search: '?backdrop=x' })).toBeNull();
+  expect(payloadFromLocation({ hash: '', search: '' })).toBeNull();
 });

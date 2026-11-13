@@ -137,9 +137,17 @@ function fromBase64Url(s: string): Uint8Array {
 
 // ---- public API ------------------------------------------------------------
 
-/** The share link for an encoded payload. */
+/**
+ * The share link for an encoded payload. The payload sits in the fragment, which the browser never
+ * sends to a server, so the route and start point stay out of server logs and link-preview crawlers.
+ */
 export function linkFor(payload: string): string {
-  return `/?b=${payload}`;
+  return `/#b=${payload}`;
+}
+
+/** The payload of a share link: the `#b=` fragment, or the legacy `?b=` query. Null when there is none. */
+export function payloadFromLocation(loc: { hash: string; search: string }): string | null {
+  return new URLSearchParams(loc.hash.replace(/^#/, '')).get('b') ?? new URLSearchParams(loc.search).get('b');
 }
 
 /**
