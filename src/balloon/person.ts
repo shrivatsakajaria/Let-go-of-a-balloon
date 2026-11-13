@@ -40,6 +40,11 @@ export type PlayOpts = {
   /** Resolves when the route is ready; the hand opens at max(1.2 s, ready), never after 6 s. */
   readyAt?: Promise<unknown>;
   onTimeout?: () => void;
+  /**
+   * Give up waiting for the route after this much frame time (default MAX_HOLD_S). Infinity leaves the
+   * wait to the caller (the live scene counts it in real time and calls holdIdle).
+   */
+  holdS?: number;
 };
 
 type V3 = { x: number; y: number; z: number };
@@ -84,6 +89,7 @@ export class Person {
   private token = 0;
   private onRelease: (() => void) | null = null;
   private onTimeout: (() => void) | null = null;
+  private holdS = MAX_HOLD_S;
   private look: V3 | null = null;
   // smoothed joint values
   private j = { headPitch: 0, headYaw: 0, lean: 0, rUpper: HOLD.upper, rElbow: HOLD.elbow, rOut: HOLD.out, open: 0 };
@@ -183,6 +189,7 @@ export class Person {
     this.releasedAt = Infinity;
     this.onRelease = onRelease;
     this.onTimeout = opts.onTimeout ?? null;
+    this.holdS = opts.holdS ?? MAX_HOLD_S;
     this.failed = false;
     this.ready = !opts.readyAt;
     opts.readyAt?.then(
@@ -215,7 +222,7 @@ export class Person {
     this.clock += dt;
     if (this.state === 'holding') {
       this.t += dt;
-      if (this.t >= MAX_HOLD_S - 1e-9 || this.failed) {
+      if (this.t >= this.holdS - 1e-9 || this.failed) {
         this.state = 'timedOut';
         const cb = this.onTimeout;
         this.onTimeout = this.onRelease = null;

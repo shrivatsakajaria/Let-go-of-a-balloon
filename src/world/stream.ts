@@ -18,7 +18,8 @@
  *   (coverage.ts), and skirts close every edge.
  * - groundAt / buildingTopAt read the finest loaded tile, with no allocation per call. groundAt is
  *   the ground as drawn (coarse levels sit dropM lower).
- * - At most one z14 tile arrives per frame (its GPU upload is the costly part); the others wait.
+ * - Built tiles arrive about 60k triangles a frame (one z14 tile, or a few coarse ones): the GPU
+ *   upload is the costly part, so it is spread over frames; the others wait.
  * - At night (setNight) the tiles' street lamps show; windows and city glow read the shared haze
  *   uniform uNight directly.
  */
@@ -111,6 +112,9 @@ export type StreamStats = {
   arriveMsMax: number;
 };
 
+/** Triangles of arriving tiles taken into the scene per frame (at least one tile). */
+const ARRIVE_TRIANGLES = 60_000;
+
 const ease = (x: number) => 1 - Math.pow(2, -10 * Math.min(1, Math.max(0, x)));
 const mod = (a: number, m: number) => ((a % m) + m) % m;
 const D2R = Math.PI / 180;
@@ -146,7 +150,7 @@ export class WorldStream {
   private wantedKeys: TileKey[] = [];
   /** tileKey of each wanted key, worked out once per retarget (not per frame). */
   private wantedStr: string[] = [];
-  /** z14 replies waiting for their frame (at most one z14 arrival per frame). */
+  /** Built replies waiting for their frame (takeArrival). */
   private arrivals: { e: Entry; reply: Extract<BuildReply, { type: 'built' }> }[] = [];
   private readonly statsOut: StreamStats = { alive: 0, loading: 0, live: 0, leaving: 0, settled: 0, hidden: 0, failed: 0, built: 0, cancelled: 0, triangles: 0, recentres: 0, wanted: 0, ready: false, arriveMsMax: 0 };
   private night = 0;
@@ -534,8 +538,7 @@ export class WorldStream {
         (reply) => {
           if (this.entries.get(key) !== e || e.state !== 'loading' || this.disposed) return; // cancelled meanwhile
           if (reply.type !== 'built') this.fail(e, reply.message);
-          else if (e.t.z === 14) this.arrivals.push({ e, reply });
-          else this.arrive(e, reply);
+          else this.arrivals.push({ e, reply });
         },
         (err: Error) => {
           if (err?.name === 'AbortError' || this.entries.get(key) !== e || this.disposed) return;
@@ -565,12 +568,18 @@ export class WorldStream {
   }
 
   /** The first z14 reply still wanted, if any, arrives this frame. */
+  /**
+   * Built tiles join the scene a few at a time: one z14 tile a frame, or coarse ones up to about
+   * ARRIVE_TRIANGLES, so their GPU uploads are spread over frames instead of landing on one.
+   */
   private takeArrival(): void {
-    while (this.arrivals.length > 0) {
+    let taken = 0;
+    while (this.arrivals.length > 0 && taken < ARRIVE_TRIANGLES) {
       const { e, reply } = this.arrivals.shift()!;
       if (this.entries.get(e.key) !== e || e.state !== 'loading') continue; // cancelled meanwhile
       this.arrive(e, reply);
-      return;
+      taken += e.view?.triangles ?? 0;
+      if (e.t.z === 14) return; // a z14 tile is a frame's upload on its own
     }
   }
 

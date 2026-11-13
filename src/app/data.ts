@@ -31,12 +31,25 @@ export function windField(now = Date.now()): Promise<WindField> {
   return field.p;
 }
 
-/** Start loading what a release from p will need: the start's ground and the winds round it. */
+/**
+ * Start loading what a release from p will need: the start's ground, the winds round it, and the
+ * start's cruise winds for all three days.
+ */
 export function warm(p: LatLon, now = Date.now()): void {
   routeGround(p).catch(() => {});
   windField(now)
-    .then((w) => w.prepare(p, [now, now + 3 * H]))
+    .then(async (w) => {
+      await w.prepare(p, [now, now + 3 * H]);
+      // then the start's own cruise tile for the whole flight (a file per day): the route reads them
+      // one after another otherwise, a round trip each, after Let go
+      await w.prepare(p, [now, now + FLIGHT_HOURS * H], { radius: 0 });
+    })
     .catch(() => {});
+}
+
+/** Resolves once the winds round p for the first hours are in (the launch then waits for the route, not the winds). */
+export function windsIn(p: LatLon, now = Date.now()): Promise<void> {
+  return windField(now).then((w) => w.prepare(p, [now, now + 3 * H]));
 }
 
 /**

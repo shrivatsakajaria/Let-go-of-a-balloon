@@ -93,6 +93,24 @@ describe('person', () => {
     expect(timeouts).toBe(1);
   });
 
+  test('with the wait left to the caller (holdS), keeps holding past 6 s and lets go when the route comes', async () => {
+    const { p } = mk();
+    const fired: number[] = [];
+    let timeouts = 0;
+    const clock = { t: 0 };
+    let ready!: () => void;
+    const readyAt = new Promise<void>((r) => (ready = r));
+    p.play(() => fired.push(clock.t), { readyAt, onTimeout: () => timeouts++, holdS: Infinity });
+    await runFor(p, MAX_HOLD_S + 4, fired, clock);
+    expect(p.state).toBe('holding');
+    expect(timeouts).toBe(0);
+    ready();
+    await flush();
+    await runFor(p, 0.2, fired, clock);
+    expect(p.state).toBe('released');
+    expect(fired.length).toBe(1);
+  });
+
   test('a failed route times out at once', async () => {
     const { p } = mk();
     const fired: number[] = [];

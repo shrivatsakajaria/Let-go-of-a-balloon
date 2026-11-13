@@ -455,6 +455,30 @@ describe('WorldStream: review carries', () => {
     expect(live14()).toBe(2);
   });
 
+  it('coarse tiles too arrive a few a frame, by their triangles', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const coarse = pool.open().filter((j) => j.msg.z < 14).slice(0, 3);
+    expect(coarse).toHaveLength(3);
+    // heavy coarse tiles: 9,000 tree instances each is about 63k triangles
+    for (const j of coarse) {
+      const real = j.resolve;
+      j.resolve = (r: BuildReply) => {
+        if (r.type === 'built') r.meshes.trees = new Float32Array(9000 * 16).map((_, i) => (i % 16 === 0 || i % 16 === 5 || i % 16 === 10 || i % 16 === 15 ? 1 : 0));
+        real(r);
+      };
+      pool.answer(j);
+    }
+    await tick();
+    const live = () => stream.tiles().filter((t) => t.state === 'live').length;
+    let t = 100;
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live()).toBe(1);
+    stream.update(cam(MANCHESTER), (t += 16));
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live()).toBe(3);
+  });
+
   it('stats are read without building a new object each frame, and agree with the tiles', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER));

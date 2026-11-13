@@ -26,7 +26,7 @@ import { showNotice, type Notice } from '../ui/notice';
 import { playReplay, replayNames, type ReplayName } from '../ui/replay';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
-import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
+import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
 import { LiveScene, type SceneFrame } from './scene';
 import { watchContextLoss, type ContextWatch } from './contextloss';
 import { resumeAction, type Handover } from './world';
@@ -276,10 +276,14 @@ export class Live {
       throw e;
     });
     this.hud.setFlight({ release: t0 + HOLD_MS, ticks: [], own: true });
+    // the winds came: a route still being worked out after 6 s is a slow phone, not a wind failure
+    let winds = false;
+    windsIn(c, t0).then(() => (winds = true), () => {});
     this.scene.launch(
       ready,
       (r) => this.released(r, c),
       () => this.windError(),
+      () => winds,
     );
   }
 

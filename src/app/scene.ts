@@ -37,6 +37,8 @@ import type { BuildReply, BuildRequest } from '../world/worker';
 
 const D2R = Math.PI / 180;
 const H = 3600e3;
+/** The longest a launch holds on when its winds are in but the route is still being worked out. */
+const LONG_HOLD_MS = 20000;
 /** A landed balloon rests on its string just off the ground. */
 const LANDED_M = 0.6;
 
@@ -238,9 +240,9 @@ export class LiveScene {
 
   /**
    * Let go: the camera moves in, the person opens their hand at max(1.2 s, route ready) and never
-   * after 6 s. `onRelease` gets the route once the balloon is free; `onTimeout` when it never was.
+   * after 6 s, unless `working` says the winds are in and the route is on its way (then up to 20 s). `onRelease` gets the route once the balloon is free; `onTimeout` when it never was.
    */
-  launch(route: Promise<Route>, onRelease: (r: Route) => void, onTimeout: () => void): void {
+  launch(route: Promise<Route>, onRelease: (r: Route) => void, onTimeout: () => void, working: () => boolean = () => false): void {
     if (!this.person) this.placePerson();
     const person = this.person!;
     this.director.go();
@@ -253,12 +255,19 @@ export class LiveScene {
       this.holdUntil = null;
       onTimeout();
     };
-    // the person counts the 6 s in frame time; a slow frame rate must not stretch the wait in real time,
-    // so the frame loop also checks the clock (performance.now, which a backgrounded tab does not skip)
+    // the 6 s are counted in real time by the frame loop (performance.now, which a backgrounded tab
+    // does not skip), not in the person's frame time. Past them, a launch whose winds are in and whose
+    // route is still being worked out (a slow phone, slow terrain) keeps holding, up to LONG_HOLD_MS:
+    // the winds error is for winds that did not come (spec 7.2)
+    const t0 = performance.now();
     this.holdUntil = {
-      at: performance.now() + MAX_HOLD_S * 1000 + 100,
+      at: t0 + MAX_HOLD_S * 1000,
       expire: () => {
         if (person.state !== 'holding') return;
+        if (working() && performance.now() < t0 + LONG_HOLD_MS && this.holdUntil) {
+          this.holdUntil.at = performance.now() + 250;
+          return;
+        }
         person.holdIdle();
         timeout();
       },
@@ -275,7 +284,7 @@ export class LiveScene {
         this.balloon.release();
         onRelease(ready!);
       },
-      { readyAt: route, onTimeout: timeout },
+      { readyAt: route, onTimeout: timeout, holdS: Infinity },
     );
   }
 
