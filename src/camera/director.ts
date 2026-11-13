@@ -601,8 +601,8 @@ export class Director {
    * With a featured landmark (spec 6.2: in view during the launch) the camera stands beyond the person from
    * it, camera -> person -> landmark roughly in line, 5-12 m back and 0.7-4 m to the side the balloon drifts
    * to (so the rising balloon crosses the landmark line and the person, at eye level, stands beside it
-   * rather than over it). That is skipped when the wind would carry the balloon back over the camera within
-   * the tilt even from 12 m (landmark well upwind), or when every such spot is blocked. Otherwise (and with
+   * rather than over it), for any wind (R36): with the landmark upwind the balloon may drift back toward the
+   * camera, and the crane backs away from it after the release. Only when every such spot is blocked (and with
    * no landmark): a few metres upwind of the person and a little to one side, so the balloon drifts away
    * from it, never over it, and the person stays in the bottom of a narrow portrait frame while it tilts up.
    * The director cannot see occlusion: the app must put the person where the landmark has a sightline.
@@ -625,19 +625,17 @@ export class Director {
       // Fit the balloon's drift to the landmark line within a narrow portrait frame over 0.5-4 s: further
       // back for a crosswind, and to the side the balloon drifts to, by just enough that its bearing swings
       // evenly across the line (as far off it at 0.5 s as at 4 s). Further back still if the landmark is
-      // upwind, so the balloon is still in front of the camera at 8 s; past 12 m that is not possible.
+      // upwind, so the balloon stays in front of the camera longer (12 m at most).
       const Rd = new THREE.Vector3(-Ld.z, 0, Ld.x);
       const v = Number.isFinite(b.speedMs) ? Math.max(1.5, b.speedMs) : 2.5;
       const s4 = v * (4 - LAUNCH.holdS), s8 = v * (STREET_FIT_S - LAUNCH.holdS);
       const wL = dir.dot(Ld), wR = dir.dot(Rd);
       let back = 5 + 6 * Math.abs(wR);
-      if (back + s8 * wL < 3) back = 3 - s8 * wL;
-      if (back <= 12) {
-        const den = 2 * back + s4 * wL;
-        const side = (den > 1 ? Math.min(4, Math.max(0.7, (back * s4 * Math.abs(wR)) / den)) : 0.7) * (wR >= 0 ? 1 : -1);
-        const set: [number, number][] = [[back, side], [back, -side], [back + 2, side], [back * 0.7, side], [back + 2, -side], [back * 0.7, -side]];
-        for (const [bk, sd] of set) spots.push(P.clone().addScaledVector(Ld, -bk).addScaledVector(Rd, sd));
-      }
+      if (back + s8 * wL < 3) back = Math.min(12, 3 - s8 * wL);
+      const den = 2 * back + s4 * wL;
+      const side = (den > 1 ? Math.min(4, Math.max(0.7, (back * s4 * Math.abs(wR)) / den)) : 0.7) * (wR >= 0 ? 1 : -1);
+      const set: [number, number][] = [[back, side], [back, -side], [back + 2, side], [back * 0.7, side], [back + 2, -side], [back * 0.7, -side], [3.5, 0.7], [3.5, -0.7]];
+      for (const [bk, sd] of set) spots.push(P.clone().addScaledVector(Ld, -bk).addScaledVector(Rd, sd));
     }
     const upwind: [number, number][] = [[-4.2, 0.9], [-4.2, -0.9], [-4, 2.5], [-4, -2.5], [-1, 2.8], [-1, -2.8], [-2.5, 1.2], [-2.5, -1.2]];
     for (const [back, side] of upwind) spots.push(P.clone().addScaledVector(dir, back).addScaledVector(right, side));
@@ -892,8 +890,9 @@ export class Director {
   }
 
   /**
-   * The start screen's establishing shot: on the street camera's line through the person (so the
-   * launch push-in is a straight move in), far enough back that the person and the held balloon fill
+   * The start screen's establishing shot: on the featured landmark's line through the person, so the
+   * landmark stands behind them (R36), or else on the street camera's line (so the launch push-in is a
+   * straight move in), far enough back that the person and the held balloon fill
    * about a third of the screen (at most 70% of the free band), centred in the band. The first spot that is not in a building and has no
    * building between it and the person wins; nearer spots are tried, down to the street spot itself.
    */
@@ -923,15 +922,20 @@ export class Director {
       const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
       const len = u.length();
       if (len > 1e-6) u.divideScalar(len); else u.set(0, 0, -1);
+      // with a featured landmark, on its line through the person, so it stands right behind them (R36)
+      const lines = [this.landmarkDir(), u].filter((x): x is THREE.Vector3 => x !== null);
       const H = WAIT_SUBJECT_M;
       const want = Math.min(20, Math.max(6, H / (Math.min(0.7 * span, WAIT_FILL) * tanV)));
       let pick: THREE.Vector3 | null = null;
-      for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
-        const c = new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(u, -want * k);
-        if (clear(c)) {
-          pick = c.setY(this.deps.groundAt(this.fromScene(c.x, c.z, b, B0)) + EYE_M);
-          break;
+      for (const l of lines) {
+        for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
+          const c = new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(l, -want * k);
+          if (clear(c)) {
+            pick = c.setY(this.deps.groundAt(this.fromScene(c.x, c.z, b, B0)) + EYE_M);
+            break;
+          }
         }
+        if (pick) break;
       }
       if (!pick || !finite3(pick)) pick = S.clone();
       this.wide = pick;

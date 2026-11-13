@@ -63,6 +63,11 @@ function inFrame(cam: THREE.PerspectiveCamera, p: THREE.Vector3) {
   const v = p.clone().project(cam);
   return p.clone().applyMatrix4(cam.matrixWorldInverse).z < 0 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
 }
+/** Where a point lands in the frame (NDC). */
+function ndc(cam: THREE.PerspectiveCamera, p: THREE.Vector3) {
+  cam.updateMatrixWorld(true);
+  return p.clone().project(cam);
+}
 describe('Director', () => {
   test('camera never below ground + 8 m over a 300 m hill', () => {
     const hill = (p: LatLon) => {
@@ -424,6 +429,41 @@ describe('Director', () => {
     expect(inFrame(cam, B)).toBe(true);
   });
 
+  test('featured landmark, any wind (R36): behind the person in the start screen and in the first second of the launch', () => {
+    const person: LatLon = { lat: 50, lon: 0 };
+    const H = 100;
+    const lh = (H * Math.PI) / 180;
+    const Ld = new THREE.Vector3(Math.sin(lh), 0, -Math.cos(lh));
+    const ground = 5;
+    for (const heading of [0, 45, 90, 135, 180, 225, 270, 315]) {
+      for (const dist of [40, 300]) {
+        const tower = (y: number) => Ld.clone().multiplyScalar(dist).setY(ground + y);
+        const cam = new THREE.PerspectiveCamera(50, 390 / 844, 0.05, 100000);
+        const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground }));
+        const band = { centerY: 0.15, spanY: 0.7 };
+        d.setLaunch({ personAt: person, landmarkHeadingDeg: H, startUtcMs: 0, waiting: band });
+        const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: ground + 2.4, groundM: ground, speedMs: 3, headingDeg: heading });
+        run(d, 0, 10, 0.1, held);
+        const msg = `wind ${heading}, landmark ${dist} m`;
+        // the start screen: the person in the band and the landmark right behind them
+        const feet = new THREE.Vector3(0, ground, 0);
+        expect(inFrame(cam, feet), msg).toBe(true);
+        expect(inFrame(cam, tower(10)), msg).toBe(true);
+        const f = ndc(cam, feet), l = ndc(cam, tower(10));
+        expect(Math.abs(f.x - l.x), msg).toBeLessThan(0.35);
+        // Let go: at 0.5 s (still held) and at 1 s the landmark is in the street shot too
+        d.go();
+        run(d, 10, 1, 0.05, held, (t) => {
+          const k = Math.round((t - 10) * 100) / 100;
+          if (k === 0.5 || k === 1) {
+            expect(inFrame(cam, tower(10)), `${msg} at ${k} s`).toBe(true);
+            expect(inFrame(cam, ballPos(held(t))), `${msg} at ${k} s`).toBe(true);
+          }
+        });
+      }
+    }
+  });
+
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     const H = 30;
@@ -571,10 +611,6 @@ describe('launch crane', () => {
     const h = (heading * Math.PI) / 180;
     const ll = fromScene(Math.sin(h) * speed * fl, -Math.cos(h) * speed * fl);
     return { tSec: t, lat: ll.lat, lon: ll.lon, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: speed, headingDeg: heading };
-  };
-  const ndc = (cam: THREE.PerspectiveCamera, p: THREE.Vector3) => {
-    cam.updateMatrixWorld(true);
-    return p.clone().project(cam);
   };
   /** Runs a launch and records when it settled (the shot left 'launch'). */
   function launch(opts: { boxes?: Box[]; ground?: number; heading?: number; speed?: number; landmark?: number; reduced?: boolean; until?: number; each?: (t: number, cam: THREE.PerspectiveCamera, d: Director) => void }) {

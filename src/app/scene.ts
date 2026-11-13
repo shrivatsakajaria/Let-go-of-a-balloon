@@ -50,7 +50,7 @@ export type SceneFrame = {
   feetM: number;
   released: boolean;
   landed: boolean;
-  /** The launch is over and the camera has settled into the flight (spec 8: at 20 s). */
+  /** The launch is over and the camera has settled into the flight (R51: once the balloon has cleared the rooftops, 12-40 s). */
   settled: boolean;
   waiting: boolean;
   shot: string;

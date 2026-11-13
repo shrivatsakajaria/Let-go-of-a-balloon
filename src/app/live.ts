@@ -2,13 +2,13 @@
  * The live flight, loaded after the start screen has painted (three.js and the world are the heavy
  * part of the page). It owns the 3D scene, the HUD and the flight's state:
  *
- *   start --Let go--> launch --hand opens--> launch (released) --camera settles (20 s)--> flight --72 h--> landed
+ *   start --Let go--> launch --hand opens--> launch (released) --camera settles (12-40 s)--> flight --72 h--> landed
  *   launch --winds fail, or not ready by 6 s--> error --Try again--> launch
  *                                              error --Cancel--> start
  *   (a link or a saved balloon) --> flight or landed;  flight/landed --Let go of another/your own--> start
  *
  * The page's view (start, launch, flight, error) is set on <html data-view>, and the chrome's fades
- * follow it in CSS (spec 8: chrome fades out over 300 ms on Let go, the HUD in over 600 ms at 20 s).
+ * follow it in CSS (spec 8: chrome fades out over 300 ms on Let go, the HUD in over 600 ms when Ride settles).
  */
 import { Vector3 } from 'three';
 import type { DirectorEvent, DirectorMode } from '../camera/director';
@@ -59,6 +59,8 @@ export type LiveHook = {
   person: string | null;
   aglM: number;
   shot: string;
+  /** Seconds since Let go while the launch shot runs (0 otherwise). */
+  launchS: number;
   paused: boolean;
   camera: number[];
   target: number[];
@@ -125,7 +127,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', launchS: 0, paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
   private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -504,6 +506,7 @@ export class Live {
     h.person = this.scene.person?.state ?? null;
     h.aglM = f.aglM;
     h.shot = f.shot;
+    h.launchS = this.scene.director.launchSeconds;
     h.paused = this.hud.paused;
     this.scene.camera.position.toArray(h.camera);
     this.scene.balloon.mesh.position.toArray(h.target);
