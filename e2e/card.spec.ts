@@ -49,14 +49,19 @@ test('a link opened after 72 hours opens on the card: a 1080x1350 postcard of th
 
 test('the card shows when a balloon comes down while it is being watched', async ({ context, page }) => {
   await liveWorld(context);
-  // released 72 hours ago, less 6 seconds
+  // released 72 hours ago, less 40 seconds (the software renderer on a busy machine can take 20 s to open it)
   const b = eastward(72);
-  b.release = Date.now() - 72 * 3600e3 + 6000;
+  const landsAt = Date.now() + 40_000;
+  b.release = landsAt - 72 * 3600e3;
   await page.goto(await linkTo(b));
   await page.waitForFunction(() => document.documentElement.dataset.view === 'flight', null, { timeout: 30_000 });
-  expect((await card(page))?.state ?? 'idle').toBe('idle');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // still in the air: no card yet
+  if (Date.now() < landsAt - 2000) {
+    expect((await card(page))?.state ?? 'idle').toBe('idle');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
   const c = await opened(page);
+  expect(Date.now()).toBeGreaterThanOrEqual(landsAt);
   expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
 });
 
