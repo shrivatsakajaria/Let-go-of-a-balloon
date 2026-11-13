@@ -8,7 +8,7 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2022',
     rollupOptions: {
-      input: { main: resolve(__dirname, 'index.html'), debug: resolve(__dirname, 'debug.html'), tileproof: resolve(__dirname, 'tileproof.html') },
+      input: { main: resolve(__dirname, 'index.html'), debug: resolve(__dirname, 'debug.html'), tileproof: resolve(__dirname, 'tileproof.html'), world: resolve(__dirname, 'world.html') },
     },
   },
 });
