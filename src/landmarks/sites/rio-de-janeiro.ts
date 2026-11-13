@@ -35,6 +35,8 @@ export const sites: LandmarkSite[] = [
     headingDeg: 82,
     // the summit rock's grid reaches 416 m out (its far corners)
     footprintRadiusM: 420,
+    // the summit rock and terrace are the model's own ground: a launch on them waits for it
+    carriesGround: true,
     // the statue, its pedestal and chapel only (the summit's other buildings lie under the rock)
     hides: [{ x: 0, z: 0, r: 12 }],
   },

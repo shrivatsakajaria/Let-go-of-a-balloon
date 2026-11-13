@@ -107,7 +107,7 @@ describe('every model', () => {
       }
       expect(src, `${f}: dynamic import`).not.toMatch(/import\(/);
       // colours come from LANDMARK_COLOURS or the region style, by name
-      expect(src.match(/#[0-9a-fA-F]{6}\b/g) ?? [], f).toEqual([]);
+      expect(src.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [], f).toEqual([]);
     }
   });
 
@@ -134,6 +134,10 @@ describe('every model', () => {
         const allowed = new Set(contourColours(style));
         for (const c of seen) expect(allowed.has(c), `${site.id} uses ${c}`).toBe(true);
         seen.forEach((c) => kitColours.add(c));
+        // a site says it carries ground (the person waits for it) exactly when its model marks some
+        let ground = false;
+        g.traverse((o) => (ground ||= !!o.userData.ground));
+        expect(!!site.carriesGround, `${site.id} carriesGround`).toBe(ground);
         // every mesh has a bucket the layer knows
         g.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) expect(['walls', 'plain', 'glow']).toContain(o.userData.bucket);

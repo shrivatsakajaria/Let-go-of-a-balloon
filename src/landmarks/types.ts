@@ -52,6 +52,11 @@ export type LandmarkSite = Omit<Landmark, 'build' | 'animate'> & {
    * footprint circle for hiding map buildings. footprintRadiusM still bounds the whole model.
    */
   hides?: HideCircle[];
+  /**
+   * The model carries ground of its own (meshes marked userData.ground: a summit the map has lost).
+   * A launch inside the footprint waits for the model before the person is shown on it.
+   */
+  carriesGround?: boolean;
 };
 
 /** What a model module exports as `model`. */

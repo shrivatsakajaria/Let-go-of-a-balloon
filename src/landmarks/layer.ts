@@ -187,12 +187,13 @@ export class LandmarkLayer {
   }
 
   /**
-   * Whether every landmark whose footprint takes in p is in sight (loaded, placed and shown), so
-   * its ground there is known. True where no landmark is near. Allocates nothing.
+   * Whether every landmark that carries ground (site.carriesGround) and whose footprint takes in p
+   * is in sight (loaded, placed and shown), so its ground there is known. True where there is none:
+   * a start under any other landmark never waits for it. Allocates nothing.
    */
   settledAt(p: LatLon): boolean {
     for (const s of this.sites) {
-      if (haversineKm(p, s.at) * 1000 > s.footprintRadiusM) continue;
+      if (!s.carriesGround || haversineKm(p, s.at) * 1000 > s.footprintRadiusM) continue;
       const e = this.entries.get(s.id);
       if (!e || e.state !== 'shown' || !e.group!.visible) return false;
     }

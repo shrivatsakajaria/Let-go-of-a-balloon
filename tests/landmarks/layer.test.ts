@@ -108,11 +108,11 @@ test('landmarks are dropped and freed once the focus is far away, and wait for f
 });
 
 /** A layer with one site at SQUARE, its model built by `build` (or loaded by `models`). */
-function oneModel(build: () => THREE.Group, models?: Record<string, () => Promise<LandmarkModel>>, id = 'test-thing') {
+function oneModel(build: () => THREE.Group, models?: Record<string, () => Promise<LandmarkModel>>, id = 'test-thing', extra: Partial<LandmarkSite> = {}) {
   const scene = new THREE.Scene();
   const stream = new WorldStream(scene, never, () => DEFAULT_REGION, { vectorUrl: 'x/{z}/{x}/{y}', origin: SQUARE });
   let t = 0;
-  const site: LandmarkSite = { id, cityId: 'test', name: 'Thing', at: SQUARE, headingDeg: 0, footprintRadiusM: 150 };
+  const site: LandmarkSite = { id, cityId: 'test', name: 'Thing', at: SQUARE, headingDeg: 0, footprintRadiusM: 150, ...extra };
   const host = { scene, toScene: stream.toScene.bind(stream), groundAt: () => 10, zoomAt: () => 14, materials: stream.materials };
   const layer = new LandmarkLayer(host, { sites: [site], models: models ?? { [id]: async () => ({ build }) }, now: () => t });
   return { scene, layer, site, tick: (ms: number) => (t += ms) };
@@ -202,7 +202,7 @@ test("a landmark's own ground (meshes marked userData.ground: a terrace, a rock)
     ground.userData.ground = true;
     g.add(ground);
     return g;
-  }, undefined, 'test-terrace');
+  }, undefined, 'test-terrace', { carriesGround: true });
   const day = lightFor(30);
   // before the model is in, nothing is known to stand on, and the start is not settled
   expect(layer.groundAt(site.at)).toBe(-Infinity);
@@ -224,6 +224,13 @@ test("a landmark's own ground (meshes marked userData.ground: a terrace, a rock)
   expect(layer.groundAt(modelToLatLon(site, 40, 0))).toBe(-Infinity);
   // far from any landmark the start is settled at once
   expect(layer.settledAt({ lat: 52, lon: -1 })).toBe(true);
+  layer.dispose();
+});
+
+test('a start under a landmark that carries no ground of its own is settled at once (the person does not wait for Westminster)', () => {
+  const { layer, site } = oneModel(() => new THREE.Group(), { 'test-plain': () => new Promise(() => {}) }, 'test-plain');
+  layer.update(SQUARE, 0, lightFor(30));
+  expect(layer.settledAt(site.at)).toBe(true);
   layer.dispose();
 });
 
