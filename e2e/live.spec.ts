@@ -55,12 +55,14 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
   // the launch is announced in the polite status region
   await expect(page.locator('.hud .status')).toHaveText('Your balloon is on its way from Manchester', { timeout: 15_000 });
 
-  // at 20 s Ride settles and the HUD comes in over 600 ms
-  await expect.poll(() => view(page), { timeout: 60_000, intervals: [250] }).toBe('flight');
-  expect(Date.now() - t0).toBeGreaterThan(19_500);
+  // the crane shot (R51): once the balloon has cleared the rooftops round it (12-40 s) the camera settles
+  // and the HUD comes in over 600 ms
+  await expect.poll(() => view(page), { timeout: 75_000, intervals: [250] }).toBe('flight');
+  expect(Date.now() - t0).toBeGreaterThan(11_500);
   expect(await page.locator('.hud-bottom').evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0\.6s/);
   await expect.poll(() => opacity(page, '.hud-bottom'), { timeout: 8000 }).toBe(1);
-  expect((await hook(page))!.shot).toBe('ride');
+  // Ride, or Circling if the Town Hall's tower still stands over it at the 40 s ceiling (Film never rides below the rooftops)
+  expect(['ride', 'circling']).toContain((await hook(page))!.shot);
   await expect(page.locator('.hud .day')).toHaveText(/^Day 1 of 3 · \d+ min aloft$/);
   await expect(page.getByRole('button', { name: 'Film' })).toHaveAttribute('aria-pressed', 'true');
   // the flight's main action (Task 18 plays it: e2e/replay.spec.ts)

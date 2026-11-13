@@ -204,7 +204,7 @@ export class LiveScene {
     this.newBalloon();
     this.placePerson();
     this.director.paused = false;
-    this.director.setLaunch({ personAt: this.start, landmarkHeadingDeg: this.landmark, startUtcMs: Date.now(), waiting: this.wait });
+    this.director.setLaunch({ personAt: this.start, landmarkHeadingDeg: this.landmark, startUtcMs: Date.now(), waiting: this.wait, cueRelease: true });
   }
 
   /** The wind at the start is known: the person turns to it, and the street camera stands upwind. */
@@ -255,6 +255,7 @@ export class LiveScene {
         this.released = true;
         this.balloon.root.visible = true;
         this.balloon.release();
+        this.director.release(); // the crane starts as the hand opens
         onRelease(ready!);
       },
       { readyAt: route, onTimeout: timeout },

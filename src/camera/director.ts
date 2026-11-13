@@ -65,7 +65,7 @@ const OPEN_M = 5;
  * person to CRANE_BACK times the balloon's height over the person's ground (at most CRANE_MAX_M) and
  * rises to CRANE_UP of it, the balloon at CRANE_Y0 (the upper third), widening to CRANE_FOV. It pulls
  * back along the street (the clearest line near the street spot's, at most CRANE_TURN_DEG off it), and
- * follows the balloon along that line over CRANE_FOLLOW (s after Let go), so a long crane does not end
+ * follows the balloon along that line over CRANE_FOLLOW (s after the release), so a long crane does not end
  * far behind it; a balloon drifting toward it it backs away from at once, so it never passes over.
  */
 const CRANE_EASE_S = 2;
@@ -74,7 +74,7 @@ const CRANE_MAX_M = 40;
 const CRANE_UP = 0.45;
 const CRANE_Y0 = 0.33;
 const CRANE_FOV = 52;
-const CRANE_FOLLOW: [number, number] = [5, 16];
+const CRANE_FOLLOW: [number, number] = [3.8, 14.8];
 const CRANE_TURN_DEG = 40;
 /** The crane keeps this far over any building within CRANE_CLEAR_M of its spot (it rises over them before it reaches them). */
 const CRANE_OVER_M = 2;
@@ -146,7 +146,11 @@ export type WaitFrame = { centerY: number; spanY: number };
  * landmarkHeadingDeg: bearing from the person to the featured landmark (spec 6.2); omit (or NaN) when there is none.
  * waiting: hold a wider establishing shot of the person and the balloon (the start screen) until go().
  */
-export type LaunchOpts = { personAt: LatLon; landmarkHeadingDeg?: number; startUtcMs: number; waiting?: WaitFrame };
+/**
+ * cueRelease: the app says when the hand opens (release()), which can be later than holdS while the route is
+ * still being worked out; the street shot holds until then. Without it the hand opens at holdS.
+ */
+export type LaunchOpts = { personAt: LatLon; landmarkHeadingDeg?: number; startUtcMs: number; waiting?: WaitFrame; cueRelease?: boolean };
 const BALLOON: V3 = { x: 1, y: 1, z: 1 };
 const WORLD: V3 = { x: 0, y: 0, z: 0 };
 
@@ -181,6 +185,8 @@ export class Director {
   private swing: [number, number] = [0, 0];
   /** Launch clock (s) when the camera began to push back in to the balloon; NaN until then. */
   private pushAt = Number.NaN;
+  /** Launch clock when the hand opened (with cueRelease); NaN until then. */
+  private relAt = Number.NaN;
   /** The balloon is below the rooftops round it (with hysteresis); null: judge afresh next frame. */
   private low: boolean | null = null;
   /** The crane pulls back along this horizontal unit vector (from the person), chosen at the release. */
@@ -322,10 +328,21 @@ export class Director {
   }
 
   private resetCrane(): void {
+    this.relAt = Number.NaN;
     this.pushAt = Number.NaN;
     this.craneDir = null;
     this.still = null;
     this.stillLost = false;
+  }
+
+  /** The hand has opened (cueRelease): the crane starts now. */
+  release(): void {
+    if (this._shot === 'launch' && !this.wait && Number.isNaN(this.relAt)) this.relAt = Math.max(LAUNCH.holdS, this.launchT);
+  }
+
+  /** Launch clock when the hand opened (NaN until it has). */
+  private get rel(): number {
+    return this.launchOpts?.cueRelease ? this.relAt : LAUNCH.holdS;
   }
 
   /** Seconds since Let go (0 while waiting or after the launch). */
@@ -661,7 +678,7 @@ export class Director {
    */
   private launchStep(B: THREE.Vector3): void {
     const t = this.launchT;
-    if (this.wait || t < LAUNCH.holdS) return;
+    if (this.wait || !(t >= this.rel)) return;
     const push = this.reduced ? 0 : LAUNCH.pushS;
     if (Number.isNaN(this.pushAt)) {
       const due = t >= LAUNCH.settleMaxS - push || (t >= LAUNCH.settleMinS - push && !this.low) || this.stillLost;
@@ -695,7 +712,7 @@ export class Director {
     const t = this.launchT;
     const S = this.streetPos(b, B0, dir, right);
     if (this.wait) return this.waitTarget(b, B, B0, S, this.wait);
-    if (t < LAUNCH.holdS) return { pos: S.clone(), y0: 0.6, x0: this.landmarkX(S, B, 40), fov: 40, anchor: WORLD };
+    if (!(t >= this.rel)) return { pos: S.clone(), y0: 0.6, x0: this.landmarkX(S, B, 40), fov: 40, anchor: WORLD };
     if (this.reduced) return this.stillTarget(b, B, B0, S, dir);
     const cr = this.crane(b, B, B0, S, dir);
     if (Number.isNaN(this.pushAt)) return cr;
@@ -767,8 +784,9 @@ export class Director {
     const gP = this.deps.groundAt(o.personAt);
     const a = this.craneAxis(b, B0, S, ps, dir);
     const D0 = Math.max(1, Math.hypot(S.x - ps.x, S.z - ps.z));
-    const r = inOut(LAUNCH.holdS, LAUNCH.holdS + CRANE_EASE_S, t);
-    const w = inOut(CRANE_FOLLOW[0], CRANE_FOLLOW[1], t);
+    const rel = this.rel;
+    const r = inOut(rel, rel + CRANE_EASE_S, t);
+    const w = inOut(rel + CRANE_FOLLOW[0], rel + CRANE_FOLLOW[1], t);
     const hB = Math.max(0, B.y - gP);
     const D = mix(D0, Math.min(CRANE_MAX_M, Math.max(D0, CRANE_BACK * hB)), r);
     const along = (B.x - ps.x) * a.x + (B.z - ps.z) * a.z; // the balloon's drift toward the crane

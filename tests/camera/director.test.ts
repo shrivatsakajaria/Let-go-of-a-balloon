@@ -738,6 +738,26 @@ describe('launch crane', () => {
     expect(d.shot).toBe('ride'); // 65 m up by 30 s, still in Ride's 40 s slot
   });
 
+  test('a late release (the route not ready at 1.2 s): the street shot holds until the hand opens, then the crane', () => {
+    const ground = 10;
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, startUtcMs: 0, cueRelease: true });
+    const late = 4;
+    const mk = (t: number): RoutePoint => {
+      const fl = Math.max(0, t - late);
+      return { tSec: t, lat: 50, lon: (2.5 * fl) / K, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: 2.5, headingDeg: 90 };
+    };
+    let held: THREE.Vector3 | null = null;
+    run(d, 0, 10, 0.05, mk, (t) => {
+      const k = Math.round(t * 100) / 100;
+      if (k === 2) held = cam.position.clone();
+      if (k > 2 && k < late) expect(cam.position.distanceTo(held!)).toBeLessThan(1e-3);
+      if (k === late) d.release();
+    });
+    expect(Math.hypot(cam.position.x, cam.position.z)).toBeGreaterThan(Math.hypot(held!.x, held!.z) + 5);
+  });
+
   test('a featured landmark stays in frame through the crane', () => {
     const ground = 0;
     const H = 30;
