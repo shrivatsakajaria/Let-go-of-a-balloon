@@ -143,7 +143,7 @@ export class LiveScene {
   private readonly point: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private readonly dirPoint: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private lumBuf = new Uint8Array(0);
-  private replay: { drive: SceneReplay; trail: ReplayTrail; mode: DirectorMode } | null = null;
+  private replay: { drive: SceneReplay; trail: ReplayTrail; mode: DirectorMode; shadowCleared: boolean } | null = null;
   private readonly rs: ReplaySample = { now: 0, wide: 0, landing: 0 };
   private readonly trailFrame: TrailFrame = {
     route: null as unknown as Route, tSec: 0, toScene: (p, out) => this.stream.toScene(p, out), head: this.target, camera: this.camera, viewportH: 1, balloonRadiusM: 0, lower: 0,
@@ -308,7 +308,7 @@ export class LiveScene {
   startReplay(drive: SceneReplay): void {
     if (!this.route || !this.released) return;
     this.stopReplay();
-    this.replay = { drive, trail: new ReplayTrail(this.scene), mode: this.director.mode };
+    this.replay = { drive, trail: new ReplayTrail(this.scene), mode: this.director.mode, shadowCleared: false };
     // the person (still in the street early in a flight) waits out of sight and is there again after
     if (this.person) this.person.root.visible = false;
     this.freshBalloon();
@@ -489,7 +489,8 @@ export class LiveScene {
     const streamAlt = rp && rs.wide > 0.5 ? Math.max(this.camera.position.y, REPLAY_STREAM_ALT_M) : this.camera.position.y;
     this.stream.update({ lat: cll.lat, lon: cll.lon, altM: streamAlt, headingDeg: heading }, t, { focus: pt, recentreM: step });
     // landmarks animate at the time the scene shows (a clock face keeps the replay's hour)
-    this.landmarks.update(cll, now, this.sky.current);
+    // (not looked for while the replay is high and wide: it crosses a landmark's reach in a frame)
+    this.landmarks.update(cll, now, this.sky.current, { scan: !(rp && rs.wide > 0.5) });
 
     // clouds drift with the wind at cruise, and never take in the balloon or the camera
     const h = pt.headingDeg * D2R;
@@ -514,8 +515,13 @@ export class LiveScene {
     // is clear (no boats' or roofs' shadows from wherever the box last was; the balloon's own shadow is a
     // decal and stays). Back to live, the box comes down to the balloon again and the map is redrawn.
     if (rp) this.focus.y = this.target.y + REPLAY_SHADOW_UP_M;
-    redraw = this.sky.place(this.focus) || redraw;
+    redraw = this.sky.place(this.focus) || redraw; // (the light still turns with the sun)
     if (this.shadowAsked > this.shadowDrawnAt && t - this.shadowDrawnAt > 250) redraw = true;
+    // the empty map is drawn once when the box has gone up, then not again until Back to live
+    if (rp) {
+      redraw = !rp.shadowCleared;
+      rp.shadowCleared = true;
+    }
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;

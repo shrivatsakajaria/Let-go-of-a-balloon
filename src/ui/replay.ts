@@ -138,9 +138,16 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   const still = host.reducedMotion;
   let landing: LandingLines | null = null;
   let gone = false;
+  let ended = false;
   Promise.resolve(opts.landing ?? null).then(
     (l) => {
-      if (l && !gone) landing = landingLines(l, last, landedMs, Date.now() >= landedMs);
+      if (!l || gone) return;
+      landing = landingLines(l, last, landedMs, Date.now() >= landedMs);
+      // found only after the end (a slow gazetteer): put it on the landing that is being held
+      if (ended) {
+        if (still) map?.draw(1);
+        else write(landing.name, landing.line, 1);
+      }
     },
     () => {},
   );
@@ -183,7 +190,6 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   return new Promise<void>((resolve) => {
     let raf = 0;
     let timer = 0;
-    let ended = false;
     const finish = () => {
       if (gone) return;
       gone = true;

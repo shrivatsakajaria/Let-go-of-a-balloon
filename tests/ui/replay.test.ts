@@ -99,6 +99,20 @@ describe('playReplay: the end, Back to live and Escape (fake timers, a fake page
     expect(h.hud.setReplay).toHaveBeenLastCalledWith(false);
   });
 
+  test('a landing that is found only after the end is still written (holding on the landing)', async () => {
+    const h = host();
+    let found: (l: { name: string; kind: string }) => void = () => {};
+    const landing = new Promise<{ name: string; kind: string } | null>((r) => (found = r));
+    void playReplay(manchesterToBergen(), { host: h, onEnd: () => {}, signal: new AbortController().signal, clock: () => Date.now(), landing });
+    await vi.advanceTimersByTimeAsync(25_000);
+    const name = h.hud.replaySlot.children[0] as unknown as { textContent: string };
+    expect(name.textContent).toBe('');
+    found({ name: 'Bergen', kind: 'town' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(name.textContent).toBe('Bergen');
+    expect((h.hud.replaySlot.children[1] as unknown as { textContent: string }).textContent).toMatch(/^Landed here · /); // (this test route flew in 1970)
+  });
+
   test('Back to live at 5 s: gone at once, no onEnd ever, nothing left listening or ticking', async () => {
     const h = host();
     const onEnd = vi.fn();
