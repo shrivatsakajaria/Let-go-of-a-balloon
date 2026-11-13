@@ -79,6 +79,9 @@ const CRANE_TURN_DEG = 40;
 /** The crane keeps this far over any building within CRANE_CLEAR_M of its spot (it rises over them before it reaches them). */
 const CRANE_OVER_M = 2;
 const CRANE_CLEAR_M = 3;
+/** ...and the push, which moves faster, this far. */
+const PUSH_CLEAR_M = 10;
+const LAUNCH_X_TAU_S = 0.5;
 /** Reduced motion's still frame: its field of view, and how much of it the person and the rise fill. */
 const STILL_FOV = 50;
 const STILL_FILL = 0.8;
@@ -191,6 +194,9 @@ export class Director {
   private low: boolean | null = null;
   /** The crane pulls back along this horizontal unit vector (from the person), chosen at the release. */
   private craneDir: THREE.Vector3 | null = null;
+  /** The crane starts from here (the camera as the hand opened), with the balloon this high over the ground. */
+  private craneFrom: THREE.Vector3 | null = null;
+  private craneH0 = 0;
   /** Reduced motion: the still frame after the release (position, and the fixed view's yaw and pitch). */
   private still: { pos: THREE.Vector3; yaw: number; pitch: number } | null = null;
   /** Reduced motion: the balloon is about to leave the still frame (the cut comes now). */
@@ -329,6 +335,7 @@ export class Director {
 
   private resetCrane(): void {
     this.relAt = Number.NaN;
+    this.craneFrom = null;
     this.pushAt = Number.NaN;
     this.craneDir = null;
     this.still = null;
@@ -466,7 +473,9 @@ export class Director {
     const tau = this._shot === 'replay' ? REPLAY_TAU_S : this.tau;
     spring3(this.pos, this.posV, tg.pos, tau, dtFull);
     [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, tau, dtFull);
-    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, tau, dtFull);
+    // the launch shares the frame between the balloon and the person or landmark, whose bearings swing fast
+    // as the hand opens: the framing across follows on a shorter spring
+    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this._shot === 'launch' ? Math.min(tau, LAUNCH_X_TAU_S) : tau, dtFull);
     [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, tau, dtFull);
     this.apply(b, B, B0);
   }
@@ -712,7 +721,7 @@ export class Director {
     const t = this.launchT;
     const S = this.streetPos(b, B0, dir, right);
     if (this.wait) return this.waitTarget(b, B, B0, S, this.wait);
-    if (!(t >= this.rel)) return { pos: S.clone(), y0: 0.6, x0: this.landmarkX(S, B, 40), fov: 40, anchor: WORLD };
+    if (!(t >= this.rel)) return { pos: S.clone(), y0: 0.6, x0: this.shareX(S, B, 40, this.lmBearing()), fov: 40, anchor: WORLD };
     if (this.reduced) return this.stillTarget(b, B, B0, S, dir);
     const cr = this.crane(b, B, B0, S, dir);
     if (Number.isNaN(this.pushAt)) return cr;
@@ -720,7 +729,7 @@ export class Director {
     const end = this.shotTarget(this.shotFor(this.afterLaunch), B, dir, right, h);
     const off = this.polarMix(this.v1.copy(cr.pos).sub(B), end.pos.sub(B), c, c, 1);
     return {
-      pos: off.add(B),
+      pos: this.overBuildings(off.add(B), b, B0, PUSH_CLEAR_M),
       y0: mix(cr.y0, end.y0, c),
       x0: mix(cr.x0 ?? 0, end.x0 ?? 0, c),
       fov: mix(cr.fov, end.fov, c),
@@ -728,11 +737,29 @@ export class Director {
     };
   }
 
-  /** Where the balloon sits across the frame so that it and the featured landmark share it (0 with none). */
-  private landmarkX(from: V3, B: V3, fovDeg: number): number {
+  /** Lifts a launch camera target over any building within radiusM of it, before it gets there. */
+  private overBuildings(p: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3, radiusM: number): THREE.Vector3 {
+    if (!this.deps.buildingTopAt) return p;
+    const ll = this.fromScene(p.x, p.z, b, B0, this.ll);
+    const g = this.deps.groundAt(ll);
+    const top = this.deps.buildingTopAt(ll, radiusM);
+    if (Number.isFinite(g) && top > g + 0.5) p.y = Math.max(p.y, top + CRANE_OVER_M);
+    return p;
+  }
+
+  /** Bearing to the featured landmark (radians), NaN with none. */
+  private lmBearing(): number {
     const lm = this.launchOpts?.landmarkHeadingDeg;
-    if (lm === undefined || !Number.isFinite(lm)) return 0;
-    const d = wrapPi(Math.atan2(B.x - from.x, -(B.z - from.z)) - lm * RAD);
+    return lm !== undefined && Number.isFinite(lm) ? lm * RAD : Number.NaN;
+  }
+
+  /**
+   * Where the balloon sits across the frame so that it and whatever lies along `bearing` (radians) from
+   * `from` share it, symmetrically about the centre; the balloon stays within 0.6 of it. 0 for a NaN bearing.
+   */
+  private shareX(from: V3, B: V3, fovDeg: number, bearing: number): number {
+    if (!Number.isFinite(bearing)) return 0;
+    const d = wrapPi(Math.atan2(B.x - from.x, -(B.z - from.z)) - bearing);
     const dd = Math.max(-1.2, Math.min(1.2, d));
     return Math.max(-0.6, Math.min(0.6, (0.5 * Math.tan(dd)) / this.tanH(fovDeg)));
   }
@@ -770,34 +797,41 @@ export class Director {
   }
 
   /**
-   * The crane after the release. It starts at the street spot (so the move begins from rest, with no cut)
-   * and eases into a pull back from the person along the crane's line, out to CRANE_BACK times the
-   * balloon's height, rising to CRANE_UP of it: the balloon in the upper third, the person at the bottom of
-   * the frame while it is near. It backs away from a balloon drifting toward it, and later follows one
-   * drifting away along the line. It rises over a building before it reaches one, and enough to see the
-   * balloon over the buildings between (up to the balloon's own height). The same object is filled every frame.
+   * The crane after the release. It starts where the camera is as the hand opens (so the move begins from
+   * there, with no cut) and pulls back from the person along the crane's line, CRANE_BACK metres for every
+   * metre the balloon has risen (out to CRANE_MAX_M), and rises CRANE_UP of it: the balloon in the upper
+   * third, the person (and the landmark behind them) sharing the frame with it while they are near. It backs
+   * away from a balloon drifting toward it, and later follows one drifting away along the line. It rises
+   * over a building before it reaches one, and enough to see the balloon over the buildings between (up to
+   * the balloon's own height). The same object is filled every frame.
    */
   private crane(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, S: THREE.Vector3, dir: THREE.Vector3): Target {
     const t = this.launchT;
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const gP = this.deps.groundAt(o.personAt);
-    const a = this.craneAxis(b, B0, S, ps, dir);
-    const D0 = Math.max(1, Math.hypot(S.x - ps.x, S.z - ps.z));
+    const hB = Math.max(0, B.y - gP);
+    if (!this.craneFrom) {
+      this.craneFrom = finite3(this.pos) && this.ready ? this.pos.clone() : S.clone();
+      this.craneH0 = hB;
+    }
+    const F = this.craneFrom;
+    const a = this.craneAxis(b, B0, F, ps, dir);
+    const D0 = Math.max(1, Math.hypot(F.x - ps.x, F.z - ps.z));
     const rel = this.rel;
     const r = inOut(rel, rel + CRANE_EASE_S, t);
     const w = inOut(rel + CRANE_FOLLOW[0], rel + CRANE_FOLLOW[1], t);
-    const hB = Math.max(0, B.y - gP);
-    const D = mix(D0, Math.min(CRANE_MAX_M, Math.max(D0, CRANE_BACK * hB)), r);
+    const rise = Math.max(0, hB - this.craneH0);
+    const D = Math.min(Math.max(CRANE_MAX_M, D0), D0 + CRANE_BACK * rise);
     const along = (B.x - ps.x) * a.x + (B.z - ps.z) * a.z; // the balloon's drift toward the crane
     const s = D + (along > 0 ? along : w * along);
     const tg = this.craneT;
-    // from the street spot onto the crane's line as the move gets going
-    const p = tg.pos.set(ps.x + a.x * s + (S.x - ps.x - a.x * D0) * (1 - r), 0, ps.z + a.z * s + (S.z - ps.z - a.z * D0) * (1 - r));
+    // from where it was onto the crane's line as the move gets going
+    const p = tg.pos.set(ps.x + a.x * s + (F.x - ps.x - a.x * D0) * (1 - r), 0, ps.z + a.z * s + (F.z - ps.z - a.z * D0) * (1 - r));
     const ll = this.fromScene(p.x, p.z, b, B0, this.ll);
     let g = this.deps.groundAt(ll);
     if (!Number.isFinite(g)) g = gP;
-    let y = g + mix(EYE_M, Math.max(EYE_M, CRANE_UP * hB), r);
+    let y = g + Math.max(EYE_M, F.y - gP) + CRANE_UP * rise;
     if (this.deps.buildingTopAt) {
       const top = this.deps.buildingTopAt(ll, CRANE_CLEAR_M);
       if (top > g + 0.5) y = Math.max(y, top + CRANE_OVER_M);
@@ -812,7 +846,9 @@ export class Director {
     p.y = y;
     tg.y0 = mix(0.6, CRANE_Y0, r);
     tg.fov = mix(40, CRANE_FOV, r);
-    tg.x0 = this.landmarkX(p, B, tg.fov);
+    // the balloon shares the frame with the person while they are near, then with the landmark (if any)
+    const at = this.ready ? this.pos : p; // from where the camera is (it trails its target)
+    tg.x0 = mix(this.shareX(at, B, tg.fov, Math.atan2(ps.x - at.x, -(ps.z - at.z))), this.shareX(at, B, tg.fov, this.lmBearing()), w);
     tg.anchor.x = tg.anchor.z = 0;
     tg.anchor.y = CRANE_UP * r;
     tg.snap = false;
