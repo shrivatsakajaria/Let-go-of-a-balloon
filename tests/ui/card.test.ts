@@ -35,8 +35,20 @@ describe('the card', () => {
     const L = cardLayout(cardWords(facts()), measure);
     expect([L.width, L.height]).toEqual([1080, 1350]);
     expect(L.sceneBottom).toBeGreaterThanOrEqual(0.6 * 1350);
-    const kicker = L.texts.find((t) => t.role === 'kicker')!;
-    expect(kicker.y - kicker.size).toBeGreaterThanOrEqual(0.55 * 1350);
+    // the text stays in the bottom 40%, even with a two-line headline
+    for (const words of [cardWords(facts()), cardWords(facts({ landing: { name: 'North Sea', kind: 'sea' } }))]) {
+      const L2 = cardLayout(words, measure);
+      expect(L2.headline.lines).toHaveLength(2);
+      const k = L2.texts.find((t) => t.role === 'kicker')!;
+      expect(k.y - k.size).toBeGreaterThanOrEqual(0.6 * 1350);
+      expect(L2.fadeBottom).toBeLessThanOrEqual(k.y - k.size);
+    }
+    // the date and the site address each have their own line (spec 6.5 lists them apart), date first
+    const when = L.texts.find((t) => t.role === 'when')!;
+    const site = L.texts.find((t) => t.role === 'site')!;
+    expect(site.x).toBe(when.x);
+    expect(site.y).toBeGreaterThan(when.y);
+    expect(L.texts.filter((t) => t.role === 'credit')[0].y).toBeGreaterThan(site.y);
     // nothing runs off the card or into the bottom margin
     for (const t of L.texts) {
       expect(t.x).toBeGreaterThanOrEqual(64);
@@ -60,7 +72,8 @@ describe('the card', () => {
 
   test('headline for Manchester to Bergen fits on two lines at the chosen size', () => {
     const h = fitHeadline('Manchester', 'Bergen', measure, 1080 - 2 * 72);
-    expect(h.size).toBe(120);
+    // two lines are set at 108 px at the most, so the text stays below the 60% line
+    expect(h.size).toBe(108);
     expect(h.lines.map((l) => l.map((s) => s.text).join(''))).toEqual(['Manchester', 'to Bergen']);
     // "to" at regular weight, the places bold
     expect(h.lines[1]).toEqual([{ text: 'to ', bold: false }, { text: 'Bergen', bold: true }]);
@@ -69,6 +82,7 @@ describe('the card', () => {
 
   test('a short headline stays on one line; a long one shrinks toward 88 px, then gives the last word an ellipsis', () => {
     expect(fitHeadline('Leeds', 'York', measure, 936).lines).toHaveLength(1);
+    expect(fitHeadline('Leeds', 'York', measure, 936).size).toBe(120);
     const long = fitHeadline('Llanfairpwllgwyngyll', 'Saint-Pierre-et-Miquelon', measure, 936);
     expect(long.size).toBeLessThan(120);
     expect(long.size).toBeGreaterThanOrEqual(88);

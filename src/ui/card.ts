@@ -140,6 +140,8 @@ export type Segment = { text: string; bold: boolean };
 export type Headline = { size: number; lines: Segment[][] };
 
 const H_MAX = 120;
+/** Two lines are set no larger than this, so the text block starts below the 60% line. */
+const H_TWO_MAX = 108;
 const H_MIN = 88;
 const H_STEP = 4;
 const headFont = (size: number, bold: boolean): CardFont => ({ size, weight: bold ? 700 : 400, condensed: true });
@@ -192,7 +194,7 @@ function ellipsize(line: Segment[], size: number, m: Measure, max: number): Segm
 /**
  * "Manchester to Bergen" at the largest size from 120 px down to 88 px that fits in two lines of
  * maxWidth: one line if it can, else broken before "to" ("Manchester" / "to Bergen"), else word by
- * word. Past 88 px the second line ends in an ellipsis.
+ * word; two lines at 108 px at the most. Past 88 px the second line ends in an ellipsis.
  */
 export function fitHeadline(from: string, to: string, m: Measure, maxWidth: number): Headline {
   const split = (s: string, bold: boolean) => s.split(/\s+/).filter(Boolean).map((text) => ({ text, bold }));
@@ -203,6 +205,7 @@ export function fitHeadline(from: string, to: string, m: Measure, maxWidth: numb
   for (let size = H_MAX; size >= H_MIN; size -= H_STEP) {
     const one = [toLine(all)];
     if (ok(one, size)) return { size, lines: one };
+    if (size > H_TWO_MAX) continue;
     if (toW.length) {
       const two = [toLine(fromW), toLine(toW)];
       if (ok(two, size)) return { size, lines: two };
@@ -290,19 +293,14 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
   const credit = wrapCredits(w.credit, creditF, m, inner);
   let y = H - BOTTOM - (credit.length - 1) * 30;
   credit.forEach((line, i) => put('credit', line, X, y + i * 30, creditF, 'secondary'));
-  y -= 22 + 22;
 
-  // the date and time it was let go, and the site address on the same row
+  // the date and time it was let go, then the site address, each on its own line
   const metaF: CardFont = { size: 26, weight: 500, condensed: false };
+  y -= 34;
+  put('site', w.site, X, y, metaF, 'secondary');
+  y -= 32;
   put('when', w.when, X, y, metaF, 'secondary');
-  const siteW = m(w.site, metaF);
-  if (m(w.when, metaF) + 32 + siteW <= inner) put('site', w.site, W - X - siteW, y, metaF, 'secondary');
-  else {
-    // no room beside it: the address goes on its own row above the date
-    y -= 36;
-    put('site', w.site, X, y, metaF, 'secondary');
-  }
-  y -= 26 + 40;
+  y -= 19 + 28;
 
   // stats: value over label, in thirds
   const valF: CardFont = { size: 56, weight: 650, condensed: true };
@@ -310,9 +308,10 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
   w.stats.forEach((s, i) => {
     const x = X + (i * inner) / 3;
     put('stat-label', s.label, x, y, labF, 'secondary');
-    put('stat-value', s.value, x, y - 26 - 12, valF, 'primary');
+    put('stat-value', s.value, x, y - 26 - 8, valF, 'primary');
   });
-  y -= 26 + 12 + 56 + 44;
+  // from the labels' baseline to the headline's: the values (41 px caps) and room for descenders
+  y -= 26 + 8 + 41 + 34;
 
   // headline
   const head = fitHeadline(w.from, w.to, m, inner);
@@ -330,11 +329,11 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
   // the kicker sits a little above the headline's cap height
   const capTop = y - head.size * 0.72;
   const kickF: CardFont = { size: 32, weight: 500, condensed: false };
-  const ky = Math.round(capTop - 24);
+  const ky = Math.round(capTop - 22);
   put('kicker', w.kicker, X, ky, kickF, 'secondary');
 
-  // the fade: complete just above the kicker, starting about 220 px higher
-  const fadeBottom = Math.round(ky - 32 - 20);
+  // the fade: complete just above the kicker, starting about 240 px higher
+  const fadeBottom = Math.round(ky - 32 - 8);
   const fadeTop = fadeBottom - 240;
   return { width: W, height: H, sceneBottom: CARD_SCENE_H, fadeTop, fadeBottom, headline: head, texts };
 }
