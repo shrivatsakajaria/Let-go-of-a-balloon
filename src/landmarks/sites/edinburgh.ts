@@ -1,7 +1,8 @@
 /**
  * Edinburgh's landmarks. Positions from OpenStreetMap (the castle's parts, 2026-11): the origin is
- * the summit of Castle Rock by St Margaret's Chapel (the cities.json hero point), and the castle
- * runs 270 m east-west from the Gatehouse on the Esplanade to the Western Defences.
+ * the summit of Castle Rock by St Margaret's Chapel, and the castle runs 270 m east-west from the
+ * Gatehouse on the Esplanade to the Western Defences. The cities.json hero point is the Gatehouse
+ * front (so the launch view from the Esplanade frames the gate, not the summit behind it).
  */
 import type { HideCircle, LandmarkSite } from '../types';
 

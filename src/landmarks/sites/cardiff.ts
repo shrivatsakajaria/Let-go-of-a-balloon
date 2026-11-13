@@ -1,8 +1,9 @@
 /**
  * Cardiff's landmarks. Positions from OpenStreetMap (the castle's walls, towers and buildings,
- * 2026-11): the origin is the middle of the castle green (the cities.json hero point), the walls
- * enclose a 230 m by 240 m square turned 14 deg, and the south front on Castle Street faces a
- * bearing of 166 deg.
+ * 2026-11): the origin is the middle of the castle green, the walls enclose a 230 m by 240 m
+ * square turned 14 deg, and the south front on Castle Street faces a bearing of 166 deg. The
+ * cities.json hero point is on the south wall between the gate and the Clock Tower, so the launch
+ * view from High Street frames both.
  */
 import type { HideCircle, LandmarkSite } from '../types';
 
