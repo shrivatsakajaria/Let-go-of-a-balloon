@@ -2,8 +2,8 @@
  * Marina Bay Sands: three 55-storey hotel towers, 194 m, on a gentle arc, each two legs side by
  * side (the back leg straight, the bay-side leg sweeping out at its foot), the low lobbies between
  * them, and across their tops the SkyPark: a 340 m deck like a long boat, with its garden, the
- * infinity pool along the bay side and the cantilever reaching 67 m past the north tower. The deck's
- * edge lights from dusk. Faceted, Contour colours.
+ * infinity pool along the bay side and the cantilever reaching about 50 m past the north tower (as
+ * OSM draws the deck). The deck's edge lights from dusk. Faceted, Contour colours.
  *
  * The plan (towers, lobbies, the SkyPark and its pool) from OpenStreetMap (2026-11). Model frame
  * (types.ts): origin at the hero point by the middle tower, front (local -z) to the bay, west-north-
@@ -17,7 +17,7 @@ type P3 = [number, number, number];
 
 /** Contour's shallow water (CONTOUR.waterShallow): the pool. */
 const POOL: Color = '#8fd3cf';
-/** Contour's deep sage (CONTOUR.land[3]): the SkyPark's garden. */
+/** Contour's sage (CONTOUR.land[3]): the SkyPark's garden. */
 const GARDEN: Color = '#88b06c';
 
 /** Tower roofs, under the deck (m). */
