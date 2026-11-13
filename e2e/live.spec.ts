@@ -26,6 +26,7 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
   await page.goto('/');
   await ready(page);
   expect((await hook(page))?.person).toBe('idle');
+  await page.waitForTimeout(3000); // the winds and the ground under the start load while the visitor reads
 
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
   const t0 = Date.now();

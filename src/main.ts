@@ -110,5 +110,6 @@ window.addEventListener('hashchange', () => {
   route();
 });
 
-// the world loads once the first frame of the chrome is on screen
-requestAnimationFrame(() => setTimeout(() => void loadLive().catch(() => {}), 0));
+// the world loads once the first frame of the chrome is on screen (not under a ?backdrop= test colour,
+// which the contrast checks need to see)
+if (!params.has('backdrop')) requestAnimationFrame(() => setTimeout(() => void loadLive().catch(() => {}), 0));
