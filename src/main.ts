@@ -50,6 +50,8 @@ const deps = (contextLosses = 0) => ({ start, sceneEl, hudEl, noticeEl, setView,
 function loadMap(h?: Handover): Promise<World> {
   return import('./fallback/fallback2d').then((m) => {
     const f = m.startFallback(h?.flight ?? undefined, deps(), h?.choice ?? latest ?? start.start);
+    // the landing card, drawn on the map (no three.js)
+    f.onCard = (route) => void import('./app/mapcard').then((c) => c.showMapCard(f, route)).catch(() => {});
     const a = h ? resumeAction(h, Date.now()).kind : 'stay';
     if (a === 'launch') f.letGo(h!.choice);
     else if (a === 'start') setView('start');

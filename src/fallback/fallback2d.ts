@@ -23,6 +23,8 @@ import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
+import { closeCardView } from '../ui/cardview';
+import { homeFor } from '../app/landingcard';
 import { luminance, type StartChoice } from '../ui/start';
 import { BALLOON_HEX } from '../config';
 import { CONTOUR } from '../world/palette';
@@ -315,14 +317,18 @@ export class Fallback implements World {
       throw e;
     }
     if (ticket !== this.opening || this.state !== 'flight') return;
-    const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
-    this.show({ route, home, own, launched: false });
+    // "your location" only on the visitor's own balloon; a shared one is named for its place
+    const home = { name: await homeFor(b, own), lat: b.start.lat, lon: b.start.lon };
+    if (ticket !== this.opening || this.state !== 'flight') return;
+    this.show({ route, home, own, launched: false, saved: b });
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
   /** Show a flight on the map (also what the 3D world hands over when it gives up mid-flight). */
   show(fl: Flight): void {
     this.clearNotice();
+    closeCardView();
+    this.hud.setCard(null);
     this.flight = fl;
     this.state = 'flight';
     this.said = null;
@@ -346,6 +352,8 @@ export class Fallback implements World {
     this.opening++;
     this.launching++;
     this.clearNotice();
+    closeCardView();
+    this.hud.setCard(null);
     clearInterval(this.timer);
     this.flight = null;
     this.px = null;
@@ -355,6 +363,11 @@ export class Fallback implements World {
     history.replaceState(null, '', '/');
     this.deps.start.refresh();
     this.deps.setView('start');
+  }
+
+  /** The flight on the map (the landing card reads it). */
+  get shown(): Flight | null {
+    return this.flight;
   }
 
   /** The map at w x h CSS px (for the landing card's picture): the coastline that is in, and the route. */
@@ -377,6 +390,8 @@ export class Fallback implements World {
   dispose(): void {
     this.opening++;
     this.launching++;
+    this.flight = null; // a landing card being made for it never opens
+    closeCardView();
     clearInterval(this.timer);
     window.removeEventListener('resize', this.onResize);
     this.hud.destroy();

@@ -145,6 +145,8 @@ test.describe('without WebGL', () => {
     await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.locator('.hud .over')).toHaveText(/^(Landed near|Landed in|Came down in) /, { timeout: 20_000 });
     await expect(page.locator('.hud .day')).toHaveText('Landed · 72 h aloft');
+    // the landing card opens over the map (its own test is below); closed, the landed map is there
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeVisible();
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
   });
@@ -160,9 +162,48 @@ test.describe('without WebGL', () => {
     await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   });
 
-  // Task 17 builds the card; at merge its showCard is connected to the map's onCard (fallback2d.ts),
-  // which fires once when the balloon has landed or a landed link opens.
-  test.fixme('the landing card shows on the map (connected at the Task 17 merge)', async () => {});
+  test('"Show the card" on the map while the card is being made shows that card (one render)', async ({ context, page }) => {
+    await liveWorld(context);
+    await coast(context);
+    await noWebGL(context);
+    // the coastline comes slowly, so the card's map picture is still being made when the visitor taps
+    await context.route(/^https:\/\/tiles\.openfreemap\.org\/fixture\/[0-5]\//, async (route) => {
+      await new Promise((r) => setTimeout(r, 4000));
+      await route.fallback();
+    });
+    await page.goto(await linkTo(eastward(80)));
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __card?: { state: string } }).__card?.state), { timeout: 20_000 }).toBe('waiting');
+    await page.getByRole('button', { name: 'Show the card' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 20_000 });
+    expect(await page.evaluate(() => (window as unknown as { __card: { renders: number; state: string } }).__card.renders)).toBe(1);
+  });
+
+  test('the landing card shows on the map: a 1080x1350 postcard with the map as its picture, and no 3D world loaded', async ({ context, page }) => {
+    await liveWorld(context);
+    await coast(context);
+    await noWebGL(context);
+    const scripts: string[] = [];
+    page.on('request', (r) => {
+      if (r.resourceType() === 'script') scripts.push(new URL(r.url()).pathname);
+    });
+    await page.goto(await linkTo(eastward(80)));
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    const hook = await page.evaluate(() => (window as unknown as { __card: { state: string; kicker: string; frame: string; renders: number } }).__card);
+    expect(hook.state).toBe('open');
+    expect(hook.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
+    expect(hook.frame).toBe('scene'); // the map's picture, not the plain sketch
+    const img = dialog.locator('img.card-img');
+    await expect.poll(() => img.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])).toEqual([1080, 1350]);
+    await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible();
+    // the map's own HUD reopens it
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Show the card' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10_000 });
+    expect(await page.evaluate(() => (window as unknown as { __card: { renders: number } }).__card.renders)).toBe(1);
+    // the 3D world (three.js) never came
+    expect(scripts.some((p) => /\/(live|sky|three)[-.]/.test(p))).toBe(false);
+  });
 });
 
 test('the credits list every source and end with "A Still Signal build"', async ({ page }) => {

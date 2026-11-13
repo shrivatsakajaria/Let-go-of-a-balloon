@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { clearGazetteerCache, nearestPlace, townsNear } from '../../src/geo/gazetteer';
+import { clearGazetteerCache, nearestPlace, seaAt, townsNear } from '../../src/geo/gazetteer';
 import { stubGazetteer, tileJson } from './helpers';
 
 beforeEach(() => {
@@ -108,4 +108,11 @@ test('the polar rows use the clamped tile row', async () => {
   expect(urls.some((u) => u.includes('5_16_0.json'))).toBe(true);
   expect(urls.some((u) => u.includes('5_16_31.json'))).toBe(true);
   expect(urls.every((u) => !/_(-1|32)\.json/.test(u))).toBe(true);
+});
+
+test('seaAt says whether a point is sea (for the landing card\'s haze plain under far land)', async () => {
+  stubGazetteer({}, true);
+  expect(await seaAt({ lat: 56, lon: 3 })).toBe(true); // the North Sea
+  expect(await seaAt({ lat: 53.483, lon: -2.244 })).toBe(false); // Manchester
+  expect(await seaAt({ lat: 60.39, lon: 5.32 })).toBe(false); // Bergen
 });

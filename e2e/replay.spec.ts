@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { clockText } from '../src/ui/hudmath';
 import { eastward, linkTo, liveWorld, SWIFTSHADER } from './fixtures';
 
 /**
@@ -95,9 +96,14 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   await expect.poll(async () => { const h = await hook(page); return h.camera[1] - h.target[1]; }, SLOW).toBeGreaterThan(20_000);
   expect((await page.locator('.hud .day').textContent()) ?? '').toMatch(/^(Day [123] of 3 · \d+ h aloft|Landed · 72 h aloft)$/);
 
-  // the end (by default: back to live) 20 s after the tap
-  await expect.poll(async () => (await hook(page)).replay, { timeout: 60_000, intervals: [250] }).toBe(false);
+  // the end 20 s after the tap: the landing card opens over the held landing; "Back to live" closes it
+  await expect.poll(async () => (await hook(page)).replayMs, { timeout: 60_000, intervals: [250] }).not.toBe(null);
   const ms = (await hook(page)).replayMs!;
+  const card = page.getByRole('dialog');
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  await card.getByRole('button', { name: 'Back to live' }).click();
+  await expect(card).toHaveCount(0);
+  await expect.poll(async () => (await hook(page)).replay, { timeout: 30_000, intervals: [250] }).toBe(false);
   // the floating origin follows the balloon in 30 km steps in the travel: a few re-centres a second at most
   const perS = ((await rc()) - rc0) / (ms / 1000);
   console.log(`re-centres over the replay: ${perS.toFixed(1)} a second`);
@@ -122,6 +128,63 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   await expect(page.locator('.hud .fact')).toBeVisible();
   expect((await hook(page)).shot).not.toBe('replay');
   expect(external).toEqual([]);
+});
+
+test('the replay ends on the landing card ("Expected to land near ..." over the held landing) within 22 s of the tap; Escape is the card\'s; Back to live returns to live at now', async ({ context, page }) => {
+  await liveWorld(context);
+  await openFlight(page, 30);
+  const trip = page.getByRole('button', { name: 'Show me the whole trip' });
+  const t0 = await page.evaluate(() => Date.now());
+  await trip.click();
+  const card = page.getByRole('dialog');
+  // the card is made while the replay plays and asked for at its end, within 22 s of the tap. Its picture
+  // is taken then: on a GPU that is a frame; on this software renderer, drawing the card's 1,180 km of
+  // coarse land at 1080 x 1000 takes 10-20 s on a busy machine, so the opening has its own allowance
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  const c = await page.evaluate(() => (window as unknown as { __card: { kicker: string; startedAt: number; openedAt: number; world: { readyAt: number; gateAt: number } } }).__card);
+  const ms = (await hook(page)).replayMs!;
+  expect(ms).toBeLessThan(22_000);
+  expect(c.startedAt - t0).toBeLessThan(22_000);
+  // the card's own preparation (its land) was done by the replay's end: the end never waits for tiles
+  expect(c.world.gateAt).toBeGreaterThan(0);
+  expect(c.world.readyAt).toBeGreaterThan(0);
+  expect(c.world.readyAt).toBeLessThanOrEqual(c.world.gateAt + 1000);
+  console.log(`the card opened ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap (software renderer)`);
+  expect(c.openedAt - c.startedAt).toBeLessThan(30_000);
+  expect(c.kicker).toMatch(/^Expected to (land near|land in|come down in)$/);
+  // still the replay behind it, holding on the landing
+  expect((await hook(page)).replay).toBe(true);
+  await expect(card.getByRole('button', { name: 'Back to live' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  // Escape belongs to the card now: it closes the card, and the card's close is Back to live
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect.poll(async () => (await hook(page)).replay, { timeout: 30_000, intervals: [250] }).toBe(false);
+  await expect.poll(() => offNow(page), { timeout: 60_000, intervals: [500] }).toBeLessThan(15_000);
+  // the HUD's clock is now's again
+  // (the clock is local time where the balloon is now: about 30 h along the eastward route)
+  const at = { lat: 53.4794 + 0.01 * 30.5, lon: -2.2453 + 0.25 * 30.5 };
+  await expect.poll(async () => {
+    const shown = await page.locator('.hud .clock-time').textContent();
+    return [clockText(Date.now() - 60_000, at), clockText(Date.now(), at)].includes(shown ?? '');
+  }, { timeout: 30_000, intervals: [500] }).toBe(true);
+  await expect(trip).toBeVisible();
+  // one filled main action at a time: the whole trip (the card's way back is a quiet link once landed)
+  expect(await page.locator('.hud .actions .main-action:not([hidden])').count()).toBe(1);
+});
+
+test('Escape between the replay\'s end and the card coming up still goes back to live, and the card then never opens', async ({ context, page }) => {
+  await liveWorld(context);
+  await openFlight(page, 30);
+  await page.getByRole('button', { name: 'Show me the whole trip' }).click();
+  // the end: the replay holds on the landing while the card's picture is taken (seconds on this renderer)
+  await expect.poll(async () => (await hook(page)).replayMs, { timeout: 60_000, intervals: [100] }).not.toBe(null);
+  expect(await page.getByRole('dialog').count()).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await hook(page)).replay, { timeout: 30_000, intervals: [250] }).toBe(false);
+  await page.waitForTimeout(15_000);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
 });
 
 test('Back to live during the replay returns to the live view at now, and the trail is gone; Escape does the same', async ({ context, page }) => {
@@ -159,8 +222,11 @@ test('reduced motion: no fly-through; the route is drawn in place over 2 s and h
   expect(h.trail).toBe(false); // the 3D scene stays live
   expect(h.shot).not.toBe('replay');
   await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeHidden();
-  // drawn in full, every mark shown, then (by default) back to live
+  // drawn in full, every mark shown, then the landing card; its "Back to live" returns to live
   await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(true);
+  const card = page.getByRole('dialog');
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  await card.getByRole('button', { name: 'Back to live' }).click();
   await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(false);
   const drawn = await page.evaluate(() => {
     const w = window as unknown as { __dash: number; __marks: number };

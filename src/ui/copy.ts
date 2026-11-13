@@ -44,4 +44,15 @@ export const COPY = {
   aloft: (hours: number) => `${hours} h aloft`,
   mapCredit: 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn',
   stillSignal: 'A Still Signal build',
+  // the landing card (7.4: Share card, Save image, Copy link then "Link copied"; the in-app lines from the brief)
+  shareCard: 'Share card',
+  saveImage: 'Save image',
+  copyLink: 'Copy link',
+  linkCopied: 'Link copied',
+  copyFailed: "Couldn't copy the link. Select it below to copy it.",
+  linkLabel: 'Link to this balloon',
+  pressAndHold: 'Press and hold to save',
+  openInBrowser: 'Open in your browser',
+  /** The landed HUD's way back to the card. */
+  showCard: 'Show the card',
 } as const;

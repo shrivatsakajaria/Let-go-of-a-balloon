@@ -532,3 +532,14 @@ describe('WorldStream: lamps follow the shared night', () => {
     expect(lamps().visible).toBe(false);
   });
 });
+
+describe('WorldStream wanted tiles', () => {
+  it("can be told exactly which tiles to draw (the landing card's corridor of coarse land)", async () => {
+    const scene = new THREE.Scene();
+    const pool = new FakePool();
+    const want = [{ z: 7, x: 63, y: 41 }, { z: 7, x: 64, y: 40 }, { z: 7, x: 64, y: 41 }];
+    const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, { vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf', origin: MANCHESTER, want: () => want, maxTiles: 8 });
+    await start(stream, cam(MANCHESTER, 90, 60000));
+    expect(pool.open().map((j) => `${j.msg.z}/${j.msg.x}/${j.msg.y}`).sort()).toEqual(['7/63/41', '7/64/40', '7/64/41']);
+  });
+});
