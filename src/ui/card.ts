@@ -575,7 +575,7 @@ export function isInAppBrowser(ua: string): boolean {
 export function openInBrowserHref(url: string, ua: string): string {
   if (!isInAppBrowser(ua)) return url;
   const u = new URL(url);
-  if (/Android/i.test(ua)) return `intent://${u.host}${u.pathname}${u.search}${u.hash}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
+  if (/Android/i.test(ua)) return `intent://${u.host}${u.pathname}${u.search}${u.hash}#Intent;scheme=https;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(url)};end`;
   if (/iPhone|iPad|iPod/i.test(ua)) return `x-safari-https://${u.host}${u.pathname}${u.search}${u.hash}`;
   return url;
 }

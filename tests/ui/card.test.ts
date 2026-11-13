@@ -229,7 +229,10 @@ describe('in-app browsers', () => {
 
   test('"Open in your browser" hands the link to the phone\'s browser', () => {
     const url = 'https://let-go-of-a-balloon.pages.dev/#b=abc';
-    expect(openInBrowserHref(url, X_ANDROID)).toBe('intent://let-go-of-a-balloon.pages.dev/#b=abc#Intent;scheme=https;action=android.intent.action.VIEW;end');
+    // with a fallback, so a phone with no browser to hand it to still opens the page
+    expect(openInBrowserHref(url, X_ANDROID)).toBe(
+      `intent://let-go-of-a-balloon.pages.dev/#b=abc#Intent;scheme=https;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(url)};end`,
+    );
     expect(openInBrowserHref(url, LINKEDIN)).toBe('x-safari-https://let-go-of-a-balloon.pages.dev/#b=abc');
     expect(openInBrowserHref(url, CHROME)).toBe(url);
   });
