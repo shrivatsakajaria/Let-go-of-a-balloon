@@ -97,6 +97,11 @@ export const VIEW_TRIANGLES = 430_000;
 /** A step down waits this long after the last change (tiles leaving take a moment); a step up much longer. */
 const DOWN_AFTER_MS = 700;
 const UP_AFTER_MS = 4000;
+/** Frames slower than this (smoothed), for SLOW_FOR_MS, are over budget too (under 20 fps); a step up wants them under QUICK_FRAME_MS. */
+const SLOW_FRAME_MS = 50;
+const SLOW_FOR_MS = 3000;
+const QUICK_FRAME_MS = 33;
+const SLOW_SMOOTH_MS = 1000;
 /** A step up only when the finer step's view (scaled by area) would stay this far under the limit. */
 const UP_MARGIN = 0.85;
 
@@ -104,12 +109,16 @@ const UP_MARGIN = 0.85;
  * Level of detail by budget (spec 12: lower the detail when the frame is over budget). Fed the
  * triangles the view drew each frame, it gives the reach scale for the buildings levels (tilesFor
  * `scale`): a step down at once when over, a step back up after a quiet spell when the finer step's
- * view, scaled by area, would still fit. Dense city centres get a nearer city; everywhere else full detail.
+ * view, scaled by area, would still fit. Frame times, where they mean something, count too: frames
+ * slower than 50 ms for 3 s step the detail down (spec 12: lower the detail when the frame time is
+ * over budget). Dense city centres get a nearer city; everywhere else full detail.
  */
 export class DetailBudget {
   private step = 0;
   private changedAt = -Infinity;
   private quietSince = NaN;
+  private frameMs = NaN;
+  private slowSince = NaN;
   private readonly high: number;
 
   constructor(opts: { high?: number } = {}) {
@@ -120,9 +129,24 @@ export class DetailBudget {
     return DETAIL_STEPS[this.step];
   }
 
-  /** Once a frame (frames that redraw the shadow map left out): the scale to stream with. */
-  update(viewTriangles: number, nowMs: number): number {
-    if (viewTriangles > this.high) {
+  /**
+   * Once a frame: what the view drew (the shadow pass left out), the clock, and how long the frame
+   * took (ms; leave it out where frame times mean nothing, as on a software renderer). Returns the
+   * scale to stream with.
+   */
+  update(viewTriangles: number, nowMs: number, frameMs?: number): number {
+    // frame time, smoothed over about a second: a phone that stays slow is over budget too
+    if (frameMs !== undefined && Number.isFinite(frameMs)) {
+      const k = Math.min(1, Math.max(0, frameMs) / SLOW_SMOOTH_MS);
+      this.frameMs = Number.isNaN(this.frameMs) ? frameMs : this.frameMs + (frameMs - this.frameMs) * k;
+      if (this.frameMs > SLOW_FRAME_MS) {
+        if (Number.isNaN(this.slowSince)) this.slowSince = nowMs;
+      } else this.slowSince = NaN;
+    }
+    const slow = !Number.isNaN(this.slowSince) && nowMs - this.slowSince >= SLOW_FOR_MS;
+    if (viewTriangles > this.high || slow) {
+      // (a slow phone steps down at most every SLOW_FOR_MS: the smoothing lags the change)
+      if (slow && viewTriangles <= this.high && nowMs - this.changedAt < SLOW_FOR_MS) return this.scale;
       this.quietSince = NaN;
       if (this.step < DETAIL_STEPS.length - 1 && nowMs - this.changedAt >= DOWN_AFTER_MS) {
         this.step++;
@@ -132,7 +156,7 @@ export class DetailBudget {
     }
     if (this.step === 0) return 1;
     const up = DETAIL_STEPS[this.step - 1] / this.scale;
-    if (viewTriangles * up * up >= this.high * UP_MARGIN) {
+    if (viewTriangles * up * up >= this.high * UP_MARGIN || this.frameMs > QUICK_FRAME_MS) {
       this.quietSince = NaN;
       return this.scale;
     }

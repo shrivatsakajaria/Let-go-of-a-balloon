@@ -148,3 +148,21 @@ describe('DetailBudget', () => {
     expect(d.update(100, 25000)).toBe(1);
   });
 });
+
+describe('DetailBudget and frame time', () => {
+  it('a phone that stays slow (frames over 50 ms for seconds) gets less detail too; a short hitch does not', () => {
+    const d = new DetailBudget({ high: 400 });
+    // a one-second hitch at 80 ms a frame
+    let t = 0;
+    for (; t < 1000; t += 80) d.update(100, t, 80);
+    for (; t < 3000; t += 16) d.update(100, t, 16);
+    expect(d.scale).toBe(1);
+    // slow for good
+    for (; t < 8000; t += 70) d.update(100, t, 70);
+    expect(d.scale).toBeLessThan(1);
+    // and no step back up while it is still slow
+    const s = d.scale;
+    for (; t < 20000; t += 70) d.update(10, t, 70);
+    expect(d.scale).toBeLessThanOrEqual(s);
+  });
+});

@@ -26,7 +26,7 @@ import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type Gr
 import { Clouds } from '../world/clouds';
 import { DetailBudget, hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
-import { createRenderer } from '../world/render';
+import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
 import { shadowBudget, TREE_SHADOW_M, type PassCount } from '../world/sunlight';
 import { WorldStream } from '../world/stream';
@@ -120,6 +120,8 @@ export class LiveScene {
   /** What the last shadow redraw's pass drew (SunLight.fit counts it before the redraw). */
   private readonly shadowPass: PassCount = { triangles: 0, calls: 0 };
   private readonly detail = new DetailBudget();
+  /** Frame times count toward the detail budget (not on a software renderer, where they mean nothing). */
+  private readonly frameTimes: boolean;
   /** The last frame drawn redrew the shadow map (for the performance checks). */
   shadowDrawn = false;
   /** The first frame has been drawn. */
@@ -174,6 +176,7 @@ export class LiveScene {
     this.reduced = opts.reducedMotion;
     this.start = { lat: start.lat, lon: start.lon };
     this.renderer = createRenderer(canvas);
+    this.frameTimes = !isSoftwareRenderer(this.renderer);
     this.sky = new Sky(this.scene, { shadow: { radius: 700, mapSize: 2048, snap: 100, upM: 60, downM: 40 } });
     this.sky.update(Date.now(), start);
     this.pool = new WorkerPool<BuildRequest, BuildReply>(
@@ -599,7 +602,7 @@ export class LiveScene {
       this.plain.triangles = info.triangles - (this.shadowDrawn ? this.shadowPass.triangles : 0);
       this.plain.calls = info.calls - (this.shadowDrawn ? this.shadowPass.calls : 0);
       // over budget in a dense city: the buildings levels come nearer (the replay streams its own way)
-      this.stream.detailScale = this.detail.update(this.plain.triangles, t);
+      this.stream.detailScale = this.detail.update(this.plain.triangles, t, this.frameTimes ? dt * 1000 : undefined);
     }
     if (this.frames++ === 0) this.onFirstFrame?.();
     // reading pixels back stalls the pipeline: only when text sits over the scene and nothing is being
