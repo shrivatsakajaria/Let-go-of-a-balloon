@@ -33,7 +33,11 @@ export type TrailFrame = {
   viewportH: number;
   /** The drawn balloon's radius (m): the marker steps aside once the balloon is bigger. */
   balloonRadiusM: number;
+  /** At the landing: 0 the trail at the balloon's height, 1 laid on the ground (just over it). */
+  lower?: number;
 };
+/** A trail laid on the ground floats this far over it. */
+const ON_GROUND_M = 2;
 
 export class ReplayTrail {
   readonly group = new THREE.Group();
@@ -84,6 +88,7 @@ export class ReplayTrail {
     const pts = f.route.points;
     const cam = f.camera;
     const pxToM = (2 * Math.tan((cam.fov * Math.PI) / 360)) / Math.max(1, f.viewportH);
+    const lower = Math.min(1, Math.max(0, f.lower ?? 0));
     // the centre line: route points flown so far, then the balloon as drawn
     let n = 0;
     const c = this.centres;
@@ -92,7 +97,7 @@ export class ReplayTrail {
       if (!(p.tSec < f.tSec)) break;
       const s = f.toScene(p, this.xz);
       c[3 * n] = s.x;
-      c[3 * n + 1] = p.altM;
+      c[3 * n + 1] = p.altM + (p.groundM + ON_GROUND_M - p.altM) * lower;
       c[3 * n + 2] = s.z;
       n++;
     }

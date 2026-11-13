@@ -280,6 +280,7 @@ export class LiveScene {
     this.replay = { drive, trail: new ReplayTrail(this.scene), mode: this.director.mode };
     this.person?.dispose();
     this.person = null;
+    this.freshBalloon();
     this.clouds.mesh.visible = false;
     this.groundS = Number.NaN;
     this.skyAt = -Infinity;
@@ -293,11 +294,18 @@ export class LiveScene {
     if (!r) return;
     this.replay = null;
     r.trail.dispose();
+    this.freshBalloon(); // its string swung after a balloon that crossed a sea in 15 s
     this.clouds.mesh.visible = true;
     this.groundS = Number.NaN;
     this.skyAt = -Infinity;
     this.renderer.shadowMap.needsUpdate = true;
     this.director.cut(r.mode);
+  }
+
+  private freshBalloon(): void {
+    this.newBalloon();
+    this.balloon.root.visible = true;
+    this.balloon.release();
   }
 
   get replaying(): boolean {
@@ -380,7 +388,11 @@ export class LiveScene {
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
     this.updatePerson(dt);
     let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
-    if (rp) y += (this.groundS + LANDED_M - y) * rp.drive.landing(); // the replay's balloon settles at the end
+    if (rp) {
+      // the replay's balloon settles at the end, resting on the ground at the size it is drawn
+      const rest = this.groundS + LANDED_M * displayScale(this.camera.position.distanceTo(this.target));
+      y += (rest - y) * rp.drive.landing();
+    }
     const s = this.stream.toScene(pt, this.tmp);
     this.pos.set(s.x, y, s.z);
 
@@ -450,6 +462,7 @@ export class LiveScene {
         camera: this.camera,
         viewportH: this.canvas.clientHeight,
         balloonRadiusM: 0.15 * displayScale(dB),
+        lower: rp.drive.landing(),
       });
     }
 

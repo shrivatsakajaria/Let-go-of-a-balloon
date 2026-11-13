@@ -135,7 +135,8 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   const still = host.reducedMotion;
 
   host.hud.setReplay(true);
-  host.hud.setOver(still ? COPY.replayLabelStill : COPY.replayLabel);
+  // a number stays on its line with its unit and the word before it ("in 20 seconds")
+  host.hud.setOver((still ? COPY.replayLabelStill : COPY.replayLabel).replace(/(\d+) (?=\p{L})|(\p{L}) (?=\d)/gu, '$1$2\u00a0'));
   const slot = host.hud.replaySlot;
   slot.innerHTML = `<p class="replay-name"></p><p class="replay-when"></p>`;
   const [nameEl, whenEl] = Array.from(slot.children) as HTMLElement[];

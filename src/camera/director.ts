@@ -475,7 +475,7 @@ export class Director {
     else this.replayYaw += wrapPi(yawWant - this.replayYaw) * (1 - Math.exp(-this.stepS / REPLAY_YAW_S));
     const w = Math.min(1, Math.max(0, Number.isFinite(this.replayWide) ? this.replayWide : 1));
     const fov = mix(40, 50, w);
-    const dNear = this.distFor(0.06, fov, 60, 700);
+    const dNear = this.distFor(0.04, fov, 80, 900);
     const d = Math.exp(mix(Math.log(dNear), Math.log(REPLAY_WIDE_M), w));
     const el = mix(REPLAY_EL_NEAR, REPLAY_EL_WIDE, w);
     const dir = new THREE.Vector3(Math.sin(this.replayYaw), 0, -Math.cos(this.replayYaw));

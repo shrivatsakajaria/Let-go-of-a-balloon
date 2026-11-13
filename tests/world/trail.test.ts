@@ -42,6 +42,19 @@ describe('ReplayTrail', () => {
     expect(scene.getObjectByName('replay-trail')).toBeTruthy();
   });
 
+  test('at the landing the trail settles onto the ground with the balloon', () => {
+    const trail = new ReplayTrail(new THREE.Scene());
+    const r = route();
+    r.points.forEach((p) => (p.groundM = 200));
+    const head = new THREE.Vector3(toScene({ lat: 50, lon: 1.05 }).x, 201, 0);
+    const cam = camAt(head.x - 300, 400, 0, head);
+    trail.update({ route: r, tSec: 10.5 * 600, toScene, head, camera: cam, viewportH: 844, balloonRadiusM: 2, lower: 1 });
+    const pos = trail.ribbon.geometry.getAttribute('position');
+    expect((pos.getY(0) + pos.getY(1)) / 2).toBeCloseTo(200 + 2, 0); // just over the ground
+    trail.update({ route: r, tSec: 10.5 * 600, toScene, head, camera: cam, viewportH: 844, balloonRadiusM: 2, lower: 0.5 });
+    expect((pos.getY(0) + pos.getY(1)) / 2).toBeCloseTo((1500 + 202) / 2, 0);
+  });
+
   test('nothing to draw before the balloon has moved', () => {
     const trail = new ReplayTrail(new THREE.Scene());
     const head = new THREE.Vector3(0, 1500, 0);

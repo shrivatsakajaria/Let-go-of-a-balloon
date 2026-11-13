@@ -191,7 +191,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       text(clock, clockText(f.now, f.point));
       text(height, f.landed ? '0 m' : heightText(f.aglM));
       text(speed, speedText(f.landed ? 0 : f.speedMs));
-      text(day, dayLine(release, f.now));
+      text(day, dayLine(release, f.now, { forecast: root.classList.contains('is-replay') }));
       const p = progress(release, f.now);
       if (Math.abs(p - lastP) > 1e-5) {
         lastP = p;
