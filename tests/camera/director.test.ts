@@ -748,6 +748,44 @@ describe('launch crane', () => {
     expect(d.shot).toBe('ride'); // 65 m up by 30 s, still in Ride's 40 s slot
   });
 
+  test('the crane backs away, then travels on with the balloon (never doubling back), looking across at it, the balloon centred once the landmark is out of sight', () => {
+    const ground = 10;
+    const v = 3.5;
+    // a tall block beside its path that it never clears in time: the crane runs to the 40 s ceiling
+    const boxes: Box[] = [{ x0: 40, x1: 400, z0: 20, z1: 60, top: ground + 300 }];
+    const mk = rising(ground, 90, v);
+    let prev: THREE.Vector3 | null = null;
+    let turned = false;
+    let maxV = 0;
+    launch({
+      boxes, ground, heading: 90, speed: v, landmark: 0, until: 32,
+      each: (t, cam) => {
+        const k = Math.round(t * 100) / 100;
+        const B = ballPos(mk(t));
+        const c = cam.position;
+        if (prev && k > 1.25) {
+          const vx = (c.x - prev.x) / 0.05; // along the drift (east)
+          if (k > 5) maxV = Math.max(maxV, Math.hypot(c.x - prev.x, c.z - prev.z) / 0.05); // after the swing round to upwind
+          if (vx > 0.2) turned = true;
+          if (turned) expect(vx, `${k}`).toBeGreaterThan(-0.2); // once it travels with the balloon it never turns back
+        }
+        prev = c.clone();
+        const dh = Math.hypot(B.x - c.x, B.z - c.z);
+        if (k >= 10) {
+          expect(dh, `${k}`).toBeGreaterThan(15);
+          expect(dh, `${k}`).toBeLessThan(45);
+          expect(B.y - c.y, `${k}`).toBeLessThan(0.2 * dh + 0.5); // looking across at it, not up from below
+          const n = ndc(cam, B);
+          expect(n.y, `${k}`).toBeGreaterThan(0.2);
+          expect(n.y, `${k}`).toBeLessThan(0.5);
+          expect(Math.abs(n.x), `${k}`).toBeLessThan(0.15); // the landmark (due north) is long out of sight
+        }
+      },
+    });
+    expect(turned).toBe(true);
+    expect(maxV).toBeLessThan(1.6 * v);
+  });
+
   test('a late release (the route not ready at 1.2 s): the street shot holds until the hand opens, then the crane', () => {
     const ground = 10;
     const cam = mkPhone(50);
