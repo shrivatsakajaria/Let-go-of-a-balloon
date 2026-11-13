@@ -1,7 +1,7 @@
 import { lerpHex, type Color } from './color';
 
 export type { Color } from './color';
-export { parseHex, toHex, lerpHex } from './color';
+export { parseHex, toHex, lerpHex, hslOf } from './color';
 
 export type Light = {
   skyTop: Color;
@@ -84,9 +84,85 @@ export const ROADS = {
 };
 
 /**
- * Regional building character: wall and roof colours, and roof pitch in degrees. Task 19 adds
- * regional lookups; DEFAULT_REGION is Contour chalk with clay and slate roofs.
+ * Regional building character: wall and roof colours, and roof pitch in degrees.
+ * `tallWalls` (glass towers) replace `walls` on buildings taller than TALL_WALLS_M. Paris's
+ * mansard character is carried by its steep roofPitch.
  */
-export type RegionStyle = { walls: Color[]; roofs: Color[]; roofPitch: number };
+export type RegionStyle = { walls: Color[]; roofs: Color[]; roofPitch: number; tallWalls?: Color[]; mansard?: boolean };
+
+/** Buildings above this height (m) take a region's tallWalls, where it has them. */
+export const TALL_WALLS_M = 40;
 
 export const DEFAULT_REGION: RegionStyle = { walls: CONTOUR.building, roofs: CONTOUR.roof, roofPitch: 32 };
+
+/*
+ * Regional palettes. Every colour keeps HSL saturation <= 0.35, and anything near the balloon's
+ * hue (~18 deg) stays <= 0.2, so #ff5a12 is the only saturated thing in the world. Brick and
+ * brownstone are therefore muted reddish-browns; ochre and sand sit on hue 30-40.
+ */
+const PARIS: RegionStyle = {
+  walls: ['#e9e3d6', '#e4dccb', '#ece7dc'], // cream limestone
+  roofs: ['#9a9fa2', '#8e9498', '#a7abad'], // grey zinc
+  roofPitch: 45, // mansard
+};
+const UK: RegionStyle = {
+  walls: ['#a58b80', '#9b8478', '#b09a8c', '#a39a8e'], // muted brick, stock brick
+  roofs: ['#575d63', '#4d535a', '#656b70'], // slate
+  roofPitch: 35,
+};
+const BARCELONA: RegionStyle = {
+  walls: ['#c1ab86', '#baa278', '#c9b797'], // ochre
+  roofs: ['#ab997c', '#a28c6d', '#b5a58c'], // terracotta, muted
+  roofPitch: 18,
+};
+const NEW_YORK: RegionStyle = {
+  walls: ['#9a8378', '#a58c80', '#8d7a70', '#b0a396'], // brownstone
+  roofs: ['#7f8488', '#6f7478'],
+  roofPitch: 0, // flat roofs
+  tallWalls: ['#aebbc4', '#9fadb8', '#bcc7ce'], // glass
+};
+const MUMBAI: RegionStyle = {
+  walls: ['#cdbca2', '#c4b092', '#d4c5af'], // warm plaster
+  roofs: ['#b0a28d', '#a3937b'],
+  roofPitch: 12,
+};
+const DUBAI: RegionStyle = {
+  walls: ['#d1c3a9', '#d8cdb6', '#c9ba9c'], // sand
+  roofs: ['#ccc3b3', '#c4baa6'],
+  roofPitch: 0,
+  tallWalls: ['#abbbc4', '#b7c5cc'], // glass
+};
+const TOKYO: RegionStyle = {
+  walls: ['#d2d2cf', '#c7c8c8', '#dcdcd8'], // pale grey
+  roofs: ['#7a7f84', '#8b9094', '#6e7378'],
+  roofPitch: 14, // dense low-rise
+};
+
+export type RegionBox = { name: string; south: number; north: number; west: number; east: number; style: RegionStyle };
+
+/**
+ * Bounding boxes in degrees, checked in order (cities before the UK-wide fallback; London sits
+ * inside the UK box and shares its style). Generous enough for each metro area.
+ * Anywhere uncovered, including all open sea, is DEFAULT_REGION.
+ */
+export const REGION_BOXES: RegionBox[] = [
+  { name: 'paris', south: 48.7, north: 49.0, west: 2.1, east: 2.6, style: PARIS },
+  { name: 'london', south: 51.28, north: 51.7, west: -0.55, east: 0.3, style: UK },
+  { name: 'barcelona', south: 41.3, north: 41.5, west: 2.0, east: 2.3, style: BARCELONA },
+  { name: 'newyork', south: 40.45, north: 40.95, west: -74.3, east: -73.7, style: NEW_YORK },
+  { name: 'mumbai', south: 18.85, north: 19.35, west: 72.75, east: 73.05, style: MUMBAI },
+  { name: 'dubai', south: 24.8, north: 25.4, west: 54.9, east: 55.6, style: DUBAI },
+  { name: 'tokyo', south: 35.45, north: 35.95, west: 139.4, east: 140.0, style: TOKYO },
+  // Great Britain, split so the Channel coast of France (lat < 51.1, lon > 1.0) stays out.
+  { name: 'gb-south', south: 49.9, north: 51.1, west: -6.0, east: 1.0, style: UK },
+  { name: 'gb', south: 51.1, north: 60.9, west: -8.2, east: 1.8, style: UK },
+  { name: 'ireland', south: 51.3, north: 55.5, west: -10.7, east: -5.9, style: UK },
+];
+
+/** Regional building style for a point: city boxes first, then UK/Ireland, else Contour default. */
+export function regionStyle(p: { lat: number; lon: number }): RegionStyle {
+  for (const b of REGION_BOXES) {
+    if (p.lat >= b.south && p.lat <= b.north && p.lon >= b.west && p.lon <= b.east) return b.style;
+  }
+  return DEFAULT_REGION;
+}

@@ -52,3 +52,108 @@ test('golden hour sun is warm and intensity grows with elevation', () => {
   expect(g[0]).toBeGreaterThan(g[2]);
   expect(lightFor(40).sunIntensity).toBeGreaterThan(lightFor(0).sunIntensity);
 });
+
+// ---- regional building styles ----
+import { regionStyle, DEFAULT_REGION, REGION_BOXES, hslOf, type RegionStyle } from '../../src/world/palette';
+
+const BALLOON = '#ff5a12';
+const CENTRES = {
+  paris: { lat: 48.8566, lon: 2.3522 },
+  london: { lat: 51.5074, lon: -0.1278 },
+  barcelona: { lat: 41.3874, lon: 2.1686 },
+  newyork: { lat: 40.7128, lon: -74.006 },
+  mumbai: { lat: 19.076, lon: 72.8777 },
+  dubai: { lat: 25.2048, lon: 55.2708 },
+  tokyo: { lat: 35.6762, lon: 139.6503 },
+};
+
+test('Paris: cream stone, grey zinc roofs', () => {
+  const r = regionStyle(CENTRES.paris);
+  expect(r).not.toBe(DEFAULT_REGION);
+  for (const c of r.roofs) {
+    const { s, l } = hslOf(c);
+    expect(s).toBeLessThan(0.15); // zinc is grey
+    expect(l).toBeGreaterThan(0.35);
+  }
+  expect(r.roofPitch).toBeGreaterThanOrEqual(40); // mansard
+  for (const c of r.walls) expect(hslOf(c).l).toBeGreaterThan(0.75);
+});
+
+test('London: brick walls, slate roofs', () => {
+  const r = regionStyle(CENTRES.london);
+  expect(r.walls.some((c) => { const { h, l } = hslOf(c); return (h < 40 || h > 340) && l < 0.62; })).toBe(true);
+  for (const c of r.roofs) {
+    const { s, l } = hslOf(c);
+    expect(s).toBeLessThan(0.15);
+    expect(l).toBeLessThan(0.5);
+  }
+});
+
+test('every listed city returns its own distinct style at its centre', () => {
+  const seen = new Set<RegionStyle>();
+  for (const p of Object.values(CENTRES)) {
+    const r = regionStyle(p);
+    expect(r).not.toBe(DEFAULT_REGION);
+    seen.add(r);
+  }
+  expect(seen.size).toBe(Object.keys(CENTRES).length);
+});
+
+test('New York and Dubai have glass tallWalls; Barcelona is ochre; Tokyo is pale grey', () => {
+  for (const k of ['newyork', 'dubai'] as const) {
+    const t = regionStyle(CENTRES[k]).tallWalls!;
+    expect(t.length).toBeGreaterThan(0);
+    for (const c of t) {
+      const { h, s } = hslOf(c);
+      expect(h).toBeGreaterThan(180);
+      expect(h).toBeLessThan(250);
+      expect(s).toBeLessThanOrEqual(0.2);
+    }
+  }
+  for (const c of regionStyle(CENTRES.barcelona).walls) {
+    const { h } = hslOf(c);
+    expect(h).toBeGreaterThan(28);
+    expect(h).toBeLessThan(50);
+  }
+  for (const c of regionStyle(CENTRES.tokyo).walls) expect(hslOf(c).s).toBeLessThan(0.1);
+});
+
+test('sea and unlisted places are default; UK and Ireland use brick and slate', () => {
+  expect(regionStyle({ lat: 56, lon: 3 })).toBe(DEFAULT_REGION); // North Sea
+  expect(regionStyle({ lat: 0, lon: -30 })).toBe(DEFAULT_REGION); // Atlantic
+  expect(regionStyle({ lat: 52.2, lon: -1.0 })).toBe(regionStyle(CENTRES.london)); // Midlands: UK-wide style
+  expect(regionStyle({ lat: 53.4808, lon: -2.2426 })).toBe(regionStyle(CENTRES.london)); // Manchester
+  expect(regionStyle({ lat: 53.35, lon: -6.26 })).toBe(regionStyle(CENTRES.london)); // Dublin
+  expect(regionStyle({ lat: 50.73, lon: 1.6 })).toBe(DEFAULT_REGION); // Boulogne, France
+  expect(regionStyle({ lat: 52.52, lon: 13.4 })).toBe(DEFAULT_REGION); // Berlin
+});
+
+test('just outside a city box falls back to the surrounding region', () => {
+  const b = REGION_BOXES.find((x) => x.name === 'paris')!;
+  const inside = { lat: (b.south + b.north) / 2, lon: b.west + 0.01 };
+  expect(regionStyle(inside)).toBe(regionStyle(CENTRES.paris));
+  expect(regionStyle({ lat: inside.lat, lon: b.west - 0.01 })).toBe(DEFAULT_REGION);
+  expect(regionStyle({ lat: b.north + 0.01, lon: 2.3 })).toBe(DEFAULT_REGION);
+});
+
+test('regional colours: saturation <= 0.35 and never balloon-like', () => {
+  const balloonHue = hslOf(BALLOON).h;
+  const styles = [...Object.values(CENTRES).map(regionStyle), regionStyle({ lat: 53.4, lon: -2.2 })];
+  for (const r of styles) {
+    expect(r.roofPitch).toBeGreaterThanOrEqual(0);
+    for (const c of [...r.walls, ...r.roofs, ...(r.tallWalls ?? [])]) {
+      const { h, s } = hslOf(c);
+      expect(s).toBeLessThanOrEqual(0.35);
+      const dh = Math.min(Math.abs(h - balloonHue), 360 - Math.abs(h - balloonHue));
+      if (dh <= 15) expect(s).toBeLessThanOrEqual(0.2);
+    }
+  }
+});
+
+test('regionStyle is fast', () => {
+  const t = performance.now();
+  let n = 0;
+  for (let i = 0; i < 200000; i++) if (regionStyle({ lat: (i % 180) - 90, lon: ((i * 7) % 360) - 180 }) !== DEFAULT_REGION) n++;
+  expect(performance.now() - t).toBeLessThan(2000);
+  expect(n).toBeGreaterThanOrEqual(0);
+});

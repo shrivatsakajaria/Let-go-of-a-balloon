@@ -6,7 +6,7 @@
  */
 import earcut from 'earcut';
 import { groundHeightAt, LC, type GroundGrid } from './terrain';
-import { lerpHex, type RegionStyle } from './palette';
+import { lerpHex, TALL_WALLS_M, type RegionStyle } from './palette';
 import { MeshBuilder, clipRingHalfPlane, dedupe, hash01, pointInPolygon, ringArea, ringCentroid, rgb, scaleRGB, bbox, type BBox, type Polygon, type RGB } from './geom';
 import type { BuildingFeature } from './vector';
 import type { Landcover } from './landcover';
@@ -184,8 +184,9 @@ export type BuildingContext = {
   hidden: Circle[];
 };
 
-function styleFor(region: RegionStyle, seed: number): ExtrudeStyle {
-  const wallHex = region.walls[Math.floor(hash01(seed, 1) * region.walls.length)];
+export function styleFor(region: RegionStyle, seed: number, height = 0): ExtrudeStyle {
+  const walls = region.tallWalls && height > TALL_WALLS_M ? region.tallWalls : region.walls;
+  const wallHex = walls[Math.floor(hash01(seed, 1) * walls.length)];
   const wall = scaleRGB(rgb(wallHex), 0.97 + 0.04 * hash01(seed, 2));
   return {
     wall,
@@ -219,7 +220,7 @@ export function buildBuildings(list: BuildingFeature[], ctx: BuildingContext, wa
     const bottom = base + b.minHeight;
     if (top - bottom < 0.5) continue;
     const seed = (Math.round(c.x * 10) * 73856093) ^ (Math.round(c.z * 10) * 19349663);
-    extrude(b.polygon, bottom, top, b.height < PITCHED_BELOW_M, styleFor(ctx.region, seed), walls, roofs);
+    extrude(b.polygon, bottom, top, b.height < PITCHED_BELOW_M, styleFor(ctx.region, seed, b.height), walls, roofs);
     built++;
   }
   return { built, boxes };
