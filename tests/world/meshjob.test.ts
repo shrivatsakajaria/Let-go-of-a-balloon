@@ -573,6 +573,34 @@ test('roads crossing flat water stay above its surface (bridges over docks and l
   }
 });
 
+test('a bridge inside a landmark hiding circle is not draped on the ground (the model carries it); other roads are', () => {
+  const s = emptyFeatures();
+  // a bridge across a gorge, through a hiding circle at (600, -550) r 60, and a street under it
+  s.transportation.push({ cls: 'primary', subclass: '', brunnel: 'bridge', line: Float64Array.from([300, -550, 900, -550]) });
+  s.transportation.push({ cls: 'minor', subclass: '', brunnel: '', line: Float64Array.from([600, -300, 600, -800]) });
+  const c = frame.toLatLon(600, -550);
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION, { hiddenFootprints: [{ lat: c.lat, lon: c.lon, radiusM: 60 }] });
+  const p = t.roads.position;
+  let bridgeOutside = 0, streetInside = 0;
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i], z = p[i + 2];
+    const d = Math.hypot(x - 600, z + 550);
+    if (Math.abs(z + 550) < 6) {
+      // the bridge's ribbon (half width 5): none of it inside the circle, all of it outside kept
+      if (Math.abs(x - 600) > 4) expect(d, `bridge vertex at ${x.toFixed(1)}`).toBeGreaterThan(60 - 5.5);
+      if (d > 70) bridgeOutside++;
+    }
+    if (Math.abs(x - 600) < 4 && d < 50) streetInside++;
+  }
+  expect(bridgeOutside).toBeGreaterThan(4);
+  expect(streetInside).toBeGreaterThan(4);
+  // reaching from 300 to 540 and from 660 to 900
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < p.length; i += 3) if (Math.abs(p[i + 2] + 550) < 6 && Math.abs(p[i] - 600) > 4) { lo = Math.min(lo, p[i]); hi = Math.max(hi, p[i]); }
+  expect(lo).toBeLessThan(305);
+  expect(hi).toBeGreaterThan(895);
+});
+
 test('trees: none on the protected-area (park layer) polygon, some in the city parks', () => {
   const historic = f.park.filter((a) => a.cls === 'historic').map((a) => a.polygon);
   expect(historic.length).toBeGreaterThan(0); // Mamucium Roman fort

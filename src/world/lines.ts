@@ -6,7 +6,7 @@ import { cellAt, groundHeightAt, type GroundGrid } from './terrain';
 import { CONTOUR, ROADS, lerpHex } from './palette';
 import { MeshBuilder, clipTriToTile, hash01, rgb, type RGB } from './geom';
 import type { LineFeature } from './vector';
-import type { Segment } from './buildings';
+import type { Circle, Segment } from './buildings';
 
 /** Ribbons float this far above the ground. */
 export const DRAPE_M = 0.3;
@@ -123,12 +123,52 @@ export type RoadResult = {
 };
 
 /**
+ * The parts of a polyline [x, z, ...] outside every circle, as polylines. Each segment is cut
+ * exactly where it crosses a circle's edge.
+ */
+export function outsideCircles(l: ArrayLike<number>, circles: Circle[]): number[][] {
+  const out: number[][] = [];
+  let cur: number[] | null = null;
+  for (let i = 2; i < l.length; i += 2) {
+    const ax = l[i - 2], az = l[i - 1], dx = l[i] - ax, dz = l[i + 1] - az;
+    const aa = dx * dx + dz * dz;
+    if (aa < 1e-12) continue;
+    // the stretches of this segment (as parameters 0..1) inside some circle, in order
+    const inside: [number, number][] = [];
+    for (const c of circles) {
+      const fx = ax - c.x, fz = az - c.z;
+      const b = fx * dx + fz * dz, disc = b * b - aa * (fx * fx + fz * fz - c.r * c.r);
+      if (disc <= 0) continue;
+      const t0 = Math.max(0, (-b - Math.sqrt(disc)) / aa), t1 = Math.min(1, (-b + Math.sqrt(disc)) / aa);
+      if (t1 > t0) inside.push([t0, t1]);
+    }
+    inside.sort((p, q) => p[0] - q[0]);
+    let t = 0;
+    const keep = (s0: number, s1: number) => {
+      if (!cur) out.push((cur = [ax + dx * s0, az + dz * s0]));
+      cur.push(ax + dx * s1, az + dz * s1);
+    };
+    for (const [t0, t1] of inside) {
+      if (t0 > t) keep(t, t0);
+      if (t1 > t) {
+        cur = null;
+        t = t1;
+      }
+    }
+    if (t < 1) keep(t, 1);
+  }
+  return out;
+}
+
+/**
  * Road ribbons, width and pale tone by class; paths, service roads and tracks only above z13, and
  * only classes of at least `minRank` (4 motorway and trunk, 3 primary and secondary, 2 streets, 0 rail).
  * Roads never dip under flat water: `waterLevel` (NaN where none) lifts them over docks and lakes.
+ * Bridges are left out inside the `hidden` circles (landmarks): there the landmark's model carries
+ * the road, and a ribbon draped on the ground would run down the gorge or river under it.
  * Also buckets road segments and street bearings into the n x n land-cover grid.
  */
-export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder, waterLevel?: Surface, minRank = 0): RoadResult {
+export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder, waterLevel?: Surface, minRank = 0, hidden: Circle[] = []): RoadResult {
   const n = g.n;
   const surface: Surface = waterLevel
     ? (x, zz) => {
@@ -145,7 +185,11 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
     if (l.cls.endsWith('_construction')) continue;
     const st = l.cls === 'path' && l.subclass === 'pedestrian' ? PEDESTRIAN : STYLE[l.cls];
     if (!st || (st.small && z <= 13) || st.rank < minRank) continue;
-    const p = densify(l.line, step, surface);
+    const pieces = l.brunnel === 'bridge' && hidden.length ? outsideCircles(l.line, hidden) : [l.line];
+    for (const piece of pieces) road(piece, st, l.cls);
+  }
+  function road(line: ArrayLike<number>, st: RoadStyle, cls: string): void {
+    const p = densify(line, step, surface);
     ribbon(p, st.half, DRAPE_M + st.rank * 0.008, st.color, surface, frame.widthM, frame.heightM, out);
     for (let i = 2; i < p.length; i += 2) {
       const ax = p[i - 2], az = p[i - 1], bx = p[i], bz = p[i + 1];
@@ -154,7 +198,7 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
       if (!list) cells.set(c, (list = []));
       list.push({ ax, az, bx, bz, half: st.half });
       // streets people live on set the grain of the houses
-      const r = l.cls === 'minor' ? 3 : l.cls === 'tertiary' ? 2 : st.small || st.rank === 0 ? 0 : 1;
+      const r = cls === 'minor' ? 3 : cls === 'tertiary' ? 2 : st.small || st.rank === 0 ? 0 : 1;
       if (r > angleRank[c]) {
         angleRank[c] = r;
         angle[c] = Math.atan2(bz - az, bx - ax);

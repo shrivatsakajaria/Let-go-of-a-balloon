@@ -19,10 +19,13 @@ export const sites: LandmarkSite[] = [
     // the front faces up the gorge (NNW); +x runs along the bridge toward Clifton
     headingDeg: 328,
     footprintRadiusM: 280,
-    // only the two towers are OSM buildings ("guardhouse"); nothing else near the bridge is hidden
+    // only the two towers are OSM buildings ("guardhouse"); the circles along the deck take no
+    // building but the OSM bridge road, which would otherwise be draped down the gorge under the
+    // model's deck (the map leaves bridges out inside hiding circles); nothing else is hidden
     hides: [
       { x: -23.5, z: 0, r: 9 },
       { x: -236.5, z: 0, r: 9 },
+      ...[-45, -75, -105, -135, -165, -195, -215].map((x) => ({ x, z: 0, r: 16 })),
     ],
   },
 ];

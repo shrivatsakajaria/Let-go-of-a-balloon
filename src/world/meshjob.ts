@@ -117,17 +117,18 @@ export function buildTileMeshes(
   const water = new MeshBuilder(4096);
   buildWater(features.water, levels, g, water, detail.waterFacets ?? 20);
 
+  // landmark circles: their map buildings, gap-fill houses and bridges are left to the landmark
+  const hidden: Circle[] = (opts.hiddenFootprints ?? []).map((h) => {
+    const p = frame.toLocal(h.lat, h.lon);
+    return { x: p.x, z: p.z, r: h.radiusM };
+  });
   const roads = new MeshBuilder(16384);
-  const roadInfo = buildRoads(Number.isFinite(detail.roadMinRank) ? features.transportation : [], g, z, roads, waterLevelAt, detail.roadMinRank);
+  const roadInfo = buildRoads(Number.isFinite(detail.roadMinRank) ? features.transportation : [], g, z, roads, waterLevelAt, detail.roadMinRank, hidden);
   const waterways = new MeshBuilder(1024);
   if (detail.waterways) buildWaterways(features.waterway, g, z, waterways);
 
   const walls = new MeshBuilder(16384);
   const roofs = new MeshBuilder(4096);
-  const hidden: Circle[] = (opts.hiddenFootprints ?? []).map((h) => {
-    const p = frame.toLocal(h.lat, h.lon);
-    return { x: p.x, z: p.z, r: h.radiusM };
-  });
   const tops: number[] = [];
   const lite = detail.buildings === 'lite';
   const { built, boxes } = buildBuildings(
