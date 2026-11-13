@@ -446,6 +446,23 @@ describe('Director', () => {
       run(d, 49.5, 1, 0.1, held);
       expect(d.shot).toBe('ride');
     }
+    // a failed launch rewinds to the waiting shot smoothly (no snap), and stays there
+    const cam = new THREE.PerspectiveCamera(50, 390 / 660, 0.05, 100000);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt }));
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: ground + 2.4, groundM: ground, speedMs: 3, headingDeg: 90 });
+    d.setLaunch({ personAt: person, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 0.8 } });
+    run(d, 0, 5, 0.1, held);
+    const wide = cam.position.clone();
+    d.go();
+    run(d, 5, 6, 0.1, held);
+    const street = cam.position.clone();
+    expect(street.distanceTo(wide)).toBeGreaterThan(0.8);
+    d.rewind({ centerY: 0.2, spanY: 0.8 });
+    d.update(held(11.1), 0.1);
+    expect(cam.position.distanceTo(street)).toBeLessThan(0.5); // eases, no cut
+    run(d, 11.1, 30, 0.1, held);
+    expect(d.waiting).toBe(true);
+    expect(cam.position.distanceTo(wide)).toBeLessThan(0.05);
   });
 
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {

@@ -223,6 +223,16 @@ export class Director {
     if (this.wait) this.wait = { ...f };
   }
 
+  /**
+   * Back to waiting (the launch failed before the hand opened): the camera eases back to the establishing
+   * shot from wherever it is, with no cut.
+   */
+  rewind(f: WaitFrame): void {
+    if (this._shot !== 'launch') return;
+    this.wait = { ...f };
+    this.launchT = 0;
+  }
+
   /** Let go: the launch timeline starts from 0, and the camera moves in from the establishing shot. */
   go(): void {
     if (!this.wait) return;
