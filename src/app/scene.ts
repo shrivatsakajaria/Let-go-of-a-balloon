@@ -90,6 +90,8 @@ export class LiveScene {
   private wait: WaitFrame = { centerY: 0.15, spanY: 0.7 };
   private groundS = Number.NaN;
   private placedAt = 0;
+  /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
+  private holdUntil: { at: number; expire: () => void } | null = null;
   private feetS = Number.NaN;
   private last = performance.now();
   private frames = 0;
@@ -151,6 +153,7 @@ export class LiveScene {
     this.start = { lat: p.lat, lon: p.lon };
     this.route = null;
     this.released = false;
+    this.holdUntil = null;
     this.groundS = this.feetS = Number.NaN;
     // move the world's origin here first, so the director's street spots are chosen in the new frame
     this.stream.update({ lat: p.lat, lon: p.lon, altM: this.stream.groundAt(p) + 2, headingDeg: this.wind.headingDeg }, performance.now());
@@ -187,19 +190,23 @@ export class LiveScene {
     const timeout = () => {
       if (done) return;
       done = true;
-      clearTimeout(deadline);
+      this.holdUntil = null;
       onTimeout();
     };
-    // the person counts the 6 s in frame time; a slow frame rate must not stretch the wait in real time
-    const deadline = window.setTimeout(() => {
-      if (person.state !== 'holding') return;
-      person.holdIdle();
-      timeout();
-    }, MAX_HOLD_S * 1000 + 100);
+    // the person counts the 6 s in frame time; a slow frame rate must not stretch the wait in real time,
+    // so the frame loop also checks the clock (performance.now, which a backgrounded tab does not skip)
+    this.holdUntil = {
+      at: performance.now() + MAX_HOLD_S * 1000 + 100,
+      expire: () => {
+        if (person.state !== 'holding') return;
+        person.holdIdle();
+        timeout();
+      },
+    };
     person.play(
       () => {
         done = true;
-        clearTimeout(deadline);
+        this.holdUntil = null;
         this.route = ready;
         this.released = true;
         this.balloon.root.visible = true;
@@ -212,6 +219,7 @@ export class LiveScene {
 
   /** The launch failed before the hand opened: back to the start screen's shot, with no cut. */
   rewind(): void {
+    this.holdUntil = null;
     this.person?.holdIdle();
     this.director.rewind(this.wait);
   }
@@ -220,6 +228,7 @@ export class LiveScene {
   fly(route: Route, mode: DirectorMode = 'film'): void {
     this.route = route;
     this.released = true;
+    this.holdUntil = null;
     this.start = route.points[0];
     this.groundS = Number.NaN;
     const p = positionAt(route, Date.now());
@@ -316,6 +325,7 @@ export class LiveScene {
     const g = this.stream.groundAt(pt);
     this.groundS = Number.isNaN(this.groundS) || Math.abs(g - this.groundS) > 200 ? g : this.groundS + (g - this.groundS) * (1 - Math.exp(-dt / 0.8));
 
+    if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
     this.updatePerson(dt);
     const y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
     const s = this.stream.toScene(pt, this.tmp);
