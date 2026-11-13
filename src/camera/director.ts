@@ -73,7 +73,7 @@ const CLEAR_AHEAD_S = 24;
  * CRANE_FOLLOW (s after the release): it rises up over the person and follows the balloon out of the street.
  */
 const CRANE_EASE_S = 2;
-const CRANE_SWING_S = 4;
+const CRANE_SWING_S = 2.5;
 const CRANE_BACK = 1.4;
 const CRANE_MAX_M = 20;
 const CRANE_UP = 0.5;
