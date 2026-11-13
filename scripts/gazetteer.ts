@@ -170,6 +170,7 @@ async function main(): Promise<void> {
   for (const line of txt.split('\n')) {
     if (!line) continue;
     const c = line.split('\t');
+    if (c[7] === 'PPLX') continue; // a section of a town ("Manchester City Centre"): the town itself is in the data
     const [name, ascii, lat, lon, cc, pop] = [c[1], c[2], Number(c[4]), Number(c[5]), c[8], Number(c[14])];
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
     const t = lonLatToTile(lat, lon, Z);
@@ -224,9 +225,7 @@ async function main(): Promise<void> {
           if (v) any = true;
         }
       }
-      const t = tiles.get(`${Z}_${tx}_${ty}`);
       if (any) tileAt(tx, ty).grid = grid;
-      else if (!t) continue;
     }
   }
 
