@@ -77,6 +77,50 @@ test.describe('start screen', () => {
   });
 });
 
+test.describe('layout on a phone inside an in-app browser (390 x 660)', () => {
+  test.use({ viewport: { width: 390, height: 660 } });
+
+  test('controls are at least 44 px tall and none sits in the bottom 40 px', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
+    const boxes = await page.locator('.start button:visible').evaluateAll((els) =>
+      els.map((el) => ({ text: el.textContent?.trim(), ...el.getBoundingClientRect().toJSON() })));
+    expect(boxes.length).toBeGreaterThanOrEqual(10);
+    for (const b of boxes) {
+      expect(b.height, b.text).toBeGreaterThanOrEqual(44);
+      expect(b.bottom, b.text).toBeLessThanOrEqual(660 - 40);
+    }
+    const letGo = boxes.find((b) => b.text === 'Let go')!;
+    expect(await page.locator('.letgo').evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { size: parseFloat(s.fontSize), weight: Number(s.fontWeight), bg: s.backgroundColor };
+    })).toEqual({ size: 19, weight: 700, bg: 'rgb(255, 90, 18)' });
+    expect(letGo.width).toBeGreaterThan(150);
+  });
+
+  test('orange appears only on Let go', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    const orange = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('body *')]
+      .filter((el) => {
+        const s = getComputedStyle(el);
+        return [s.color, s.backgroundColor, s.borderTopColor, s.textDecorationColor].some((c) => c === 'rgb(255, 90, 18)');
+      })
+      .map((el) => el.className));
+    expect(orange).toEqual(['letgo']);
+  });
+
+  test('keyboard focus shows the off-white ring with an ink outer ring', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    const ring = await page.evaluate(() => getComputedStyle(document.activeElement!).boxShadow);
+    expect(ring).toBe('rgb(247, 243, 236) 0px 0px 0px 2px, rgb(10, 14, 28) 0px 0px 0px 4px');
+  });
+});
+
 test.describe('featured cities', () => {
   test('one sideways row of six plain text links, launch batch first', async ({ page }) => {
     await offline(page);
