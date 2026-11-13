@@ -80,6 +80,7 @@ const CRANE_UP = 0.5;
 const CRANE_Y0 = 0.33;
 const CRANE_FOV = 54;
 const CRANE_ZOOM_S = 1.5;
+const CRANE_SHARE_S = 0.8;
 const CRANE_FOLLOW: [number, number] = [3, 12];
 /** The person and the balloon within this angle of each other (radians) from the crane: they share the frame. */
 const CRANE_PAIR_RAD = 0.13;
@@ -145,8 +146,9 @@ const finite3 = (v: V3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Numbe
  * while the position catches up, which matters a string's length from a 30 cm balloon.
  * anchor: per axis, how much of pos moves with the balloon (1) or stays put in the world (0).
  * snap: taken as it is this frame, with no smoothing (a still frame: the camera must not drift).
+ * x0Now: x0 is taken as it is (it was worked out from where the camera is now), the rest smoothed.
  */
-type Target = { pos: THREE.Vector3; y0: number; x0?: number; fov: number; anchor: V3; snap?: boolean };
+type Target = { pos: THREE.Vector3; y0: number; x0?: number; fov: number; anchor: V3; snap?: boolean; x0Now?: boolean };
 const pitchOf = (v: THREE.Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z));
 /** The NDC height of the balloon B for a camera at pos looking at `look` (both in one vertical plane). */
 function frameY(pos: THREE.Vector3, look: THREE.Vector3, B: THREE.Vector3, fovDeg: number): number {
@@ -213,6 +215,7 @@ export class Director {
   /** The crane starts from here (the camera as the hand opened), with the balloon this high over the ground. */
   private craneFrom: THREE.Vector3 | null = null;
   private craneH0 = 0;
+  private craneX0 = 0;
   /** The push's target last frame, likewise. */
   private readonly pushPrev = new THREE.Vector3(Number.NaN, 0, Number.NaN);
   /** Reduced motion: the still frame after the release (position, and the fixed view's yaw and pitch). */
@@ -517,7 +520,8 @@ export class Director {
     [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, tau, dtFull);
     // the launch shares the frame between the balloon and the person or landmark, whose bearings swing fast
     // as the hand opens: the framing across follows on a shorter spring
-    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this._shot === 'launch' ? Math.min(tau, LAUNCH_X_TAU_S) : tau, dtFull);
+    if (tg.x0Now) [this.x0, this.x0V] = [tg.x0 ?? 0, 0];
+    else [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this._shot === 'launch' ? Math.min(tau, LAUNCH_X_TAU_S) : tau, dtFull);
     [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, tau, dtFull);
     this.apply(b, B, B0);
   }
@@ -903,6 +907,7 @@ export class Director {
     if (!this.craneFrom) {
       this.craneFrom = finite3(this.pos) && this.ready ? this.pos.clone() : S.clone();
       this.craneH0 = hB;
+      this.craneX0 = this.x0;
       const F = this.craneFrom;
       const az0 = Math.atan2(F.x - ps.x, -(F.z - ps.z));
       this.craneAxis(b, B0, this.v1.set(Math.sin(az0), 0, -Math.cos(az0)), ps, dir);
@@ -949,9 +954,14 @@ export class Director {
     tg.y0 = mix(0.6, CRANE_Y0, r);
     // the zoom out comes first and quickly, so the person and the balloon drifting off them stay in the frame
     tg.fov = mix(40, CRANE_FOV, inOut(rel, rel + CRANE_ZOOM_S, t));
-    // the balloon shares the frame with the person while they are near, then with the landmark (if any)
-    const at = this.ready ? this.pos : p; // from where the camera is (it trails its target)
-    tg.x0 = mix(this.shareX(at, B, tg.fov, Math.atan2(ps.x - at.x, -(ps.z - at.z))), this.shareX(at, B, tg.fov, this.lmBearing()), w);
+    // the balloon shares the frame with the person while they are near, then with the landmark (if any),
+    // worked out from where the camera is and how wide it sees now (as the balloon slides off sideways at the
+    // release the view keeps up with it at once), coming in from the street shot's framing over CRANE_SHARE_S
+    const at = this.ready ? this.pos : p;
+    const fovNow = this.ready ? this.fov : tg.fov;
+    const share = mix(this.shareX(at, B, fovNow, Math.atan2(ps.x - at.x, -(ps.z - at.z))), this.shareX(at, B, fovNow, this.lmBearing()), w);
+    tg.x0 = mix(this.craneX0, share, inOut(rel, rel + CRANE_SHARE_S, t));
+    tg.x0Now = true;
     tg.anchor.x = tg.anchor.z = w;
     tg.anchor.y = CRANE_UP * r;
     tg.snap = false;
@@ -979,6 +989,7 @@ export class Director {
     tg.fov = STILL_FOV;
     tg.anchor.x = tg.anchor.y = tg.anchor.z = 0;
     tg.snap = true;
+    tg.x0Now = false;
     return tg;
   }
 
