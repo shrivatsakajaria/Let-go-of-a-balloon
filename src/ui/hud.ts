@@ -13,6 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
+import { CARD_COPY } from './cardview';
 import { clockText, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
@@ -42,6 +43,8 @@ export type Hud = {
   readonly paused: boolean;
   /** Say something in the polite status region. */
   announce(text: string): void;
+  /** "Show the card" once the balloon is down (null hides it). */
+  setCard(open: (() => void) | null): void;
   /** The fact on show (for checks). */
   readonly fact: string;
   destroy(): void;
@@ -77,6 +80,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </div>
       <div class="actions">
         <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
+        <button type="button" class="main-action show-card" hidden>${CARD_COPY.show}</button>
         <button type="button" class="link again"></button>
       </div>
       <div class="fineprint">
@@ -91,6 +95,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   const fact = $('.fact'), day = $('.day'), fill = $('.fill'), knot = $('.knot'), ticksEl = $('.ticks');
   const pauseBtn = $<HTMLButtonElement>('.pause'), again = $<HTMLButtonElement>('.again'), status = $('.status');
   const bottom = $('.hud-bottom');
+  const showCard = $<HTMLButtonElement>('.show-card');
+  let cardOpen: (() => void) | null = null;
+  showCard.addEventListener('click', () => cardOpen?.());
 
   let release = 0;
   let facts: string[] = [];
@@ -206,6 +213,10 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       // cleared first so the same words twice are read twice
       status.textContent = '';
       requestAnimationFrame(() => (status.textContent = s));
+    },
+    setCard(open) {
+      cardOpen = open;
+      showCard.hidden = !open;
     },
     get fact() {
       return shown;

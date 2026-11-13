@@ -630,3 +630,53 @@ a.link, .small a { color: var(--paper); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- the landing card (spec 6.5): the postcard over the dimmed scene, its actions under it ---- */
+
+.card-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: max(8px, env(safe-area-inset-top)) var(--gutter) max(20px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  background: rgba(var(--ink), 0.9);
+  animation: veil-in 320ms var(--ease);
+}
+.card-head { align-self: stretch; display: flex; justify-content: flex-end; }
+.card-close { margin-right: -8px; font-size: 15px; font-weight: 600; }
+.card-img {
+  display: block;
+  flex: 0 1 auto;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 176px);
+  aspect-ratio: 4 / 5;
+  border-radius: 4px;
+  object-fit: contain;
+  animation: card-rise 420ms var(--ease);
+}
+@keyframes card-rise { from { opacity: 0; transform: translateY(12px); } }
+.card-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 16px; }
+.card-actions .link { font-size: 15px; font-weight: 600; }
+.card-actions [hidden] { display: none; }
+a.main-action { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
+
+/* in an in-app browser: the card as large as the screen allows, to press and hold */
+.card-layer.in-app { gap: 12px; }
+.card-layer.in-app .card-img { max-height: calc(100dvh - 160px); }
+.card-layer.in-app .card-actions { flex-direction: column; gap: 12px; }
+.card-hint { margin: 0; font-size: 16px; font-weight: 500; }
+
+@media (min-width: 720px) {
+  .card-layer { gap: 20px; }
+  .card-img { max-height: calc(100dvh - 200px); }
+}

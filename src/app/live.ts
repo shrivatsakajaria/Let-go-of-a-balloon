@@ -27,6 +27,8 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
+import { presentCard } from './landingcard';
+import { closeCardView } from '../ui/cardview';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -39,7 +41,7 @@ export type LiveDeps = {
   setView(v: View): void;
 };
 
-type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean };
+type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; saved: SavedBalloon; carded?: boolean };
 
 const PLACE_EVERY_MS = 6000;
 const HOLD_MS = 1200;
@@ -84,6 +86,8 @@ export class Live {
   private said: AnnounceState | null = null;
   private sunUp: boolean | null = null;
   private windAsk = 0;
+  /** Counts cards asked for, so only the latest one opens. */
+  private cardTicket = 0;
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
@@ -192,8 +196,8 @@ export class Live {
 
   private released(route: Route, c: StartChoice): void {
     const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
-    this.beginFlight(route, home, true);
     const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
+    this.beginFlight(route, home, true, saved);
     store.add(saved);
     this.deps.start.refresh();
     encodeBalloon(saved)
@@ -234,13 +238,16 @@ export class Live {
     this.scene.fly(route, mode);
     this.hud.setPaused(false);
     this.hud.setView(mode);
-    this.beginFlight(route, home, own);
+    this.beginFlight(route, home, own, b);
     this.deps.setView('flight');
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
-  private beginFlight(route: Route, home: Flight['home'], own: boolean): void {
-    this.flight = { route, home, own };
+  private beginFlight(route: Route, home: Flight['home'], own: boolean, saved: SavedBalloon): void {
+    closeCardView();
+    this.cardTicket++;
+    this.hud.setCard(null);
+    this.flight = { route, home, own, saved };
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
     this.lastCountry = null;
@@ -254,6 +261,8 @@ export class Live {
 
   backToStart(): void {
     this.opening++;
+    this.cardTicket++;
+    closeCardView();
     this.clearNotice();
     this.flight = null;
     this.state = 'start';
@@ -304,6 +313,14 @@ export class Live {
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });
     if (!this.flight) return;
 
+    // down: the landing card, once per flight (a landed link opens on it too)
+    if (f.landed && !this.flight.carded) {
+      this.flight.carded = true;
+      const route = this.flight.route;
+      this.hud.setCard(() => void this.showCard(route));
+      void this.showCard(route);
+    }
+
     // the sun crossing the horizon is a film event
     const up = f.sunElevationDeg > 0;
     if (this.sunUp !== null && up !== this.sunUp) this.event(up ? 'sunrise' : 'sunset');
@@ -314,6 +331,20 @@ export class Live {
       this.placeBusy = true;
       this.refreshPlace(this.flight, f).finally(() => (this.placeBusy = false));
     }
+  }
+
+  /**
+   * The landing card for the balloon on show (spec 6.5): when it comes down, when a landed link opens,
+   * from "Show the card", and at the end of the replay. Resolves once the card is on screen (or not
+   * made, when the visitor has moved on meanwhile).
+   */
+  async showCard(route?: Route, opts: { closeLabel?: string; onClose?: () => void; waitMs?: number } = {}): Promise<void> {
+    const fl = this.flight;
+    if (!fl) return;
+    const r = route ?? fl.route;
+    const ticket = ++this.cardTicket;
+    const landing = this.landingFor === r && this.landing ? Promise.resolve(this.landing) : landingPlace(r).catch(() => null);
+    await presentCard({ live: this.scene, route: r, saved: fl.saved, own: fl.own, landing, isCurrent: () => ticket === this.cardTicket && this.flight === fl, ...opts });
   }
 
   private event(kind: DirectorEvent): void {
