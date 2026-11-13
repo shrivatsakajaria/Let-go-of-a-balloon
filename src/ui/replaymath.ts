@@ -129,9 +129,15 @@ export type ReplayName = {
   frac: number;
 };
 
-/** Named seas and regions are big things to cross: they rank with large cities. */
+/**
+ * Named seas (and fjords, channels) are big things to cross: they rank with large cities. Regions run
+ * from the Lake District to "North European Plain", so they rank with mid-sized towns: shown where
+ * the land has nothing bigger.
+ */
 const SEA_SIZE = 3e6;
-const REGION_SIZE = 1.5e6;
+const REGION_SIZE = 2e5;
+/** Names crossed in the first or last moments belong to the start and the landing, which are said already. */
+const NAME_FRAC = [0.015, 0.96] as const;
 /** Towns smaller than this are not worth a name in 20 seconds. */
 const MIN_TOWN = 20000;
 
@@ -149,6 +155,7 @@ export function pickNames(cands: NameCandidate[], opts: { exclude: string[]; fli
   const seen = new Set<string>();
   const ranked = cands
     .filter((c) => c.name && !c.generic && !skip.has(c.name.toLowerCase()) && Number.isFinite(c.tSec) && (c.kind !== 'town' || size(c) >= MIN_TOWN))
+    .filter((c) => c.tSec >= NAME_FRAC[0] * opts.flightSec && c.tSec <= NAME_FRAC[1] * opts.flightSec)
     .sort((a, b) => size(b) - size(a) || a.tSec - b.tSec)
     .filter((c) => {
       // the same place crossed twice: shown once, the first time it is crossed among the biggest

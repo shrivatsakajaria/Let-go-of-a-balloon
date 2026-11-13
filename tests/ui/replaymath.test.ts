@@ -115,6 +115,14 @@ describe('place names on the way', () => {
     expect(names.map((n) => n.name)).toEqual(['Leeds']);
   });
 
+  test('not in the first or last moments (the start and the landing are said already); towns outrank vague regions', () => {
+    const names = pickNames(
+      [town('Salford', 270000, 0.2), town('Nesttun', 30000, 71), { name: 'Great Britain', kind: 'region', tSec: 6 * H }, town('Leeds', 790000, 6.2)],
+      { exclude: [], flightSec: 72 * H },
+    );
+    expect(names.map((n) => n.name)).toEqual(['Leeds']);
+  });
+
   test('a name is on screen for 1.6 s, fading in and out on the interface curve', () => {
     expect(nameOpacity(4.9, 5)).toBe(0);
     expect(nameOpacity(5.1, 5)).toBeGreaterThan(0.3);
