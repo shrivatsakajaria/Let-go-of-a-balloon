@@ -43,6 +43,10 @@ describe('dayLine', () => {
   test('after 72 h it has landed', () => {
     expect(dayLine(r, r + 80 * H)).toBe('Landed · 72 h aloft');
   });
+  test('the forecast (the whole-trip replay) ends on day 3 at 72 h, not "Landed"', () => {
+    expect(dayLine(r, r + 72 * H, { forecast: true })).toBe('Day 3 of 3 · 72 h aloft');
+    expect(dayLine(r, r + 30 * H, { forecast: true })).toBe('Day 2 of 3 · 30 h aloft');
+  });
 });
 
 describe('progress', () => {

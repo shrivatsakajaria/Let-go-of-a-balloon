@@ -104,3 +104,22 @@ test('landmarks are dropped and freed once the focus is far away, and wait for f
   expect(s.stream.materials.slots.available).toBeGreaterThan(free);
   s.layer.dispose();
 });
+
+test('a replay seen from high up asks for no scan: nothing new loads, what is shown stays and is still placed', async () => {
+  const { scene, layer, tick } = setup();
+  const day = lightFor(30);
+  layer.update(SQUARE, 0, day, { scan: false });
+  await flush();
+  expect(layer.shown()).toHaveLength(0);
+  layer.update(SQUARE, 0, day);
+  await flush(layer);
+  tick(16);
+  layer.update(SQUARE, 0, day);
+  expect(groups(scene)).toHaveLength(2);
+  // far away, with no scan: kept (the replay comes back down to it, or Back to live does), still placed
+  const manchester = { lat: 53.4794, lon: -2.2453 };
+  tick(16);
+  layer.update(manchester, 0, day, { scan: false });
+  expect(groups(scene)).toHaveLength(2);
+  layer.dispose();
+});

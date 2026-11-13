@@ -52,6 +52,18 @@ const STREET_CLEAR_M = 1.5;
 const WAIT_SUBJECT_M = 3;
 /** ...filling about a third of the screen's height (NDC), less on a short band. */
 const WAIT_FILL = 0.62;
+/**
+ * Replay (spec 6.4, 8): the high, wide view sits this far from the balloon, this steeply above it, so
+ * the land under a 2,600 km trip in 15 s moves past calmly enough to read coasts and names. Close (at
+ * the start and the landing) it is a circling-like view of the balloon. The camera turns with the
+ * route's heading smoothed over this long (hours flick past in fractions of a second), and follows
+ * the replay's width with a short spring, so the 2 s climb and descent keep their timing.
+ */
+export const REPLAY_WIDE_M = 55000;
+const REPLAY_EL_WIDE = 48 * RAD;
+const REPLAY_EL_NEAR = 22 * RAD;
+const REPLAY_YAW_S = 2.5;
+const REPLAY_TAU_S = 0.25;
 
 /** The interface curve cubic-bezier(0.22, 1, 0.36, 1), x -> y, no overshoot. */
 export function easeOut(x: number): number {
@@ -143,6 +155,11 @@ export class Director {
   private y0V = 0;
   private fov = 50;
   private fovV = 0;
+  /** Replay: 0 beside the balloon, 1 the high, wide view (the replay sets it every frame). */
+  replayWide = 1;
+  /** Replay: the smoothed bearing the camera looks along (radians), NaN until the first replay frame. */
+  private replayYaw = Number.NaN;
+  private stepS = 0;
 
   constructor(private readonly camera: THREE.PerspectiveCamera, private readonly deps: DirectorDeps) {
     this.reduced = !!deps.reducedMotion;
@@ -178,6 +195,7 @@ export class Director {
 
   private switchShot(s: ShotName): void {
     if (s !== this._shot) this.orbit = Number.NaN; // circling re-seeds from the heading
+    if (s === 'replay') this.replayYaw = Number.NaN; // and the replay from the route's heading
     this._shot = s;
     this.lastSwitch = this.clock;
   }
@@ -270,6 +288,7 @@ export class Director {
     const B = target && finite3(target) ? new THREE.Vector3(target.x, target.y, target.z) : B0.clone();
     // Choreography clocks take small steps (a backgrounded tab must not skip shots); the spring gets the full dt to catch up.
     const dt = this.paused ? 0 : Math.min(dtFull, 1);
+    this.stepS = dt;
 
     if (this.paused && this.ready) {
       const shift = B.clone().sub(this.prevB);
@@ -327,10 +346,11 @@ export class Director {
     // then finer) moves it straight up or down with the ground, not in a slow glide.
     if (this.wait && Number.isFinite(this.waitY)) this.pos.y += tg.pos.y - this.waitY;
     this.waitY = this.wait ? tg.pos.y : Number.NaN;
-    spring3(this.pos, this.posV, tg.pos, this.tau, dtFull);
-    [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, this.tau, dtFull);
-    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this.tau, dtFull);
-    [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, this.tau, dtFull);
+    const tau = this._shot === 'replay' ? REPLAY_TAU_S : this.tau;
+    spring3(this.pos, this.posV, tg.pos, tau, dtFull);
+    [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, tau, dtFull);
+    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, tau, dtFull);
+    [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, tau, dtFull);
     this.apply(b, B, B0);
   }
 
@@ -387,7 +407,7 @@ export class Director {
       case 'circling': return this.circling(B);
       case 'side': return this.side(B, dir, right);
       case 'down': return this.down(B, dir);
-      case 'replay': return this.replay(B, dir);
+      case 'replay': return this.replay(B, h);
       default: return this.ride(B, dir, right);
     }
   }
@@ -443,15 +463,26 @@ export class Director {
     return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
-  /** High wide follow shot. Task 18 refines it. */
-  private replay(B: THREE.Vector3, dir: THREE.Vector3): Target {
-    const fov = 45;
-    const d = this.distFor(0.04, fov, 200, 4000);
-    const pos = B.clone().addScaledVector(dir, -0.55 * d);
-    pos.y += 0.7 * d;
-    const look = B.clone().addScaledVector(dir, 0.1 * d);
-    look.y -= 0.05 * d;
-    return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
+  /**
+   * The whole-trip replay: behind the balloon on its smoothed heading and above it, looking down at it
+   * and the land ahead, from beside it (replayWide 0: a few hundred metres, the balloon at about 6% of
+   * the height) to the high, wide view (1: REPLAY_WIDE_M, 48 deg down). Distance blends in log space,
+   * so the climb speeds up as it goes, like a zoom out, and the descent slows into the landing.
+   */
+  private replay(B: THREE.Vector3, headingRad: number): Target {
+    const yawWant = headingRad;
+    if (!Number.isFinite(this.replayYaw)) this.replayYaw = yawWant;
+    else this.replayYaw += wrapPi(yawWant - this.replayYaw) * (1 - Math.exp(-this.stepS / REPLAY_YAW_S));
+    const w = Math.min(1, Math.max(0, Number.isFinite(this.replayWide) ? this.replayWide : 1));
+    const fov = mix(40, 50, w);
+    const dNear = this.distFor(0.04, fov, 80, 900);
+    const d = Math.exp(mix(Math.log(dNear), Math.log(REPLAY_WIDE_M), w));
+    const el = mix(REPLAY_EL_NEAR, REPLAY_EL_WIDE, w);
+    const dir = new THREE.Vector3(Math.sin(this.replayYaw), 0, -Math.cos(this.replayYaw));
+    const pos = B.clone().addScaledVector(dir, -d * Math.cos(el));
+    pos.y += d * Math.sin(el);
+    // the balloon a little above the middle: the trail behind it runs down the frame, the land ahead above
+    return { pos, y0: mix(0.05, 0.12, w), fov, anchor: BALLOON };
   }
 
   /** Unit bearing from the person to the featured landmark, or null when there is none. */

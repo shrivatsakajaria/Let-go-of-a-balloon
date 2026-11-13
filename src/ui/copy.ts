@@ -19,6 +19,10 @@ export const COPY = {
   letGoNewOne: 'Let go of a new one',
   noWebGL: "Your phone can't show the 3D world, so here is the route on a map.",
   wholeTrip: 'Show me the whole trip',
+  backToLive: 'Back to live',
+  replayLabel: 'Forecast route, 72 hours in 20 seconds',
+  // reduced motion: the route is drawn in place, not played in 20 seconds
+  replayLabelStill: 'Forecast route',
   letGoAnother: 'Let go of another',
   letGoYourOwn: 'Let go of your own',
   // not fixed by 7.4: written to match its voice

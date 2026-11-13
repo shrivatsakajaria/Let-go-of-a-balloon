@@ -198,14 +198,19 @@ export class WorldStream {
 
   // ---- per frame ----
 
-  /** Call every frame with the camera (ground point lat/lon, height above sea level, look heading). */
-  update(camera: LodCamera, nowMs = this.now()): void {
+  /**
+   * Call every frame with the camera (ground point lat/lon, height above sea level, look heading).
+   * `focus`: what the floating origin follows (default the camera). A caller that places things in the
+   * scene before calling update re-centres on that focus first (`recentre`), so nothing moves under a
+   * frame that is already placed; update then finds the origin near the focus and leaves it.
+   */
+  update(camera: LodCamera, nowMs = this.now(), opts: { focus?: LatLon; recentreM?: number } = {}): void {
     if (this.disposed) return;
     this.time = nowMs;
     this.lastCamera = camera;
     // the street lamps follow the shared night uniform (Sky sets it): no caller has to remember
     if (this.haze.uNight.value !== this.night) this.setNight(this.haze.uNight.value);
-    const moved = this.maybeRecentre(camera);
+    const moved = this.maybeRecentre(opts.focus ?? camera, opts.recentreM);
     this.takeArrival();
     if (!this.tpl) this.loadTemplate();
     const w = this.lastWant;
@@ -353,11 +358,21 @@ export class WorldStream {
     );
   }
 
-  private maybeRecentre(camera: LodCamera): boolean {
+  /**
+   * Move the floating origin to `focus` if it is further than `stepM` (default recentreM) from it: tiles
+   * are re-placed and onRecentre says how far. Call it at the start of a frame, before anything is placed
+   * from toScene. True when it moved.
+   */
+  recentre(focus: LatLon, stepM = this.recentreM): boolean {
+    if (this.disposed) return false;
+    return this.maybeRecentre(focus, stepM);
+  }
+
+  private maybeRecentre(camera: LatLon, stepM = this.recentreM): boolean {
     const dz = (camera.lat - this.origin.lat) * M_PER_DEG;
     const dx = lonDelta(this.origin.lon, camera.lon) * M_PER_DEG * this.cosO;
-    // the first frame moves the origin to the camera if it is far; after that, past recentreM
-    if (this.started && dx * dx + dz * dz <= this.recentreM * this.recentreM) return false;
+    // the first frame moves the origin to the camera if it is far; after that, past the step
+    if (this.started && dx * dx + dz * dz <= stepM * stepM) return false;
     this.started = true;
     const from = { ...this.origin };
     const to = { lat: camera.lat, lon: wrapLon(camera.lon) };

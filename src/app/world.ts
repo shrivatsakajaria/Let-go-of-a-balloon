@@ -31,7 +31,13 @@ export type World = {
 };
 
 /** What the 3D world hands over when it is rebuilt or gives up: the start place, the state and any flight. */
-export type Handover = { choice: StartChoice; state: 'start' | 'launch' | 'flight' | 'error'; flight: Flight | null };
+export type Handover = {
+  choice: StartChoice;
+  state: 'start' | 'launch' | 'flight' | 'error';
+  flight: Flight | null;
+  /** The flight was paused (before the whole-trip replay, if one was on). */
+  paused?: boolean;
+};
 
 /** What the world that takes over does with a handover. */
 export type ResumeAction = { kind: 'fly'; mode: 'film' | 'side' } | { kind: 'launch' } | { kind: 'start' } | { kind: 'stay' };

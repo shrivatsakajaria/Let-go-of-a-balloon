@@ -30,6 +30,7 @@ import { Sky } from '../world/sky';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
 import { WorkerPool } from '../world/workerpool';
+import { ReplayTrail, type TrailFrame } from '../world/trail';
 import type { BuildReply, BuildRequest } from '../world/worker';
 
 const D2R = Math.PI / 180;
@@ -55,6 +56,33 @@ export type SceneFrame = {
   shot: string;
   sunElevationDeg: number;
 };
+
+/**
+ * The whole-trip replay drives the scene (ui/replay.ts): the route time shown, how wide the camera is,
+ * and the balloon settling onto the ground at the end. Read every frame.
+ */
+export type ReplaySample = {
+  /** Route time to show (UTC ms). */
+  now: number;
+  /** The camera: 0 beside the balloon, 1 the high, wide view. */
+  wide: number;
+  /** The balloon coming down onto the ground at the end, 0..1. */
+  landing: number;
+};
+export type SceneReplay = {
+  /** Write this frame's replay state into `out` (read once per frame). */
+  sample(out: ReplaySample): void;
+};
+/** During the replay's travel the world streams as if from this high: coarse land only, which keeps up. */
+const REPLAY_STREAM_ALT_M = 60000;
+/**
+ * The floating origin follows the balloon (the focus), re-centred at the start of each frame before
+ * anything is placed. In the replay the balloon crosses kilometres a frame: a longer step keeps the
+ * re-centres to a few a second (positions stay within ~70 km of the origin, millimetres in float32).
+ */
+const REPLAY_RECENTRE_M = 30000;
+/** In the replay the shadow box sits this far above the balloon, where nothing casts a shadow. */
+const REPLAY_SHADOW_UP_M = 50000;
 
 /** Shadows on a disc round the balloon: wider at a few hundred metres, tighter at street level and cruise. */
 function shadowRadius(agl: number): number {
@@ -116,6 +144,11 @@ export class LiveScene {
   private readonly point: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private readonly dirPoint: RoutePoint = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
   private lumBuf = new Uint8Array(0);
+  private replay: { drive: SceneReplay; trail: ReplayTrail; mode: DirectorMode; shadowCleared: boolean } | null = null;
+  private readonly rs: ReplaySample = { now: 0, wide: 0, landing: 0 };
+  private readonly trailFrame: TrailFrame = {
+    route: null as unknown as Route, tSec: 0, toScene: (p, out) => this.stream.toScene(p, out), head: this.target, camera: this.camera, viewportH: 1, balloonRadiusM: 0, lower: 0,
+  };
   private readonly info: SceneFrame = {
     now: 0, point: this.point, aglM: 0, groundM: 0, feetM: 0, released: false, landed: false, settled: false, waiting: true, shot: '', sunElevationDeg: 0,
   };
@@ -272,6 +305,46 @@ export class LiveScene {
     return this.stream.labelsNear(p, km);
   }
 
+  /** The whole-trip replay starts: the camera cuts to the start of the route, a trail follows the balloon. */
+  startReplay(drive: SceneReplay): void {
+    if (!this.route || !this.released) return;
+    this.stopReplay();
+    this.replay = { drive, trail: new ReplayTrail(this.scene), mode: this.director.mode, shadowCleared: false };
+    // the person (still in the street early in a flight) waits out of sight and is there again after
+    if (this.person) this.person.root.visible = false;
+    this.freshBalloon();
+    this.clouds.mesh.visible = false;
+    this.groundS = Number.NaN;
+    this.skyAt = -Infinity;
+    this.director.cut('replay');
+    drive.sample(this.rs);
+    this.director.replayWide = this.rs.wide;
+  }
+
+  /** Back to live: the trail goes, the clock is now again, and the camera cuts back to the view it had. */
+  stopReplay(): void {
+    const r = this.replay;
+    if (!r) return;
+    this.replay = null;
+    r.trail.dispose();
+    this.freshBalloon(); // its string swung after a balloon that crossed a sea in 15 s
+    this.clouds.mesh.visible = true;
+    this.groundS = Number.NaN;
+    this.skyAt = -Infinity;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.director.cut(r.mode);
+  }
+
+  private freshBalloon(): void {
+    this.newBalloon();
+    this.balloon.root.visible = true;
+    this.balloon.release();
+  }
+
+  get replaying(): boolean {
+    return this.replay !== null;
+  }
+
   /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */
   /** Disposed: nothing may be drawn with it any more (the landing card checks before it renders). */
   get gone(): boolean {
@@ -280,6 +353,7 @@ export class LiveScene {
 
   dispose(): void {
     if (this.disposed) return;
+    this.stopReplay();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.holdUntil = null;
@@ -346,11 +420,14 @@ export class LiveScene {
     const dt = Math.min(0.25, Math.max(0, (t - this.last) / 1000));
     this.last = t;
     this.resize();
-    const now = Date.now();
+    const rp = this.replay;
+    const rs = this.rs;
+    if (rp) rp.drive.sample(rs); // once a frame: the time, the camera's width and the landing
+    const now = rp ? rs.now : Date.now();
 
     // where the balloon is on its route
     const route = this.route;
-    const landed = !!route && this.released && now >= route.release + FLIGHT_HOURS * H;
+    const landed = !!route && this.released && !rp && now >= route.release + FLIGHT_HOURS * H;
     const pt = this.point;
     if (route && this.released) positionAt(route, now, pt);
     else {
@@ -363,13 +440,22 @@ export class LiveScene {
     }
     if (landed) pt.speedMs = 0;
 
+    // the floating origin follows the balloon, moved now, before anything is placed this frame
+    const step = rp ? REPLAY_RECENTRE_M : undefined;
+    this.stream.recentre(pt, step);
+
     // the drawn ground under it, eased so a finer tile arriving does not jolt the balloon
     const g = this.stream.groundAt(pt);
     this.groundS = Number.isNaN(this.groundS) || Math.abs(g - this.groundS) > 200 ? g : this.groundS + (g - this.groundS) * (1 - Math.exp(-dt / 0.8));
 
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
-    this.updatePerson(dt);
-    const y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
+    if (!rp) this.updatePerson(dt);
+    let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
+    if (rp) {
+      // the replay's balloon settles at the end, resting on the ground at the size it is drawn
+      const rest = this.groundS + LANDED_M * displayScale(this.camera.position.distanceTo(this.target));
+      y += (rest - y) * rs.landing;
+    }
     const s = this.stream.toScene(pt, this.tmp);
     this.pos.set(s.x, y, s.z);
 
@@ -384,37 +470,43 @@ export class LiveScene {
     dp.speedMs = pt.speedMs;
     dp.headingDeg = pt.headingDeg;
     dp.altM = y;
+    if (rp) this.director.replayWide = rs.wide;
     this.director.update(this.dirPoint, dt, this.target);
 
     // near plane: just short of the nearest thing drawn close by (the balloon and its string, the person)
     const dB = this.camera.position.distanceTo(this.target);
     let near = (dB - 1.4 - 0.2 * displayScale(dB)) * 0.5;
-    if (this.person) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
+    if (this.person && !rp) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
     const camGround = this.stream.groundAt(this.stream.fromScene(this.camera.position.x, this.camera.position.z));
     near = Math.min(near, (this.camera.position.y - camGround) * 0.5);
-    this.camera.near = Math.min(10, Math.max(0.08, near));
+    this.camera.near = Math.min(rp ? 500 : 10, Math.max(0.08, near));
     const far = hazeFarM(this.camera.position.y);
     this.camera.far = far * 1.25;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     this.sky.setView(this.camera, far * 0.75, this.renderer.getDrawingBufferSize(this.size).y / 2);
+    // the replay looks down from tens of kilometres: the haze starts below the camera, not at it
+    if (rp) this.sky.fog.near = Math.min(this.sky.fog.far * 0.6, Math.max(this.sky.fog.near, (this.camera.position.y - camGround) * 0.9));
 
     // stream the world round the camera
     this.camera.getWorldDirection(this.look);
     const cll = this.stream.fromScene(this.camera.position.x, this.camera.position.z);
     const heading = (Math.atan2(this.look.x, -this.look.z) / D2R + 360) % 360;
-    this.stream.update({ lat: cll.lat, lon: cll.lon, altM: this.camera.position.y, headingDeg: heading }, t);
-    this.landmarks.update(cll, now, this.sky.current);
+    const streamAlt = rp && rs.wide > 0.5 ? Math.max(this.camera.position.y, REPLAY_STREAM_ALT_M) : this.camera.position.y;
+    this.stream.update({ lat: cll.lat, lon: cll.lon, altM: streamAlt, headingDeg: heading }, t, { focus: pt, recentreM: step });
+    // landmarks animate at the time the scene shows (a clock face keeps the replay's hour)
+    // (not looked for while the replay is high and wide: it crosses a landmark's reach in a frame)
+    this.landmarks.update(cll, now, this.sky.current, { scan: !(rp && rs.wide > 0.5) });
 
     // clouds drift with the wind at cruise, and never take in the balloon or the camera
     const h = pt.headingDeg * D2R;
     this.clouds.setFocus(this.target, this.look);
     this.clouds.clearOf(this.target, 300);
     this.clouds.clearOf(this.camera.position, 300);
-    this.clouds.update(dt, { u: pt.speedMs * Math.sin(h), v: pt.speedMs * Math.cos(h) });
+    if (!rp) this.clouds.update(dt, { u: pt.speedMs * Math.sin(h), v: pt.speedMs * Math.cos(h) });
 
-    // the real sky over the balloon, once a second
-    if (now - this.skyAt > 1000) {
+    // the real sky over the balloon, once a second (every frame in the replay: night sweeps across)
+    if (rp || now - this.skyAt > 1000) {
       this.skyAt = now;
       const L = this.sky.update(now, pt);
       this.stream.materials.setGroundTint(L.groundTint);
@@ -425,11 +517,30 @@ export class LiveScene {
     let redraw = this.sky.light.setRadius(shadowRadius(agl));
     const ahead = Math.min(400, agl * 0.4);
     this.focus.set(this.target.x + Math.sin(h) * ahead, this.groundS, this.target.z - Math.cos(h) * ahead);
-    redraw = this.sky.place(this.focus) || redraw;
+    // the replay draws no cast shadows: its shadow box goes up into the empty sky, so the map it draws
+    // is clear (no boats' or roofs' shadows from wherever the box last was; the balloon's own shadow is a
+    // decal and stays). Back to live, the box comes down to the balloon again and the map is redrawn.
+    if (rp) this.focus.y = this.target.y + REPLAY_SHADOW_UP_M;
+    redraw = this.sky.place(this.focus) || redraw; // (the light still turns with the sun)
     if (this.shadowAsked > this.shadowDrawnAt && t - this.shadowDrawnAt > 250) redraw = true;
+    // the empty map is drawn once when the box has gone up, then not again until Back to live
+    if (rp) {
+      redraw = !rp.shadowCleared;
+      rp.shadowCleared = true;
+    }
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
+    }
+
+    if (rp && route) {
+      const tf = this.trailFrame;
+      tf.route = route;
+      tf.tSec = (now - route.release) / 1000;
+      tf.viewportH = this.canvas.clientHeight;
+      tf.balloonRadiusM = 0.15 * displayScale(dB);
+      tf.lower = rs.landing;
+      rp.trail.update(tf);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -442,7 +553,7 @@ export class LiveScene {
     }
 
     // done with the person once the balloon is well away
-    if (this.person && this.released && agl > 300 && !this.director.waiting) {
+    if (this.person && this.released && agl > 300 && !this.director.waiting && !rp) {
       this.person.dispose();
       this.person = null;
     }

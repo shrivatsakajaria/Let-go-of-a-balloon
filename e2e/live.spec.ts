@@ -63,8 +63,8 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
   expect((await hook(page))!.shot).toBe('ride');
   await expect(page.locator('.hud .day')).toHaveText(/^Day 1 of 3 · \d+ min aloft$/);
   await expect(page.getByRole('button', { name: 'Film' })).toHaveAttribute('aria-pressed', 'true');
-  // "Show me the whole trip" waits for Task 18: no dead button on screen
-  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeHidden();
+  // the flight's main action (Task 18 plays it: e2e/replay.spec.ts)
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
   expect(external).toEqual([]);
 });
 

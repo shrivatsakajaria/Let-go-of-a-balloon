@@ -555,4 +555,81 @@ describe('Director', () => {
     d.update(mk(30.05, NaN), 0.05);
     run(d, 30.05, 5, 0.05, (t) => mk(t), () => expect(cam.position.toArray().every(Number.isFinite)).toBe(true));
   });
+  // ---- the whole-trip replay (Task 18): a high, wide camera following the route at 72 hours in 15 s ----
+  /** The replay's balloon: 170 km/s east (2,600 km in 15 s) at cruise. */
+  const fast = (heading = 90) => (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: (170_000 * t) / K, altM: 1500, groundM: 0, speedMs: 10, headingDeg: heading });
+  const camRel = (cam: THREE.PerspectiveCamera, b: RoutePoint) => cam.position.clone().sub(ballPos(b));
+
+  test('replay shot, wide: over 30 km above the balloon and behind it, looking down on it, the balloon in the frame', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    d.cut('replay');
+    d.replayWide = 1;
+    expect(d.shot).toBe('replay');
+    const mk = fast();
+    run(d, 0, 3, 1 / 30, mk);
+    const b = mk(3);
+    const rel = camRel(cam, b);
+    expect(rel.y).toBeGreaterThan(30_000);
+    expect(rel.x).toBeLessThan(-10_000); // behind: the balloon flies east, away from the camera
+    expect(Math.abs(rel.z)).toBeLessThan(2_000);
+    expect(inFrame(cam, ballPos(b))).toBe(true);
+    const look = cam.getWorldDirection(new THREE.Vector3());
+    expect(look.y).toBeLessThan(-0.5); // well down
+    // the land ahead of the balloon is in view too
+    const ahead = ballPos(mk(3.2));
+    ahead.y = 0;
+    expect(inFrame(cam, ahead)).toBe(true);
+  });
+
+  test('replay shot, close: beside the balloon (under 1 km) at width 0; the 2 s climb is followed within about 0.3 s', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    const still = (t: number): RoutePoint => ({ ...balloon(t, 300), lon: 0, speedMs: 0 });
+    d.cut('replay');
+    d.replayWide = 0;
+    run(d, 0, 1, 1 / 30, still);
+    const near = cam.position.distanceTo(ballPos(still(1)));
+    expect(near).toBeLessThan(1000);
+    expect(near).toBeGreaterThan(30);
+    expect(inFrame(cam, ballPos(still(1)))).toBe(true);
+    // climb: width eased 0 -> 1 over 2 s, then held
+    const dist: number[] = [];
+    run(d, 1, 2.5, 1 / 30, still, (t) => {
+      const u = Math.min(1, (t - 1) / 2);
+      d.replayWide = 0.5 - 0.5 * Math.cos(Math.PI * u);
+      dist.push(cam.position.distanceTo(ballPos(still(t))));
+      expect(inFrame(cam, ballPos(still(t)))).toBe(true);
+    });
+    // never backwards, and at 2.3 s into the climb within 10% of the wide distance
+    for (let i = 1; i < dist.length; i++) expect(dist[i]).toBeGreaterThanOrEqual(dist[i - 1] - 1);
+    expect(dist[Math.round(2.3 * 30) - 1]).toBeGreaterThan(0.9 * dist[dist.length - 1]);
+  });
+
+  test('replay shot: a heading that swings every 0.2 s (hours flicking past) barely turns the camera', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    d.cut('replay');
+    d.replayWide = 1;
+    const wobble = (t: number): RoutePoint => ({ ...fast()(t), headingDeg: Math.floor(t / 0.2) % 2 ? 50 : 130 });
+    d.update(fast()(0), 0); // the route's heading as the replay starts: east
+    run(d, 0, 4, 1 / 30, wobble, (t) => {
+      const rel = camRel(cam, wobble(t));
+      const bearingFromBalloon = (Math.atan2(rel.x, -rel.z) * 180) / Math.PI; // camera sits at 270 (west) for a 90 heading
+      expect(Math.abs(((bearingFromBalloon + 360) % 360) - 270)).toBeLessThan(12);
+    });
+    // a real turn is followed, slowly: heading south for 8 s puts the camera north of the balloon
+    const south = (t: number): RoutePoint => ({ ...fast(180)(t) });
+    run(d, 4, 8, 1 / 30, south);
+    const rel = camRel(cam, south(12));
+    expect(-rel.z).toBeGreaterThan(10_000);
+  });
+
+  test('replay shot: ground and buildings still clamp the camera when it is close', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => 280 }));
+    d.cut('replay');
+    d.replayWide = 0;
+    run(d, 0, 2, 1 / 30, (t) => ({ ...balloon(t, 300), speedMs: 0, lon: 0 }), () => expect(cam.position.y).toBeGreaterThanOrEqual(288 - 1e-6));
+  });
 });

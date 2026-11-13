@@ -627,6 +627,52 @@ a.link, .small a { color: var(--paper); }
   .notice-layer { max-width: 560px; }
 }
 
+/* ---- the whole-trip replay (spec 6.4, 7.3): its names take the fact line's place; Back to live is the main action ---- */
+
+.replay-slot { display: none; }
+.hud.is-replay .replay-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 116px;
+  margin-bottom: 12px;
+  opacity: 0;
+}
+.hud.is-replay .replay-slot.is-still { display: none; }
+/* Pause steps aside but keeps the day row's height, so the string line does not move */
+.hud.is-replay .pause { visibility: hidden; }
+.hud.is-replay .fact,
+.hud.is-replay .views,
+.hud.is-replay .again,
+.hud.is-replay .stats { display: none; }
+.replay-slot p { margin: 0; }
+.replay-when { margin-top: 4px !important; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.replay-when:empty { display: none; }
+.replay-name {
+  max-width: 14ch;
+  font-size: 44px;
+  line-height: 1.02;
+  font-weight: 700;
+  font-variation-settings: 'wdth' 62;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+/* reduced motion: the route drawn in place over the dimmed scene (no box: the whole view dims) */
+.replay-map { position: absolute; inset: 0; background: rgba(var(--ink), 0.78); pointer-events: none; }
+/* the map carries its own ink: no second shading over its lower names */
+.hud.is-replay:has(.replay-slot.is-still) .hud-shade,
+:root:has(.replay-map) .shade-top { display: none; }
+.replay-map svg { position: absolute; left: 0; overflow: visible; }
+.replay-line { fill: none; stroke: var(--paper); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.replay-mark { opacity: 0; }
+.replay-mark.on { opacity: 1; }
+.replay-mark circle { fill: var(--paper); }
+.replay-mark circle.ring { fill: none; stroke: var(--paper); stroke-width: 1.5; }
+.replay-mark text { fill: var(--paper); font-size: 13px; font-weight: 500; }
+.replay-mark text.strong { font-size: 16px; font-weight: 600; }
+.replay-balloon { fill: var(--accent); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -674,7 +720,9 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 
 /* the landed HUD's way back to the card: a quiet text action beside "Let go of …" (one main action) */
 .actions .show-card { margin-left: -8px; font-size: 15px; font-weight: 600; }
-.actions .show-card[hidden] { display: none; } /* .link sets display, which would undo [hidden] */
+.actions .show-card[hidden] { display: none; }
+/* the whole trip, the card and "Let go of ..." together (a landed balloon): the row wraps rather than overflows */
+.hud .actions { flex-wrap: wrap; row-gap: 0; } /* .link sets display, which would undo [hidden] */
 .actions .show-card:not([hidden]) + .again { margin-left: 0; }
 
 /* a link that could not be copied: said plainly, and shown to copy by hand */

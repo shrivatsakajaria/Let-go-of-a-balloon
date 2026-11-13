@@ -22,6 +22,9 @@ export type HudHandlers = {
   onPause(paused: boolean): void;
   /** "Let go of another" (own balloon) or "Let go of your own" (a shared link). */
   onAgain(): void;
+  /** "Show me the whole trip" and, during the replay, "Back to live" (Task 18). */
+  onTrip?(): void;
+  onBack?(): void;
 };
 
 export type HudFrame = { now: number; point: LatLon; aglM: number; speedMs: number; landed: boolean };
@@ -47,6 +50,12 @@ export type Hud = {
   setCard(open: (() => void) | null): void;
   /** The fact on show (for checks). */
   readonly fact: string;
+  /** Show "Show me the whole trip" (once a flight's route is in). */
+  setTrip(on: boolean): void;
+  /** The replay's chrome: its label under the clock, the names slot, "Back to live" for the main action. */
+  setReplay(on: boolean): void;
+  /** Where the replay writes its place names (at the top of the bottom stack, in the fact line's place). */
+  readonly replaySlot: HTMLElement;
   destroy(): void;
 };
 
@@ -71,6 +80,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </dl>
     </div>
     <div class="hud-bottom">
+      <div class="replay-slot" aria-hidden="true"></div>
       <p class="fact" aria-live="off"></p>
       <div class="string" aria-hidden="true">
         <span class="track"></span><span class="fill"></span><span class="ticks"></span><span class="ring"></span><span class="knot"></span>
@@ -83,7 +93,8 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         ${VIEWS.map(([m, label], i) => `${i ? '<span class="dot" aria-hidden="true">·</span>' : ''}<button type="button" class="link view" data-view="${m}" aria-pressed="${m === 'film'}">${label}</button>`).join('')}
       </div>`}
       <div class="actions">
-        <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
+        <button type="button" class="trip main-action" hidden>${COPY.wholeTrip}</button>
+        <button type="button" class="back main-action" hidden>${COPY.backToLive}</button>
         <button type="button" class="link show-card" hidden>${COPY.showCard}</button>
         <button type="button" class="link again"></button>
       </div>
@@ -168,6 +179,10 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     handlers.onPause(paused);
   });
   again.addEventListener('click', () => handlers.onAgain());
+  const trip = $<HTMLButtonElement>('.trip'), back = $<HTMLButtonElement>('.back'), replaySlot = $('.replay-slot');
+  let tripOn = false;
+  trip.addEventListener('click', () => handlers.onTrip?.());
+  back.addEventListener('click', () => handlers.onBack?.());
 
   return {
     el: root,
@@ -189,7 +204,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       text(clock, clockNow(f.now, f.point));
       text(height, f.landed ? '0 m' : heightText(f.aglM));
       text(speed, speedText(f.landed ? 0 : f.speedMs));
-      text(day, dayLine(release, f.now));
+      text(day, dayLine(release, f.now, { forecast: root.classList.contains('is-replay') }));
       const p = progress(release, f.now);
       if (Math.abs(p - lastP) > 1e-5) {
         lastP = p;
@@ -227,6 +242,21 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     get fact() {
       return shown;
     },
+    setTrip(on) {
+      tripOn = on && !!handlers.onTrip;
+      if (!root.classList.contains('is-replay')) trip.hidden = !tripOn;
+    },
+    setReplay(on) {
+      const had = root.contains(document.activeElement) && (document.activeElement === trip || document.activeElement === back);
+      root.classList.toggle('is-replay', on);
+      trip.hidden = on || !tripOn;
+      again.hidden = on;
+      back.hidden = !on;
+      if (!on) replaySlot.replaceChildren();
+      // the button pressed goes away: keyboard focus moves to the one in its place
+      if (had) (on ? back : tripOn ? trip : again).focus({ preventScroll: true });
+    },
+    replaySlot,
     destroy() {
       clearInterval(timer);
       clearTimeout(swap);
