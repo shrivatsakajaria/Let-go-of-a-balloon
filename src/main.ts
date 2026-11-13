@@ -30,8 +30,8 @@ const setView = (v: View) => {
 
 let live: World | null = null;
 let liveP: Promise<World> | null = null;
-/** False once the 3D world cannot be drawn here: the 2D map is used instead. */
-let webgl = canUseWebGL();
+/** Whether the 3D world can be drawn here (asked when the world first loads, after the first paint). */
+let webgl: boolean | null = null;
 let latest: StartChoice | null = null;
 let broken: Notice | null = null;
 
@@ -80,6 +80,7 @@ function toMap(h: Handover) {
 
 /** The world, loaded once; a failed load (a flaky connection, a new deploy) is tried again next time. */
 function loadLive(): Promise<World> {
+  webgl ??= canUseWebGL();
   liveP ??= (webgl ? import('./app/live') : Promise.resolve(null))
     .then((m) => {
       if (!m) return loadMap();
