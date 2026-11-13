@@ -120,7 +120,8 @@ test('low building gets a roof, tall one does not', () => {
   expect(tallTop).toBeCloseTo(70, 3);
 });
 
-test('mesh building for one z14 tile takes < 150 ms in Node', () => {
+// Skipped on CI (GitHub sets CI=true): a shared runner makes wall-clock checks flaky. Runs locally.
+test.skipIf(!!process.env.CI)('mesh building for one z14 tile takes < 150 ms in Node', () => {
   // Robust under a parallel test run: warm up twice (JIT), then take the best of five runs. Other
   // test files share the CPU, so a single run (or even the median) measures the machine's load,
   // not the mesh job; the best run is the job's own cost. The median gets a looser guard.
