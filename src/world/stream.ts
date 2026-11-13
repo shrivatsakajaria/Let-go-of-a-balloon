@@ -120,6 +120,13 @@ export type StreamStats = {
 /** A mesh the frame budget left out stays out this many frames at least, and comes back only with this many triangles (at most 4% of the budget) to spare. */
 const BENCH_FRAMES = 30;
 const BENCH_MARGIN = 20_000;
+/**
+ * Every SWAP_FRAMES frames a mesh left out that is now nearer than SWAP_NEARER of the distance of
+ * the farthest one drawn (the camera came to it) is swapped back in for the farthest, so a view
+ * sitting at its cap never keeps a hole by the camera; the margin keeps the two from swapping back.
+ */
+const SWAP_FRAMES = 10;
+const SWAP_NEARER = 0.8;
 /** What fitView may leave out of a frame: never the ground or the water. */
 const BENCHABLE = new Set(['buildings', 'roofs', 'roads', 'trees', 'waterways', 'boats']);
 
@@ -186,7 +193,14 @@ export class WorldStream {
   private readonly candTris: number[] = [];
   private readonly candD2: number[] = [];
   private readonly candIdx: number[] = [];
+  /** The left-outs in view a swap weighs (indices into benchMesh), their distances and triangles. */
+  private readonly swapIdx: number[] = [];
+  private readonly swapD2: number[] = [];
+  private readonly swapTris: number[] = [];
+  private readonly swapOrder: number[] = [];
+  private readonly swapBack: THREE.Mesh[] = [];
   private fitFrame = 0;
+  private swapFrame = -Infinity;
   private readonly fitFrustum = new THREE.Frustum();
   private readonly fitMatrix = new THREE.Matrix4();
   private readonly fitV = new THREE.Vector3();
@@ -293,14 +307,17 @@ export class WorldStream {
    * trees in view are left out (with their shadow-only cells), until it fits; the ground and water
    * always stay, so nothing opens. A mesh left out stays out for at least BENCH_FRAMES frames and comes
    * back, nearest first, only when it fits with BENCH_MARGIN to spare, so a view sitting at the cap
-   * never blinks. The detail budget (lod.ts DetailBudget) brings the tiles themselves nearer meanwhile.
+   * never blinks. A view that stays at the cap while the camera moves (or cuts to another shot) swaps:
+   * every SWAP_FRAMES frames, a left-out clearly nearer than the farthest drawn (SWAP_NEARER) comes back
+   * in its place, so what is left out is always the far land, never a hole by the camera. The detail
+   * budget (lod.ts DetailBudget) brings the tiles themselves nearer meanwhile.
    * `budget` Infinity shows everything again at once (the replay, the card's picture). Returns the
    * triangles drawn. Call once a frame; nothing is allocated when the view fits.
    */
   fitView(camera: THREE.Camera, budget: number): number {
     const frame = ++this.fitFrame;
     // left-outs whose tile has gone are forgotten; with no budget, everything is shown again
-    const bm = this.benchMesh, bv = this.benchView, bf = this.benchFrame;
+    const bm = this.benchMesh, bv = this.benchView;
     for (let i = bm.length - 1; i >= 0; i--) {
       if (!bv[i].gone && budget !== Infinity) continue;
       if (!bv[i].gone) bv[i].show(bm[i], true);
@@ -324,45 +341,66 @@ export class WorldStream {
     }
     if (total <= budget && bm.length === 0) return total;
     this.fitCam.setFromMatrixPosition(camera.matrixWorld);
-    const d2Of = this.d2Of;
-    if (total > budget) {
-      // over: the farthest drawn buildings, roofs, roads and trees go, until it fits
-      const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
-      cm.length = cv.length = ct.length = cd.length = idx.length = 0;
-      for (const e of this.entries.values()) {
-        const view = e.view;
-        if (!view || !view.group.visible) continue;
-        const parts = view.parts;
-        for (let k = 0; k < parts.length; k++) {
-          const mesh = parts[k].mesh;
-          if (!BENCHABLE.has(parts[k].bucket) || !mesh.visible || !mesh.layers.test(layers)) continue;
-          if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
-          const tris = drawTriangles(mesh);
-          if (tris === 0) continue;
-          idx.push(cm.length);
-          cm.push(mesh);
-          cv.push(view);
-          ct.push(tris);
-          cd.push(d2Of(mesh));
-        }
-      }
-      idx.sort(this.farthestFirst);
-      for (let k = 0; k < idx.length && total > budget; k++) {
-        const i = idx[k];
-        cv[i].show(cm[i], false);
-        bm.push(cm[i]);
-        bv.push(cv[i]);
-        bf.push(frame);
-        total -= ct[i];
-      }
-      return total;
+    if (total > budget) total = this.benchFarthest(total, budget, frame, frustum, layers);
+    else total = this.bringBack(total, budget, frame, frustum, layers);
+    if (bm.length > 0 && frame - this.swapFrame >= SWAP_FRAMES) {
+      this.swapFrame = frame;
+      total = this.swapNearer(total, budget, frame, frustum, layers);
     }
-    // under: left-outs come back, nearest first, once they have sat out a while and fit with room to spare
+    return total;
+  }
+
+  /** The benchable meshes drawn in view (into the cand lists), sorted farthest first in candIdx. */
+  private collectDrawn(frustum: THREE.Frustum, layers: THREE.Layers): void {
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
+    cm.length = cv.length = ct.length = cd.length = idx.length = 0;
+    for (const e of this.entries.values()) {
+      const view = e.view;
+      if (!view || !view.group.visible) continue;
+      const parts = view.parts;
+      for (let k = 0; k < parts.length; k++) {
+        const mesh = parts[k].mesh;
+        if (!BENCHABLE.has(parts[k].bucket) || !mesh.visible || !mesh.layers.test(layers)) continue;
+        if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+        const tris = drawTriangles(mesh);
+        if (tris === 0) continue;
+        idx.push(cm.length);
+        cm.push(mesh);
+        cv.push(view);
+        ct.push(tris);
+        cd.push(this.d2Of(mesh));
+      }
+    }
+    idx.sort(this.farthestFirst);
+  }
+
+  private bench(mesh: THREE.Mesh, view: TileView, frame: number): void {
+    view.show(mesh, false);
+    this.benchMesh.push(mesh);
+    this.benchView.push(view);
+    this.benchFrame.push(frame);
+  }
+
+  /** Over: the farthest drawn buildings, roofs, roads and trees go, until it fits. */
+  private benchFarthest(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    this.collectDrawn(frustum, layers);
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, idx = this.candIdx;
+    for (let k = 0; k < idx.length && total > budget; k++) {
+      const i = idx[k];
+      this.bench(cm[i], cv[i], frame);
+      total -= ct[i];
+    }
+    return total;
+  }
+
+  /** Under: left-outs come back, nearest first, once they have sat out a while and fit with room to spare. */
+  private bringBack(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    const bm = this.benchMesh, bv = this.benchView, bf = this.benchFrame;
     const idx = this.candIdx, cd = this.candD2;
     idx.length = cd.length = 0;
     for (let i = 0; i < bm.length; i++) {
       idx.push(i);
-      cd.push(d2Of(bm[i]));
+      cd.push(this.d2Of(bm[i]));
     }
     idx.sort(this.nearestFirst);
     const back = this.candMesh;
@@ -375,6 +413,57 @@ export class WorldStream {
       if (total + tris > budget - Math.min(BENCH_MARGIN, budget * 0.04)) continue;
       total += tris;
       back.push(mesh);
+    }
+    for (const mesh of back) {
+      const i = bm.indexOf(mesh);
+      bv[i].show(mesh, true);
+      this.unbenchAt(i);
+    }
+    return total;
+  }
+
+  /**
+   * At the cap with the camera moving: a left-out in view clearly nearer than the farthest drawn
+   * (SWAP_NEARER) comes back, nearest first, and the farthest drawn go in its place, as many as make
+   * room for it. Only meshes that much farther than it are taken, so the two never swap back.
+   */
+  private swapNearer(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    const bm = this.benchMesh, bv = this.benchView;
+    const si = this.swapIdx, sd = this.swapD2, st = this.swapTris;
+    si.length = sd.length = st.length = 0;
+    for (let i = 0; i < bm.length; i++) {
+      const mesh = bm[i];
+      if (bv[i].gone || !bv[i].group.visible || !mesh.layers.test(layers)) continue;
+      if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+      const tris = drawTriangles(mesh);
+      if (tris === 0) continue;
+      si.push(i);
+      sd.push(this.d2Of(mesh));
+      st.push(tris);
+    }
+    if (si.length === 0) return total;
+    // the left-outs nearest first, and the meshes drawn farthest first
+    const near = this.swapOrder;
+    near.length = 0;
+    for (let k = 0; k < si.length; k++) near.push(k);
+    near.sort(this.swapNearestFirst);
+    const back = this.swapBack;
+    back.length = 0;
+    this.collectDrawn(frustum, layers);
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
+    const k2 = SWAP_NEARER * SWAP_NEARER;
+    let far = 0;
+    for (const k of near) {
+      if (far >= idx.length || sd[k] >= k2 * cd[idx[far]]) break; // nearer ones all tried; the rest are farther
+      // the drawn meshes clearly farther than it, farthest first, until it fits
+      const need = total + st[k] - budget;
+      let freed = 0, end = far;
+      while (freed < need && end < idx.length && sd[k] < k2 * cd[idx[end]]) freed += ct[idx[end++]];
+      if (freed < need) continue;
+      back.push(bm[si[k]]);
+      for (let j = far; j < end; j++) this.bench(cm[idx[j]], cv[idx[j]], frame);
+      far = end;
+      total += st[k] - freed;
     }
     for (const mesh of back) {
       const i = bm.indexOf(mesh);
@@ -409,6 +498,7 @@ export class WorldStream {
 
   private readonly farthestFirst = (a: number, b: number): number => this.candD2[b] - this.candD2[a];
   private readonly nearestFirst = (a: number, b: number): number => this.candD2[a] - this.candD2[b];
+  private readonly swapNearestFirst = (a: number, b: number): number => this.swapD2[a] - this.swapD2[b];
 
   // ---- queries ----
 

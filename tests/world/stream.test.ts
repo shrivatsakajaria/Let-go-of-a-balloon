@@ -366,6 +366,46 @@ async function buildingsEverywhere() {
   return { stream, camera };
 }
 
+/**
+ * A row of `n` z14 tiles running east from Manchester, each with a line of 1,000 building triangles
+ * along its middle; a camera at its west end looking along it, seeing 8 km. Returns the building
+ * meshes, west to east.
+ */
+async function buildingsInARow(n: number) {
+  const t0 = lonLatToTile(MANCHESTER.lat, MANCHESTER.lon, 14);
+  const keys = Array.from({ length: n }, (_, i) => ({ z: 14, x: Math.floor(t0.x) + i, y: Math.floor(t0.y) }));
+  const { pool, stream } = setup({ want: () => keys });
+  await start(stream, cam(MANCHESTER, 90, 300));
+  let t = 100;
+  for (let round = 0; round < 20 && pool.open().length; round++) {
+    for (const j of pool.open()) {
+      const real = j.resolve;
+      j.resolve = (r: BuildReply) => {
+        if (r.type === 'built') {
+          const f = tileFrame(r.z, r.x, r.y);
+          const k = 1000;
+          const position = new Float32Array(k * 9);
+          for (let i = 0; i < k; i++) position.set([(i / k) * f.widthM, 20, -f.heightM / 2, (i / k) * f.widthM + 1, 20, -f.heightM / 2, (i / k) * f.widthM, 25, -f.heightM / 2], i * 9);
+          r.meshes.buildings = { position, normal: new Float32Array(k * 9).fill(0.5), color: new Float32Array(k * 9).fill(0.5) };
+        }
+        real(r);
+      };
+      pool.answer(j);
+    }
+    await tick();
+    for (let i = 0; i < 6; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+  }
+  for (let i = 0; i < 40; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+  const row = keys.map((k) => (stream.groupOf(`14/${k.x}/${k.y}`)!.children as THREE.Mesh[]).find((m) => (m.material as THREE.Material).name.includes('buildings'))!);
+  expect(row.every((m) => m && m.visible)).toBe(true);
+  const box = row[0].geometry.boundingBox!.clone().applyMatrix4(row[0].matrixWorld);
+  const camera = new THREE.PerspectiveCamera(60, 0.5, 1, 8000);
+  camera.position.set(box.min.x, 30, (box.min.z + box.max.z) / 2);
+  camera.lookAt(box.min.x + 1000, 30, (box.min.z + box.max.z) / 2);
+  camera.updateMatrixWorld();
+  return { stream, camera, row };
+}
+
 describe('WorldStream: review carries', () => {
   it('keeps the window shift small (modulo the window grid) over a long flight', () => {
     const { stream } = setup();
@@ -560,6 +600,53 @@ describe('WorldStream: review carries', () => {
     // the view eases off well under the cap: the left-outs come back (after their minimum time out)
     for (let f = 0; f < 40; f++) stream.fitView(camera, full + 30_000);
     expect(meshes().every((m) => m.visible)).toBe(true);
+  });
+
+  it('fitView at the cap, the camera moving: a mesh left out while far comes back as the camera nears it (no hole by the camera)', async () => {
+    const { stream, camera, row } = await buildingsInARow(20);
+    const frustum = () => new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const inView = () => {
+      const f = frustum();
+      return row.filter((m) => m.intersectsFrustum(f));
+    };
+    const dist = (m: THREE.Mesh) => m.geometry.boundingBox!.getCenter(new THREE.Vector3()).applyMatrix4(m.matrixWorld).distanceTo(camera.position);
+    // the view sits at its cap: 2,500 under what it would draw with nothing left out (three of its building meshes go)
+    const capFor = () => {
+      const f = frustum();
+      let n = 0;
+      for (const x of stream.tiles()) for (const m of stream.groupOf(x.key)!.children as THREE.Mesh[]) if (m.layers.isEnabled(0) && m.intersectsFrustum(f)) n += m.geometry.getAttribute('position').count / 3;
+      return n - 2500;
+    };
+    stream.fitView(camera, capFor());
+    const out = row.filter((m) => !m.visible);
+    expect(out).toHaveLength(3);
+    // the left-outs are the farthest in view, 5-8 km ahead
+    expect(Math.min(...out.map(dist))).toBeGreaterThan(Math.max(...inView().filter((m) => m.visible).map(dist)));
+    // fly 7 km along the row in 300 frames, the view held at its cap all the way (new tiles come into view ahead)
+    const x0 = camera.position.x;
+    for (let f = 0; f <= 300; f++) {
+      camera.position.x = x0 + (7000 * f) / 300;
+      camera.lookAt(camera.position.x + 1000, camera.position.y, camera.position.z);
+      camera.updateMatrixWorld();
+      const cap = capFor();
+      expect(stream.fitView(camera, cap)).toBeLessThanOrEqual(cap);
+    }
+    // the ones left out back then are near now, and drawn: what is left out is the farthest ahead
+    for (const m of out) expect(dist(m)).toBeLessThan(2000);
+    expect(out.every((m) => m.visible)).toBe(true);
+    const view = inView();
+    const hidden = view.filter((m) => !m.visible), shown = view.filter((m) => m.visible);
+    expect(hidden).toHaveLength(3);
+    expect(Math.min(...hidden.map(dist))).toBeGreaterThan(0.75 * Math.max(...shown.map(dist)));
+    // standing still at the cap with the rest of the scene wobbling, nothing blinks
+    const hold = capFor();
+    const pattern = () => row.map((m) => m.visible).join('');
+    stream.fitView(camera, hold);
+    const first = pattern();
+    for (let f = 0; f < 120; f++) {
+      expect(stream.fitView(camera, hold + (f % 2 ? 600 : -300))).toBeLessThanOrEqual(hold + 600);
+      expect(pattern()).toBe(first);
+    }
   });
 
   it('stats are read without building a new object each frame, and agree with the tiles', async () => {
