@@ -77,6 +77,8 @@ export type StreamOptions = {
   hidden?: HiddenFootprint[];
   /** The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's corridor). */
   want?: (camera: LodCamera, budget: number) => TileKey[];
+  /** The level of detail each zoom is built at (default lod.ts levelFor; the card builds its far land coarser). */
+  levelOf?: (z: number) => LodLevel;
 };
 
 type Ground = GroundGrid & { south: number; north: number; west: number; dLon: number; mLon: number };
@@ -151,6 +153,7 @@ export class WorldStream {
   private readonly recentreM: number;
   private readonly fadeMs: number;
   private readonly arriveTriangles: number;
+  private readonly levelOf: (z: number) => LodLevel;
   private readonly fallbackGround: (p: LatLon) => number | undefined;
   private readonly hidden: HiddenFootprint[];
   private readonly want: StreamOptions['want'];
@@ -192,6 +195,7 @@ export class WorldStream {
     this.recentreM = opts.recentreM ?? 5000;
     this.fadeMs = opts.fadeMs ?? 400;
     this.arriveTriangles = opts.arriveTriangles ?? ARRIVE_TRIANGLES;
+    this.levelOf = opts.levelOf ?? levelFor;
     this.hidden = opts.hidden ?? [];
     this.want = opts.want;
     this.fallbackGround = opts.fallbackGround ?? (() => undefined);
@@ -575,7 +579,7 @@ export class WorldStream {
   }
 
   private build(t: TileKey, key: string): void {
-    const level = levelFor(t.z);
+    const level = this.levelOf(t.z);
     const b = tileBounds(t.z, t.x, t.y);
     const centre = { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
     const ac = new AbortController();

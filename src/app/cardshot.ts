@@ -30,7 +30,7 @@ import { bearingDeg, destination, haversineKm, lonLatToTile, tileBounds, type La
 import { seaAt } from '../geo/gazetteer';
 import { tameWarm, type CardFrame, type CardScene } from '../ui/card';
 import { M_PER_DEG } from '../world/frame';
-import { tilesFor, tileKey, type TileKey } from '../world/lod';
+import { levelFor, tilesFor, tileKey, type TileKey } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { Sky } from '../world/sky';
 import { WorldStream } from '../world/stream';
@@ -514,6 +514,9 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     recentreM: 1e12,
     // drawn once, offscreen: every built tile goes in at once (no spreading of uploads over frames)
     arriveTriangles: Infinity,
+    // the far land is a few pixels a cell from 520 m up: z7 at half the ground cells (a quarter of
+    // its triangles), so the picture's one draw stays near a live frame's budget on a phone
+    levelOf: (z) => (z === 7 ? { ...levelFor(7), lcSize: 32 } : levelFor(z)),
   });
   try {
     // the stream is told it stands at the landing, so its origin (and the shot's frame) stays there

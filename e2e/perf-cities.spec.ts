@@ -173,6 +173,7 @@ test('the card world on a mid-range phone: made while the replay plays, on the r
   info.annotations.push({ type: 'card world', description: line });
   console.log(`perf-cities: ${line}`);
   expect(w.tiles).toBeGreaterThan(0);
+  if (process.env.PERF_SHOT) await page.screenshot({ path: process.env.PERF_SHOT, timeout: 120_000 });
 });
 
 test.afterAll(() => {
