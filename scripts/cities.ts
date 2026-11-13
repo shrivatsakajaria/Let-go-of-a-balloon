@@ -3,10 +3,12 @@
  *
  * The CSV is a snapshot of SK's "Launch cities" sheet: quoted fields may hold commas and doubled
  * quotes. Launch batch first, then the weekly batches, then Tier 2, keeping the sheet's order
- * inside each batch. `launch.headingDeg` (from the launch spot to the main landmark, for the
- * launch camera) stays null until each launch spot is confirmed against OpenStreetMap.
+ * inside each batch. `hero` is the first-listed landmark with its point ("Hero lat", "Hero lon"), and
+ * `launch.headingDeg` is the bearing from the launch spot to it, for the launch camera. A launch-batch
+ * row with no hero point must say why in "Heading note"; its heading stays null.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { bearingDeg } from '../src/geo/coords';
 
 export type Batch = 'launch' | 'weekly' | 'later';
 
@@ -17,7 +19,9 @@ export type City = {
   city: string;
   tier: 1 | 2;
   batch: Batch;
-  launch: { lat: number; lon: number; label: string; headingDeg: number | null };
+  launch: { lat: number; lon: number; label: string; headingDeg: number | null; headingNote?: string };
+  /** The first-listed landmark, the one behind the person at the launch. */
+  hero?: { name: string; lat: number; lon: number };
   landmarks: string[];
   animated?: string;
   /** Rights flags to check before modelling. Not legal advice. */
@@ -64,7 +68,7 @@ export function buildCities(csv: string): City[] {
   const c = {
     group: col('Group'), country: col('Country'), city: col('City'), tier: col('Tier'), spot: col('Launch spot'),
     lat: col('Launch lat'), lon: col('Launch lon'), landmarks: col('Landmarks to model'), animated: col('Animated touch'),
-    notes: col('Notes'), batch: col('Batch'),
+    notes: col('Notes'), batch: col('Batch'), heroLat: col('Hero lat'), heroLon: col('Hero lon'), headingNote: col('Heading note'),
   };
   const ids = new Set<string>();
   const out = rows.map((r, line): City => {
@@ -81,6 +85,7 @@ export function buildCities(csv: string): City[] {
     if (ids.has(id)) id = `${id}-${slug(get(c.country))}`;
     if (ids.has(id)) throw new Error(`${where}: duplicate id ${id}`);
     ids.add(id);
+    const landmarks = get(c.landmarks).split(';').map((s) => s.trim()).filter(Boolean);
     const city: City = {
       id,
       group: get(c.group),
@@ -89,8 +94,17 @@ export function buildCities(csv: string): City[] {
       tier,
       batch,
       launch: { lat, lon, label: get(c.spot), headingDeg: null },
-      landmarks: get(c.landmarks).split(';').map((s) => s.trim()).filter(Boolean),
+      landmarks,
     };
+    if (get(c.heroLat) || get(c.heroLon)) {
+      const hero = { lat: Number(get(c.heroLat)), lon: Number(get(c.heroLon)) };
+      if (!get(c.heroLat) || !get(c.heroLon) || !(Math.abs(hero.lat) <= 90) || !(Math.abs(hero.lon) <= 180)) {
+        throw new Error(`${where}: bad hero landmark coordinates`);
+      }
+      city.hero = { name: landmarks[0] ?? '', ...hero };
+      city.launch.headingDeg = Math.round(bearingDeg(city.launch, hero) * 10) / 10 % 360;
+    } else if (get(c.headingNote)) city.launch.headingNote = get(c.headingNote);
+    else if (batch === 'launch') throw new Error(`${where}: a launch-batch city needs a hero landmark point or a heading note`);
     if (get(c.animated)) city.animated = get(c.animated);
     if (get(c.notes)) city.notes = get(c.notes);
     return city;

@@ -8,13 +8,16 @@ import type { StartChoice } from '../ui/start';
 
 export type Home = { name: string; lat: number; lon: number };
 /** A balloon being shown: its route, where it was let go, and whether it is the visitor's own. */
-export type Flight = { route: Route; home: Home; own: boolean };
+export type Flight = { route: Route; home: Home; own: boolean; launched?: boolean };
 
 export type World = {
   letGo(c: StartChoice): void;
-  open(b: SavedBalloon): void | Promise<void>;
+  /** Rejects when the balloon's route could not be fetched. */
+  open(b: SavedBalloon): Promise<void>;
   setStart(c: StartChoice): void;
   backToStart(): void;
+  /** Let go of everything it drew and listens to, before another world takes its place. */
+  dispose?(): void;
 };
 
 /** What the 3D world hands to the 2D map when it gives up: the start place, the state and any flight. */

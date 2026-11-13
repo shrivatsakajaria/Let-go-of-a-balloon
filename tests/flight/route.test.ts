@@ -183,3 +183,16 @@ test('a peekable ground that fails makes computeRoute reject', async () => {
   const { g } = tiledGround(mountains, { fail: true });
   await expect(computeRoute({ lat: 0, lon: 0 }, ISSUED, await makeWind([-10], [0, 20], 10), g)).rejects.toThrow('no terrain');
 });
+
+test('positionAt can fill a given point (no allocation per frame), with the same values, and never hands out a route point', async () => {
+  const wind = await makeWind([-10], [0, 20], 10);
+  const r = await computeRoute({ lat: 0, lon: 0 }, ISSUED, wind, flat(0));
+  const out = { tSec: 0, lat: 0, lon: 0, altM: 0, groundM: 0, speedMs: 0, headingDeg: 0 };
+  for (const t of [ISSUED - 1e6, ISSUED + (20 * 600 + 300) * 1000, ISSUED + 80 * HOUR]) {
+    const got = positionAt(r, t, out);
+    expect(got).toBe(out);
+    expect(got).toEqual(positionAt(r, t));
+  }
+  out.lat = 99; // writing to it leaves the route alone
+  expect(r.points[432].lat).not.toBe(99);
+});

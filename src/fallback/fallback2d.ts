@@ -268,7 +268,7 @@ export class Fallback implements World {
       (route) => {
         if (ticket !== this.launching || this.state !== 'launch') return;
         const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
-        this.show({ route, home, own: true });
+        this.show({ route, home, own: true, launched: true });
         const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
         store.add(saved);
         this.deps.start.refresh();
@@ -307,10 +307,16 @@ export class Fallback implements World {
     this.deps.setView('link');
     const own = store.list().some((x) => x.id === balloonId(b));
     const ticket = ++this.opening;
-    const route = await linkRoute(b);
+    let route: Route;
+    try {
+      route = await linkRoute(b);
+    } catch (e) {
+      if (ticket === this.opening) this.state = 'start';
+      throw e;
+    }
     if (ticket !== this.opening || this.state !== 'flight') return;
     const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
-    this.show({ route, home, own });
+    this.show({ route, home, own, launched: false });
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
@@ -366,7 +372,9 @@ export class Fallback implements World {
     return c;
   }
 
-  destroy(): void {
+  dispose(): void {
+    this.opening++;
+    this.launching++;
     clearInterval(this.timer);
     window.removeEventListener('resize', this.onResize);
     this.hud.destroy();
@@ -469,7 +477,7 @@ export class Fallback implements World {
       this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
       this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
       const country = place?.kind === 'town' ? place.country ?? null : null;
-      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own };
+      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched ?? false };
       const say = announcement(this.said, next);
       if (say) this.hud.announce(say);
       this.said = next;

@@ -121,7 +121,7 @@ export function mountStart(
   let openSpace: Promise<LatLon> | null = null;
 
   document.querySelectorAll('.shade').forEach((s) => s.remove());
-  const shades = ['shade-top', 'shade-bottom'].map((c) => {
+  const shades = ['shade-top', 'shade-bottom ink-bottom'].map((c) => {
     const d = document.createElement('div');
     d.className = `shade ${c}`;
     d.setAttribute('aria-hidden', 'true');

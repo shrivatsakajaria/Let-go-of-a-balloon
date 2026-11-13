@@ -15,7 +15,7 @@ import { decodeBalloon, payloadFromLocation, type SavedBalloon } from './flight/
 import { COPY } from './ui/copy';
 import { showNotice, type Notice } from './ui/notice';
 import { mountStart, type StartChoice } from './ui/start';
-import type { Live, View } from './app/live';
+import type { View } from './app/live';
 import type { Handover, World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
 
@@ -35,24 +35,35 @@ let webgl: boolean | null = null;
 let latest: StartChoice | null = null;
 let broken: Notice | null = null;
 
+/**
+ * Start loading what a release from c needs (the winds manifest and tiles round it, the terrain archive's
+ * header and the start's ground) straight away, from a small chunk with no three.js in it, rather than
+ * after the 3D world has arrived.
+ */
+function warmup(c: StartChoice) {
+  import('./app/data').then((d) => d.warm(c)).catch(() => {});
+}
+
 const deps = (contextLosses = 0) => ({ start, sceneEl, hudEl, noticeEl, setView, onNoWebGL: toMap, onReload: reloadWorld, contextLosses });
 
 /** The 2D map in place of the 3D world, showing whatever flight the 3D world handed over. */
 function loadMap(h?: Handover): Promise<World> {
   return import('./fallback/fallback2d').then((m) => {
     const f = m.startFallback(h?.flight ?? undefined, deps(), h?.choice ?? latest ?? start.start);
-    if (h?.state === 'launch') f.letGo(h.choice);
-    else if (h && !h.flight) setView('start');
+    if (h?.state === 'launch' && !h.flight) f.letGo(h.choice);
+    else if (h && !h.flight && html.dataset.view !== 'broken') setView('start');
     live = f;
     return f;
   });
 }
 
-/** The 3D world lost its WebGL context and got it back: build it again and carry on where it was. */
+/**
+ * The 3D world lost its WebGL context and got it back: build it again and carry on where it was. The
+ * old world takes its own notice with it; a notice of the page (a broken link) stays.
+ */
 function reloadWorld(h: Handover) {
-  (live as Live | null)?.dispose();
+  live?.dispose?.();
   live = null;
-  noticeEl.replaceChildren();
   liveP = import('./app/live').then((m) => {
     try {
       const l = m.createLive(deps(1), h.choice);
@@ -68,17 +79,19 @@ function reloadWorld(h: Handover) {
 
 /** The 3D world gave up (its context was lost twice): carry on on the 2D map. */
 function toMap(h: Handover) {
-  (live as Live | null)?.dispose?.();
+  live?.dispose?.();
   live = null;
   webgl = false;
-  noticeEl.replaceChildren();
   liveP = loadMap(h);
   liveP.catch(() => {
     liveP = null;
   });
 }
 
-/** The world, loaded once; a failed load (a flaky connection, a new deploy) is tried again next time. */
+/**
+ * The world, loaded once: the 3D world, or the 2D map where WebGL is missing or cannot be made. A failed
+ * load (a flaky connection, a new deploy) is tried again next time.
+ */
 function loadLive(): Promise<World> {
   webgl ??= canUseWebGL();
   liveP ??= (webgl ? import('./app/live') : Promise.resolve(null))
@@ -101,25 +114,36 @@ function loadLive(): Promise<World> {
   return liveP;
 }
 
-/** The world could not load: say so plainly, and let the visitor try again. */
-function cannotLoad(retry: () => void) {
+/** Back to the start screen from a notice, with the address cleared of any balloon link. */
+function toStart() {
+  noticeEl.replaceChildren();
+  if (live) return live.backToStart();
+  history.replaceState(null, '', '/');
+  setView('start');
+}
+
+/**
+ * The world, or a balloon, could not be fetched: say so plainly (never that the winds failed), with Try
+ * again. A browser that cannot draw the 3D world gets the 2D map instead (loadLive).
+ */
+function cannotShow(retry: () => void) {
   setView('error');
-  showNotice(noticeEl, COPY.windsUnavailable, [
-    { label: COPY.tryAgain, primary: true, onClick: retry },
-    { label: COPY.cancel, onClick: () => { noticeEl.replaceChildren(); setView('start'); } },
+  showNotice(noticeEl, COPY.didNotLoad, [
+    { label: COPY.tryAgain, primary: true, onClick: () => { noticeEl.replaceChildren(); retry(); } },
+    { label: COPY.cancel, onClick: toStart },
   ]);
 }
 
 function letGo(c: StartChoice) {
   if (live) return live.letGo(c);
   setView('launch');
-  loadLive().then((l) => l.letGo(c), () => cannotLoad(() => letGo(c)));
+  loadLive().then((l) => l.letGo(c), () => cannotShow(() => letGo(c)));
 }
 
 function open(b: SavedBalloon) {
-  if (live) return void live.open(b);
-  setView('link');
-  loadLive().then((l) => l.open(b), () => cannotLoad(() => open(b)));
+  if (!live) setView('link');
+  const opening = live ? live.open(b) : loadLive().then((l) => l.open(b));
+  opening.catch(() => cannotShow(() => open(b)));
 }
 
 const start = mountStart(
@@ -129,6 +153,7 @@ const start = mountStart(
     onOpenBalloon: open,
     onStartChange(c) {
       latest = c;
+      warmup(c);
       live?.setStart(c);
     },
   },
@@ -165,7 +190,14 @@ if (!route()) setView('start');
 // a link pasted into the address bar of an open page
 window.addEventListener('hashchange', () => {
   broken?.remove();
-  route();
+  broken = null;
+  if (route()) return;
+  // the link was taken out of the address: back to the start screen from a link's screens
+  const v = html.dataset.view;
+  if (v === 'broken' || v === 'link' || v === 'flight') {
+    if (live) live.backToStart();
+    else setView('start');
+  }
 });
 
 // the world loads once the first frame of the chrome is on screen (not under a ?backdrop= test colour,

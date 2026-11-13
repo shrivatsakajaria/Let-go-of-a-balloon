@@ -108,7 +108,7 @@ test.describe('start screen', () => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Tokyo', exact: true }).click();
     await expect(fromButton(page)).toHaveText('From Tokyo');
-    expect(await letGo(page)).toEqual({ name: 'Tokyo', lat: 35.6595, lon: 139.7005, kind: 'featured', cityId: 'tokyo' });
+    expect(await letGo(page)).toEqual({ name: 'Tokyo', lat: 35.659, lon: 139.7006, kind: 'featured', cityId: 'tokyo' });
     await page.reload();
     await expect(fromButton(page)).toHaveText('From Tokyo');
     await expect(page.getByRole('button', { name: 'Tokyo', exact: true })).toHaveAttribute('aria-pressed', 'true');

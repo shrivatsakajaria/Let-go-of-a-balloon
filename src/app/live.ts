@@ -21,7 +21,7 @@ import { nearestPlace, type Place } from '../geo/gazetteer';
 import { overText, placeOver, townAhead } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
-import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
+import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
@@ -47,7 +47,7 @@ export type LiveDeps = {
   contextLosses?: number;
 };
 
-type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean };
+type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean };
 
 const PLACE_EVERY_MS = 6000;
 const HOLD_MS = 1200;
@@ -100,6 +100,13 @@ export class Live {
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
+  /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
+  private unwatch: () => void = () => {};
+  private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
+  private readonly hookRoute = { altM: 0, groundM: 0, tSec: 0 };
+  private readonly subject: [number, number] = [0, 0];
+  private readonly v1 = new Vector3();
+  private readonly v2 = new Vector3();
   readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0 };
   private readonly context: ContextWatch;
 
@@ -109,7 +116,7 @@ export class Live {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'world';
     this.canvas.setAttribute('role', 'img');
-    this.canvas.setAttribute('aria-label', `A person in ${choice.kind === 'gps' ? 'your location' : choice.name} holding a red balloon`);
+    this.canvas.setAttribute('aria-label', startLabel(choice));
     deps.sceneEl.append(this.canvas);
     this.scene = new LiveScene(this.canvas, choice, { reducedMotion: reduced });
     this.scene.onFirstFrame = () => {
@@ -128,7 +135,16 @@ export class Live {
       },
       { reducedMotion: reduced },
     );
-    (window as unknown as { __live: LiveHook }).__live = this.hook;
+    if (this.testing) {
+      (window as unknown as { __live: LiveHook }).__live = this.hook;
+      // for the browser test of dispose: how many objects are left in the 3D scene afterwards
+      (window as unknown as { __liveDispose: () => number }).__liveDispose = () => {
+        const hook = this.hook;
+        this.dispose();
+        (window as unknown as { __live: LiveHook }).__live = hook;
+        return this.scene.scene.children.length;
+      };
+    }
     this.hook.contextLosses = deps.contextLosses ?? 0;
     this.context = watchContextLoss(
       this.canvas,
@@ -179,6 +195,24 @@ export class Live {
     ro?.observe(top);
     ro?.observe(bottom);
     window.addEventListener('resize', fit);
+    this.unwatch = () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+  }
+
+  /** Take the live flight down: the scene and its GL context, the HUD and its timer, the listeners. */
+  dispose(): void {
+    this.opening++;
+    this.windAsk++;
+    this.unwatch();
+    this.context.dispose();
+    this.clearNotice();
+    this.hud.destroy();
+    this.scene.dispose();
+    this.canvas.remove();
+    delete this.deps.sceneEl.dataset.live;
+    if (this.testing) delete (window as unknown as { __live?: LiveHook }).__live;
   }
 
   // ---- Let go ----
@@ -215,8 +249,9 @@ export class Live {
   }
 
   private released(route: Route, c: StartChoice): void {
+    if (this.state !== 'launch') return;
     const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
-    this.beginFlight(route, home, true);
+    this.beginFlight(route, home, true, true);
     const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
     store.add(saved);
     this.deps.start.refresh();
@@ -245,12 +280,20 @@ export class Live {
   // ---- a balloon from a link or from "Your balloons" ----
 
   async open(b: SavedBalloon): Promise<void> {
+    // a launch still waiting for its route never lets go now: this balloon takes over
+    if (this.state === 'launch' || this.state === 'error') this.scene.cancelLaunch();
     this.clearNotice();
     this.state = 'flight';
     this.deps.setView('link');
     const own = store.list().some((x) => x.id === balloonId(b));
     const ticket = ++this.opening;
-    const route = await linkRoute(b);
+    let route: Route;
+    try {
+      route = await linkRoute(b);
+    } catch (e) {
+      if (ticket === this.opening) this.state = 'start';
+      throw e;
+    }
     if (ticket !== this.opening || this.state !== 'flight') return; // the visitor moved on meanwhile
     const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
     // a landed balloon is seen from the side, in its field or on its sea, not from straight above
@@ -258,13 +301,13 @@ export class Live {
     this.scene.fly(route, mode);
     this.hud.setPaused(false);
     this.hud.setView(mode);
-    this.beginFlight(route, home, own);
+    this.beginFlight(route, home, own, false);
     this.deps.setView('flight');
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
-  private beginFlight(route: Route, home: Flight['home'], own: boolean): void {
-    this.flight = { route, home, own };
+  private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean): void {
+    this.flight = { route, home, own, launched };
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
     this.lastCountry = null;
@@ -288,7 +331,7 @@ export class Live {
     this.deps.setView('start');
     this.scene.setStart(this.choice, landmarkHeading(this.choice.cityId));
     this.askWind(this.choice);
-    this.canvas.setAttribute('aria-label', `A person in ${this.choice.kind === 'gps' ? 'your location' : this.choice.name} holding a red balloon`);
+    this.canvas.setAttribute('aria-label', startLabel(this.choice));
   }
 
   /** What the 2D map needs to carry on from here. */
@@ -296,32 +339,31 @@ export class Live {
     return { choice: this.choice, state: this.state, flight: this.flight };
   }
 
-  /** Carry on from what a world before this one was showing (its context was lost and came back). */
+  /**
+   * Carry on from what a world before this one was showing (its context was lost and came back): the
+   * flight, seen as open() would show it (a landed balloon from the side); a launch that had not let go
+   * yet starts again; anything else goes back to the start screen.
+   */
   resume(h: Handover): void {
-    if (!h.flight) return this.backToStart();
-    const { route, home, own } = h.flight;
-    this.state = 'flight';
-    this.scene.fly(route, 'film');
-    this.hud.setView('film');
-    this.beginFlight(route, home, own);
-    this.deps.setView('flight');
-  }
-
-  /** Stop drawing and let go of the GPU, the HUD and the canvas (a new world or the 2D map takes over). */
-  dispose(): void {
-    this.opening++;
-    this.context.dispose();
-    this.clearNotice();
-    this.scene.dispose();
-    this.hud.destroy();
-    this.canvas.remove();
-    delete this.deps.sceneEl.dataset.live;
-    delete (window as unknown as { __live?: LiveHook }).__live;
+    if (h.flight) {
+      const { route, home, own } = h.flight;
+      const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
+      this.state = 'flight';
+      this.scene.fly(route, mode);
+      this.hud.setPaused(false);
+      this.hud.setView(mode);
+      this.beginFlight(route, home, own, h.flight.launched ?? false);
+      this.deps.setView('flight');
+      return;
+    }
+    if (h.state === 'launch') return this.letGo(h.choice);
+    this.backToStart();
   }
 
   // ---- every frame ----
 
-  private frame(f: SceneFrame): void {
+  /** The read-only test hook (only when a test asked for it): reused arrays and vectors, nothing per frame. */
+  private updateHook(f: SceneFrame): void {
     const h = this.hook;
     h.frames++;
     h.state = this.state;
@@ -329,26 +371,35 @@ export class Live {
     h.aglM = f.aglM;
     h.shot = f.shot;
     h.paused = this.hud.paused;
-    const c = this.scene.camera.position;
-    h.camera = [c.x, c.y, c.z];
-    const t = this.scene.balloon.mesh.position;
-    h.target = [t.x, t.y, t.z];
+    this.scene.camera.position.toArray(h.camera);
+    this.scene.balloon.mesh.position.toArray(h.target);
     h.fact = this.hud.fact;
     h.over = this.over;
-    h.route = f.released ? { altM: f.point.altM, groundM: f.point.groundM, tSec: f.point.tSec } as LiveHook["route"] : null;
+    if (f.released) {
+      h.route = this.hookRoute;
+      this.hookRoute.altM = f.point.altM;
+      this.hookRoute.groundM = f.point.groundM;
+      this.hookRoute.tSec = f.point.tSec;
+    } else h.route = null;
     h.groundM = f.groundM;
+    h.feetM = f.feetM;
     const person = this.scene.person;
     if (f.waiting && person?.root.visible) {
       const cam = this.scene.camera;
       const px = (v: Vector3) => ((1 - v.project(cam).y) / 2) * window.innerHeight;
-      const top = this.scene.balloon.mesh.getWorldPosition(new Vector3());
+      const top = this.scene.balloon.mesh.getWorldPosition(this.v1);
       top.y += 0.2;
-      h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
+      this.subject[0] = px(top);
+      this.subject[1] = px(person.root.getWorldPosition(this.v2));
+      h.subjectPx = this.subject;
     } else h.subjectPx = null;
-    h.feetM = f.feetM;
     const info = this.scene.renderer.info.render;
     h.triangles = info.triangles;
     h.calls = info.calls;
+  }
+
+  private frame(f: SceneFrame): void {
+    if (this.testing) this.updateHook(f);
 
     this.scene.measurePaused = this.state === 'launch';
     if (this.state === 'launch' && f.released && f.settled) {
@@ -411,7 +462,7 @@ export class Live {
 
       // the status region: the launch, a change of country, the landing
       const country = place?.kind === 'town' ? place.country ?? null : null;
-      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own };
+      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched };
       const say = announcement(this.said, next);
       if (say) this.hud.announce(say);
       this.said = next;

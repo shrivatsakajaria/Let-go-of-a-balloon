@@ -24,6 +24,8 @@ export const COPY = {
   // not fixed by 7.4: written to match its voice
   searchFailed: "We can't search right now. Try again in a moment.",
   locationTimeout: "We couldn't find you. Try again, or search for your town.",
+  // the world (3D or the 2D map) could not be fetched; a browser that cannot draw 3D gets the map
+  didNotLoad: "The balloon didn't load. Check your connection and try again.",
   pause: 'Pause',
   resume: 'Resume',
   view: 'View',

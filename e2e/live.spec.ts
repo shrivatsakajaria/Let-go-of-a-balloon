@@ -270,7 +270,134 @@ test('HUD text reaches 4.5:1 over snow, noon and sand with the shading at its br
         return { what: t.what, ratio: Math.round(worst * 100) / 100, need: t.need };
       });
     }, { shot, targets });
-    console.log(name, JSON.stringify(results.map((r) => `${r.what.slice(0, 18)} ${r.ratio}`)));
+    test.info().annotations.push({ type: `contrast ${name}`, description: results.map((r) => `${r.what.slice(0, 18)} ${r.ratio}`).join('; ') });
     for (const r of results) expect(r.ratio, `${name}: ${r.what}`).toBeGreaterThanOrEqual(r.need);
   }
+});
+
+test('with the world live, the HUD never takes taps meant for the start screen (Credits on start, error and broken views)', async ({ context, page }) => {
+  await liveWorld(context, { windsDown: true });
+  await startAtAlbertSquare(context);
+  const credits = async () => {
+    await page.getByRole('button', { name: 'Credits' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+  };
+  await page.goto('/');
+  await ready(page);
+  await credits(); // start
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 });
+  await credits(); // the winds error
+  await page.goto('/#b=AWkBlv4BCk1hbmNoZXN0ZXIKMjAy');
+  await expect(page.getByText('This balloon link is broken.')).toBeVisible();
+  await ready(page);
+  await credits(); // the broken link
+});
+
+test('the winds manifest, the terrain header and the start ground are asked for at page load, before the 3D world arrives', async ({ context, page }) => {
+  const { winds } = await liveWorld(context);
+  await startAtAlbertSquare(context);
+  const terrain: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('mapterhorn.com/planet.pmtiles')) terrain.push(r.url()); });
+  // the world's chunks (and three.js) never arrive: the warm-up must not wait for them
+  await context.route(/\/assets\/(live|sky)-[^/]*\.js$/, (r) => r.abort('failed'));
+  await page.goto('/');
+  await expect.poll(() => winds.includes('/winds/manifest.json'), { timeout: 10_000 }).toBe(true);
+  await expect.poll(() => terrain.length, { timeout: 10_000 }).toBeGreaterThan(0);
+});
+
+test('with no WebGL a link opens on the 2D map (not that the winds failed); "Let go of your own" clears the link', async ({ context, page }) => {
+  await liveWorld(context);
+  await context.addInitScript(() => {
+    const get = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, id: string, ...rest: unknown[]) {
+      return /webgl/.test(id) ? null : (get as (...a: unknown[]) => unknown).call(this, id, ...rest);
+    } as typeof get;
+  });
+  await page.goto(await linkTo(eastward(10)));
+  await expect(page.getByText("Your phone can't show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.map2d')).toBeVisible();
+  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeHidden();
+  await page.getByRole('button', { name: 'Let go of your own' }).click();
+  expect(new URL(page.url()).hash).toBe('');
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+});
+
+test('if the world cannot be fetched, Let go says so and offers Try again', async ({ context, page }) => {
+  await liveWorld(context);
+  await context.route(/\/assets\/live-[^/]*\.js$/, (r) => r.abort('failed'));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await expect(page.getByText("The balloon didn't load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+});
+
+test('clearing the address on the broken-link screen goes back to the start screen', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto('/#b=AWkBlv4BCk1hbmNoZXN0ZXIKMjAy');
+  await expect(page.getByText('This balloon link is broken.')).toBeVisible();
+  await expect.poll(() => view(page)).toBe('broken');
+  await page.waitForTimeout(1000); // the start chrome has finished hiding
+  await page.evaluate(() => (location.hash = ''));
+  await expect.poll(() => view(page)).toBe('start');
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+  await expect(page.getByText('This balloon link is broken.')).toBeHidden();
+});
+
+test('a link opened while a launch is waiting for its route takes over: the launch never lets go', async ({ context, page }) => {
+  // the launch's winds take 20 s: the link arrives while the person is still holding on
+  await liveWorld(context, { windDelayMs: 20_000 });
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await page.waitForTimeout(800);
+  const link = await linkTo(eastward(14));
+  await page.evaluate((h) => (location.hash = h), link.slice(1));
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
+  await page.waitForTimeout(8000); // past the launch's 6 s limit: no winds error either
+  await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
+  expect(new URL(page.url()).hash).toBe(link.slice(1));
+  expect(await page.evaluate(() => localStorage.getItem('lgoab.balloons.v1'))).toBeNull();
+  await expect(page.getByRole('alert')).toBeHidden();
+  expect(await view(page)).toBe('flight');
+});
+
+test('the page keeps no test hook unless a test asks for one', async ({ context, page }) => {
+  await context.route('**/*', (r) => (/^https?:\/\/(localhost|127\.0\.0\.1)/.test(r.request().url()) ? r.continue() : r.abort('blockedbyclient')));
+  await page.goto('/');
+  await ready(page);
+  expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
+});
+
+test('disposing the live flight stops drawing and frees the scene, the HUD and the listeners', async ({ context, page }) => {
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await expect.poll(async () => (await hook(page))!.frames, { timeout: 10_000 }).toBeGreaterThan(5);
+  const left = await page.evaluate(() => (window as unknown as { __liveDispose: () => number }).__liveDispose());
+  expect(left).toBe(0); // nothing left in the 3D scene
+  const f0 = (await hook(page))!.frames;
+  await page.waitForTimeout(1500);
+  expect((await hook(page))!.frames).toBe(f0);
+  expect(await page.locator('canvas.world').count()).toBe(0);
+  expect(await page.locator('#hud').evaluate((e) => e.childElementCount)).toBe(0);
+  await page.setViewportSize({ width: 400, height: 700 }); // a resize after dispose throws nothing
+  await page.waitForTimeout(300);
+});
+
+test('the HUD and the start screen share one bottom shading', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(3)));
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  const bg = (sel: string) => page.locator(sel).evaluate((e) => getComputedStyle(e).backgroundImage);
+  expect(await bg('.hud-shade')).toBe(await bg('.shade-bottom'));
+  expect(await page.locator('.hud-shade').getAttribute('class')).toContain('ink-bottom');
+  expect(await page.locator('.shade-bottom').getAttribute('class')).toContain('ink-bottom');
 });
