@@ -147,10 +147,14 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
 
   if (still) map = routeMap(route, names, opts.home ?? '', opts.landing ?? null, host);
   else {
+    const rf = replayFrame(0, total);
     host.scene.startReplay({
-      now: () => route.release + replayFrame(t(), total).routeFrac * FLIGHT_MS,
-      wide: () => replayFrame(t(), total).wide,
-      landing: () => replayFrame(t(), total).landing,
+      sample(out) {
+        replayFrame(t(), total, rf);
+        out.now = route.release + rf.routeFrac * FLIGHT_MS;
+        out.wide = rf.wide;
+        out.landing = rf.landing;
+      },
     });
   }
 
@@ -202,6 +206,7 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       onEnd();
       resolve(); // still on screen, holding on the landing, until Back to live
     };
+    const tickFrame = replayFrame(0, total);
     const tick = () => {
       if (gone || ended) return;
       const s = t();
@@ -211,12 +216,13 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
         map!.draw(f.routeFrac);
         done = f.done;
       } else {
-        const f = replayFrame(s, total);
+        const f = replayFrame(s, total, tickFrame);
         const k = total / 20;
         if (landing && (f.phase === 'descent' || f.phase === 'hold' || f.phase === 'done')) {
           write(landing.name, landing.line, easeOut((s - 17 * k) / LANDING_IN_S));
         } else {
-          const n = names.find((x) => nameOpacity(s, x.atS) > 0);
+          let n: ReplayName | undefined;
+          for (const x of names) if (nameOpacity(s, x.atS) > 0) n = x;
           if (n) write(standalone(n.name), '', nameOpacity(s, n.atS));
           else slot.style.opacity = '0';
         }

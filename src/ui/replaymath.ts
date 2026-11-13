@@ -79,19 +79,28 @@ export function travelFrac(s: number): number {
   return Math.min(1, Math.max(0, d / area));
 }
 
-/** Where the replay is at tS seconds (of totalS). */
-export function replayFrame(tS: number, totalS = BASE_S): ReplayFrame {
+/** Where the replay is at tS seconds (of totalS), written into `out` if given (no allocation per frame). */
+export function replayFrame(tS: number, totalS = BASE_S, out: ReplayFrame = { phase: 'climb', routeFrac: 0, wide: 0, landing: 0, done: false }): ReplayFrame {
   const k = totalS / BASE_S;
   const t = Number.isFinite(tS) ? Math.max(0, tS) / k : 0;
   const a = PHASES.climbS, b = a + PHASES.travelS, c = b + PHASES.descentS;
-  if (t < a) return { phase: 'climb', routeFrac: 0, wide: inOut(t / a), landing: 0, done: false };
-  if (t < b) return { phase: 'travel', routeFrac: travelFrac((t - a) / PHASES.travelS), wide: 1, landing: 0, done: false };
+  if (t < a) return fill(out, 'climb', 0, inOut(t / a), 0);
+  if (t < b) return fill(out, 'travel', travelFrac((t - a) / PHASES.travelS), 1, 0);
   if (t < c) {
     const u = inOut((t - b) / PHASES.descentS);
-    return { phase: 'descent', routeFrac: 1, wide: 1 - u, landing: u, done: false };
+    return fill(out, 'descent', 1, 1 - u, u);
   }
-  if (t < BASE_S) return { phase: 'hold', routeFrac: 1, wide: 0, landing: 1, done: false };
-  return { phase: 'done', routeFrac: 1, wide: 0, landing: 1, done: true };
+  if (t < BASE_S) return fill(out, 'hold', 1, 0, 1);
+  return fill(out, 'done', 1, 0, 1);
+}
+
+function fill(out: ReplayFrame, phase: ReplayPhase, routeFrac: number, wide: number, landing: number): ReplayFrame {
+  out.phase = phase;
+  out.routeFrac = routeFrac;
+  out.wide = wide;
+  out.landing = landing;
+  out.done = phase === 'done';
+  return out;
 }
 
 /** The replay time (s, of totalS) at which the travel reaches a share f of the route. */
