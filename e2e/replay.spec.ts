@@ -38,11 +38,13 @@ async function record(page: Page) {
       const t = [...slot.querySelectorAll('p')].map((p) => p.textContent ?? '').join('|');
       if (t.replace(/\|/g, '') && w.__names[w.__names.length - 1] !== t) w.__names.push(t);
     }).observe(slot, { subtree: true, childList: true, characterData: true });
-    new MutationObserver(() => {
-      const line = document.querySelector('.replay-line');
-      if (line) w.__dash = Math.min(w.__dash, Number(line.getAttribute('stroke-dashoffset')));
-      w.__marks = Math.max(w.__marks, document.querySelectorAll('.replay-mark.on').length);
-    }).observe(document.getElementById('scene')!, { subtree: true, childList: true, attributes: true });
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as Element;
+        if (r.type === 'attributes' && el.classList?.contains('replay-line')) w.__dash = Math.min(w.__dash, Number(el.getAttribute('stroke-dashoffset')));
+        if (r.type === 'attributes' && el.classList?.contains('replay-mark')) w.__marks += el.classList.contains('on') && r.oldValue?.includes('on') !== true ? 1 : 0;
+      }
+    }).observe(document.getElementById('scene')!, { subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ['stroke-dashoffset', 'class'] });
   });
 }
 
@@ -63,6 +65,7 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   await expect(page.locator('.hud .fact')).toBeHidden();
   await expect(page.locator('.hud .views')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeHidden();
   await expect.poll(async () => (await hook(page)).shot, SLOW).toBe('replay');
   expect((await hook(page)).trail).toBe(true);
 
@@ -133,7 +136,9 @@ test('reduced motion: no fly-through; the route is drawn in place over 2 s and h
   const h = await hook(page);
   expect(h.trail).toBe(false); // the 3D scene stays live
   expect(h.shot).not.toBe('replay');
+  await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeHidden();
   // drawn in full, every mark shown, then (by default) back to live
+  await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(true);
   await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(false);
   const drawn = await page.evaluate(() => {
     const w = window as unknown as { __dash: number; __marks: number };

@@ -196,6 +196,8 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       cancelAnimationFrame(raf);
       clearTimeout(timer);
       map?.draw(1);
+      // the frame that shows the landing may not have come yet on a slow device: it is on screen at the end
+      if (!still && landing) write(landing.name, landing.line, 1);
       onEnd();
       resolve(); // still on screen, holding on the landing, until Back to live
     };

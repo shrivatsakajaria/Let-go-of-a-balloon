@@ -642,9 +642,10 @@ a.link, .small a { color: var(--paper); }
 .hud.is-replay .fact,
 .hud.is-replay .views,
 .hud.is-replay .pause,
+.hud.is-replay .again,
 .hud.is-replay .stats { display: none; }
 .replay-slot p { margin: 0; }
-.replay-when { margin-top: 6px !important; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.replay-when { margin-top: 4px !important; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .replay-when:empty { display: none; }
 .replay-name {
   max-width: 14ch;

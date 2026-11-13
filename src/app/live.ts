@@ -131,6 +131,9 @@ export class Live {
       },
       { reducedMotion: reduced },
     );
+    // read when asked, not per frame: a starved renderer can go seconds without one
+    Object.defineProperty(this.hook, 'replay', { enumerable: true, get: () => this.replayRun !== null });
+    Object.defineProperty(this.hook, 'trail', { enumerable: true, get: () => !!this.scene.scene.getObjectByName('replay-trail') });
     (window as unknown as { __live: LiveHook }).__live = this.hook;
     this.watchBand();
     this.setStart(choice);
@@ -309,6 +312,7 @@ export class Live {
     const names: ReplayName[] = [];
     if (this.replayPrep?.route === fl.route) this.replayPrep.names.then((n) => this.replayRun === ctl && names.push(...n));
     const landing = this.landingFor === fl.route && this.landing ? { name: this.landing.name, kind: this.landing.kind } : null;
+    this.deps.start.setBackdropLuminance(1, 1);
     this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
     const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
     void playReplay(fl.route, {
@@ -368,11 +372,11 @@ export class Live {
       h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
     } else h.subjectPx = null;
     h.feetM = f.feetM;
-    h.replay = this.replayRun !== null;
-    h.trail = !!this.scene.scene.getObjectByName('replay-trail');
     h.now = f.now;
 
-    this.scene.measurePaused = this.state === 'launch';
+    // nor in the replay, whose scene changes faster than a reading a second can follow: its shading stays
+    // at full strength (set in showTrip), and no read-back stalls its 20 seconds
+    this.scene.measurePaused = this.state === 'launch' || this.replayRun !== null;
     if (this.state === 'launch' && f.released && f.settled) {
       this.state = 'flight';
       this.deps.setView('flight');
