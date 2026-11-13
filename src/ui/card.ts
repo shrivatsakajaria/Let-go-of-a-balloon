@@ -359,6 +359,38 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
   return { width: W, height: H, sceneBottom: CARD_SCENE_H, fadeTop, fadeBottom, headline: head, texts };
 }
 
+// ---- the picture ----
+
+/** Warm (rust, clay, orange) ground in the card's picture is held to this saturation. */
+const WARM_SAT_MAX = 0.5;
+
+/**
+ * Calm the warm colours of the card's picture (RGBA, in place): rust and clay slopes in low golden
+ * light come out as saturated as the balloon, which must stay the one bright thing on the card
+ * (spec 7). Pixels with a hue between orange-red and amber (about 8 to 45 degrees, feathered to 0
+ * and 55) keep their hue and brightness but lose saturation above WARM_SAT_MAX; everything else
+ * (greens, sea, the pale sky) is left as it is. The balloon is drawn afterwards.
+ */
+export function tameWarm(px: Uint8ClampedArray | Uint8Array): void {
+  const ramp = (a: number, b: number, x: number) => Math.max(0, Math.min(1, (x - a) / (b - a)));
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    const c = mx - mn;
+    if (mx === 0 || c / mx <= WARM_SAT_MAX || mx !== r) continue; // warm hues have red on top
+    const h = (((g - b) / c) * 60 + 360) % 360;
+    const w = Math.min(ramp(0, 8, h), 1 - ramp(45, 55, h));
+    if (w <= 0) continue;
+    const sat = c / mx;
+    const target = sat - (sat - WARM_SAT_MAX) * w;
+    // scale every channel's distance from the brightest toward it: hue and brightness stay
+    const k = target / sat;
+    px[i + 1] = Math.round(mx - (mx - g) * k);
+    px[i + 2] = Math.round(mx - (mx - b) * k);
+  }
+}
+
 // ---- drawing ----
 
 /** What a 3D view of the landing area gives the card: the picture, and the trail projected onto it. */

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { Route, RoutePoint } from '../../src/flight/route';
-import { CARD_CREDIT, startName, cardFacts, cardLayout, cardWords, fitHeadline, isInAppBrowser, openInBrowserHref, shareCard, type CardFacts, type CardFont } from '../../src/ui/card';
+import { CARD_CREDIT, tameWarm, startName, cardFacts, cardLayout, cardWords, fitHeadline, isInAppBrowser, openInBrowserHref, shareCard, type CardFacts, type CardFont } from '../../src/ui/card';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
 const BERGEN = { lat: 60.3913, lon: 5.3221 };
@@ -162,6 +162,25 @@ describe('the card', () => {
     expect(w.from).toBe('Manchester');
     expect(w.to).toBe('');
     expect(w.shareText).toBe('My balloon from Manchester is on its way.');
+  });
+});
+
+describe('the picture', () => {
+  const hsv = (r: number, g: number, b: number) => {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
+    let h = 0;
+    if (c) h = mx === r ? ((g - b) / c) % 6 : mx === g ? (b - r) / c + 2 : (r - g) / c + 4;
+    return { h: ((h * 60) + 360) % 360, s: mx ? c / mx : 0, v: mx / 255 };
+  };
+  test('rust and clay slopes are calmed so the balloon stays the one bright thing; greens, sea and sky are left alone', () => {
+    // rust (hue 29, saturation 0.78), sage, sea, peach sky
+    const px = new Uint8ClampedArray([200, 116, 44, 255, 118, 160, 99, 255, 43, 127, 176, 255, 240, 200, 160, 255]);
+    tameWarm(px);
+    const rust = hsv(px[0], px[1], px[2]);
+    expect(rust.s).toBeLessThanOrEqual(0.52);
+    expect(Math.abs(rust.h - 29)).toBeLessThan(4);
+    expect(rust.v).toBeCloseTo(200 / 255, 2);
+    expect([...px.slice(4, 16)]).toEqual([118, 160, 99, 255, 43, 127, 176, 255, 240, 200, 160, 255]);
   });
 });
 

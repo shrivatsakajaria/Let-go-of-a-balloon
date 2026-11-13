@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import type { Route } from '../flight/route';
 import { positionAt } from '../flight/route';
 import { bearingDeg, destination, haversineKm, type LatLon } from '../geo/coords';
-import type { CardFrame, CardScene } from '../ui/card';
+import { tameWarm, type CardFrame, type CardScene } from '../ui/card';
 import type { LiveScene } from './scene';
 
 /** How high above the landing ground the camera stands, m. */
@@ -141,6 +141,7 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
   const img = ctx.createImageData(w, h);
   const row = w * 4;
   for (let y = 0; y < h; y++) img.data.set(px.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+  tameWarm(img.data); // the balloon stays the one bright thing
   ctx.putImageData(img, 0, 0);
 
   // the trail along the drawn ground, projected; points behind the camera or past the haze break it
