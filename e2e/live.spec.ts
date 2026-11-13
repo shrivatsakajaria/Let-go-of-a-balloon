@@ -270,7 +270,7 @@ test('HUD text reaches 4.5:1 over snow, noon and sand with the shading at its br
         return { what: t.what, ratio: Math.round(worst * 100) / 100, need: t.need };
       });
     }, { shot, targets });
-    console.log(name, JSON.stringify(results.map((r) => `${r.what.slice(0, 18)} ${r.ratio}`)));
+    test.info().annotations.push({ type: `contrast ${name}`, description: results.map((r) => `${r.what.slice(0, 18)} ${r.ratio}`).join('; ') });
     for (const r of results) expect(r.ratio, `${name}: ${r.what}`).toBeGreaterThanOrEqual(r.need);
   }
 });
