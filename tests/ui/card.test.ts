@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { Route, RoutePoint } from '../../src/flight/route';
-import { CARD_CREDIT, cardFacts, cardLayout, cardWords, fitHeadline, isInAppBrowser, openInBrowserHref, shareCard, type CardFacts, type CardFont } from '../../src/ui/card';
+import { CARD_CREDIT, startName, cardFacts, cardLayout, cardWords, fitHeadline, isInAppBrowser, openInBrowserHref, shareCard, type CardFacts, type CardFont } from '../../src/ui/card';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
 const BERGEN = { lat: 60.3913, lon: 5.3221 };
@@ -134,6 +134,26 @@ describe('the card', () => {
   test('a slow balloon\'s top speed keeps a decimal rather than reading "0 km/h"', () => {
     expect(cardWords(facts({ topSpeedKmh: 0.36 })).stats[2].value).toBe('0.4 km/h');
     expect(cardWords(facts({ topSpeedKmh: 9.96 })).stats[2].value).toBe('10 km/h');
+  });
+
+  test('a start from "Use my location" is named for the place, never "Your location"', () => {
+    const p = { lat: 54.6, lon: -3.1 };
+    expect(startName(p, { kind: 'town', name: 'Keswick', country: 'United Kingdom', distanceKm: 3 })).toBe('Keswick');
+    // a town too far off to be honest about: its country instead
+    expect(startName(p, { kind: 'town', name: 'Keswick', country: 'United Kingdom', distanceKm: 40 })).toBe('the United Kingdom');
+    expect(startName(p, { kind: 'town', name: 'Voss', country: 'Norway', distanceKm: 40 })).toBe('Norway');
+    expect(startName(p, { kind: 'sea', name: 'North Sea' })).toBe('the North Sea');
+    expect(startName(p, { kind: 'region', name: 'Cairngorms' })).toBe('the Cairngorms');
+    expect(startName(p, { kind: 'region', name: 'open countryside', generic: true })).toBe('open countryside');
+    // nothing known: where it is, to a tenth of a degree
+    expect(startName({ lat: 53.4794, lon: -2.2453 }, null)).toBe('53.5° N 2.2° W');
+    expect(startName({ lat: -33.87, lon: 151.21 }, null)).toBe('33.9° S 151.2° E');
+  });
+
+  test('a start name that begins in lower case is capitalised in the headline only', () => {
+    const w = cardWords(facts({ home: 'the North Sea' }));
+    expect(w.from).toBe('The North Sea');
+    expect(w.shareText).toBe('My balloon from the North Sea is expected to land near Bergen.');
   });
 
   test('a landing place that could not be named still makes a card', () => {

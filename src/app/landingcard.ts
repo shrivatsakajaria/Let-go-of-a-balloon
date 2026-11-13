@@ -7,7 +7,7 @@
 import { encodeBalloon, linkFor, type SavedBalloon } from '../flight/codec';
 import type { Route } from '../flight/route';
 import { nearestPlace, type Place } from '../geo/gazetteer';
-import { cardFacts, cardWords, type CardLayout, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
+import { cardFacts, cardWords, startName, type CardLayout, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
 import { showCardView, type CardView } from '../ui/cardview';
 import { COPY } from '../ui/copy';
 import { cardScene } from './cardshot';
@@ -29,13 +29,10 @@ export type CardHook = {
 export const cardHook: CardHook = { state: 'idle', sentence: '', kicker: '', shareText: '', headline: { size: 0, lines: [], widths: [] }, frame: '', bytes: 0, inApp: false, waitedMs: 0 };
 (globalThis as unknown as { __card: CardHook }).__card = cardHook;
 
-/** A GPS start is named after the town it is in, if it is in one; else "Your location". */
-const NAMED_TOWN_KM = 25;
-
+/** A "Use my location" start goes by the place it is in (startName), never "Your location". */
 async function homeName(saved: SavedBalloon): Promise<string> {
   if (saved.name !== COPY.yourLocation) return saved.name;
-  const p = await nearestPlace(saved.start).catch(() => null);
-  return p?.kind === 'town' && (p.distanceKm ?? Infinity) <= NAMED_TOWN_KM ? p.name : COPY.yourLocation;
+  return startName(saved.start, await nearestPlace(saved.start).catch(() => null));
 }
 
 /** Until the world round the camera has drawn (or `maxMs` has passed). */

@@ -29,6 +29,26 @@ export const CARD_SITE = 'let-go-of-a-balloon.pages.dev';
 
 export type Landing = { name: string; kind: string };
 
+/** A town this close to a "Use my location" start names it; further off, its country does. */
+export const START_TOWN_KM = 25;
+/** Country names English gives "the". */
+const THE_COUNTRY = /^(United\s|Netherlands$|Philippines$|Czech Republic$|Dominican Republic$|Central African Republic$|Democratic Republic|Republic of|Bahamas$|Gambia$|Maldives$|Seychelles$|Solomon Islands$|Marshall Islands$|Comoros$|Faroe Islands$|Cayman Islands$)/;
+
+/**
+ * The name a "Use my location" start goes by on the card and in the share text (never "Your
+ * location", which reads wrong to whoever it is sent to): the town it is in, else that town's
+ * country, else the sea or region, else where it is to a tenth of a degree.
+ */
+export function startName(p: LatLon, place: { kind: string; name: string; country?: string; distanceKm?: number; generic?: boolean } | null): string {
+  if (place?.kind === 'town') {
+    if ((place.distanceKm ?? Infinity) <= START_TOWN_KM) return place.name;
+    if (place.country) return THE_COUNTRY.test(place.country) ? `the ${place.country}` : place.country;
+  } else if (place) return withArticle(place.name, place.kind);
+  const lat = `${Math.abs(p.lat).toFixed(1)}° ${p.lat >= 0 ? 'N' : 'S'}`;
+  const lon = `${Math.abs(p.lon).toFixed(1)}° ${p.lon >= 0 ? 'E' : 'W'}`;
+  return `${lat} ${lon}`;
+}
+
 export type CardFacts = {
   /** The start's name ("Manchester"). */
   home: string;
@@ -116,10 +136,11 @@ export function cardWords(f: CardFacts): CardWords {
     { label: 'Time aloft', value: `${f.hoursAloft} h` },
     { label: 'Top speed', value: `${f.topSpeedKmh < 9.95 ? f.topSpeedKmh.toFixed(1) : Math.round(f.topSpeedKmh)} km/h` },
   ];
-  const route = to ? `${f.home} to ${to}` : `From ${f.home}`;
+  const from = f.home.charAt(0).toUpperCase() + f.home.slice(1);
+  const route = to ? `${from} to ${to}` : `From ${f.home}`;
   return {
     kicker,
-    from: f.home,
+    from,
     to,
     sentence,
     shareText: `${f.own ? 'My' : 'A'} balloon from ${f.home} ${verb}.`,
