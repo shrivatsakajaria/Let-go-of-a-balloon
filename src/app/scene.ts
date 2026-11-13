@@ -42,6 +42,9 @@ export type SceneFrame = {
   point: RoutePoint;
   /** Height above the drawn ground, m. */
   aglM: number;
+  /** The drawn ground under the balloon and under the person's feet, m. */
+  groundM: number;
+  feetM: number;
   released: boolean;
   landed: boolean;
   /** The launch is over and the camera has settled into the flight (spec 8: at 20 s). */
@@ -360,6 +363,8 @@ export class LiveScene {
       now,
       point: pt,
       aglM: agl,
+      groundM: this.groundS,
+      feetM: this.feetS,
       released: this.released,
       landed,
       settled: this.director.shot !== 'launch',

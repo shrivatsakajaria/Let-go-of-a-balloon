@@ -124,6 +124,8 @@ export class Director {
   private wait: WaitFrame | null = null;
   /** The establishing shot's camera position (world), chosen once per launch. */
   private wide: THREE.Vector3 | null = null;
+  /** Frames counted while waiting, to check the cached spots against newly arrived buildings now and then. */
+  private recheck = 0;
   /** Which way the pull-back swings round the balloon (chosen once, so it never flips mid-move). */
   private swing: [number, number] = [0, 0];
   private afterLaunch: DirectorMode = 'film';
@@ -451,7 +453,14 @@ export class Director {
    * The director cannot see occlusion: the app must put the person where the landmark has a sightline.
    */
   private streetPos(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): THREE.Vector3 {
-    if (this.street) return this.street;
+    if (this.street) {
+      // the ground and the buildings stream in after the spot was chosen: stand on the ground as drawn, and
+      // while waiting (nothing has moved yet) choose again if a building has arrived on the spot
+      const check = this.wait !== null && this.recheck % 20 === 0;
+      if (this.settle(this.street, b, B0, check)) return this.street;
+      this.street = null;
+      this.wide = null;
+    }
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const P = new THREE.Vector3(ps.x, 0, ps.z);
@@ -553,13 +562,7 @@ export class Director {
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const gP = this.deps.groundAt(o.personAt);
-    if (!this.wide) {
-      const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
-      const len = u.length();
-      if (len > 1e-6) u.divideScalar(len); else u.set(0, 0, -1);
-      const H = WAIT_SUBJECT_M;
-      const want = Math.min(18, Math.max(6, H / (0.7 * (span / 2) * tanV * 2)));
-      const clear = (c: THREE.Vector3): boolean => {
+    const clear = (c: THREE.Vector3): boolean => {
         const ll = this.fromScene(c.x, c.z, b, B0);
         const g = this.deps.groundAt(ll);
         if (!Number.isFinite(g)) return false;
@@ -571,6 +574,15 @@ export class Director {
         }
         return true;
       };
+    this.recheck++;
+    if (this.wide && this.recheck % 20 === 0 && !clear(this.wide)) this.wide = null;
+    if (this.wide) this.settle(this.wide, b, B0, false);
+    if (!this.wide) {
+      const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
+      const len = u.length();
+      if (len > 1e-6) u.divideScalar(len); else u.set(0, 0, -1);
+      const H = WAIT_SUBJECT_M;
+      const want = Math.min(18, Math.max(6, H / (0.7 * (span / 2) * tanV * 2)));
       let pick: THREE.Vector3 | null = null;
       for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
         const c = new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(u, -want * k);
@@ -649,6 +661,16 @@ export class Director {
       floor = Math.max(floor, this.deps.buildingTopAt(ll, STREET_CLEAR_M) + 1);
     }
     if (p.y < floor) p.y = floor;
+  }
+
+  /** Put a cached camera spot on the ground as drawn now; false when a building now stands on it (if checked). */
+  private settle(c: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3, check: boolean): boolean {
+    const ll = this.fromScene(c.x, c.z, b, B0);
+    const g = this.deps.groundAt(ll);
+    if (!Number.isFinite(g)) return true;
+    if (check && this.deps.buildingTopAt && this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) return false;
+    c.y = g + EYE_M;
+    return true;
   }
 
   /** Inverse of toScene near the balloon, from a finite-difference Jacobian. */

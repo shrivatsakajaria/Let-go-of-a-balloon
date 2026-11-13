@@ -54,6 +54,9 @@ export type LiveHook = {
   fact: string;
   over: string;
   frames: number;
+  route: { altM: number; groundM: number; tSec?: number } | null;
+  groundM: number;
+  feetM: number;
 };
 
 export class Live {
@@ -75,7 +78,7 @@ export class Live {
   private sunUp: boolean | null = null;
   private windAsk = 0;
   private readonly canvas: HTMLCanvasElement;
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0 };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -261,6 +264,9 @@ export class Live {
     h.target = [t.x, t.y, t.z];
     h.fact = this.hud.fact;
     h.over = this.over;
+    h.route = f.released ? { altM: f.point.altM, groundM: f.point.groundM, tSec: f.point.tSec } as LiveHook["route"] : null;
+    h.groundM = f.groundM;
+    h.feetM = f.feetM;
 
     if (this.state === 'launch' && f.released && f.settled) {
       this.state = 'flight';

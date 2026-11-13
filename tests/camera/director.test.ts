@@ -465,6 +465,30 @@ describe('Director', () => {
     expect(cam.position.distanceTo(wide)).toBeLessThan(0.05);
   });
 
+  test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
+    const person: LatLon = { lat: 50, lon: 0 };
+    let ground = 60; // the coarse fallback before any tile is in
+    let blocks = false;
+    const buildingTopAt = (p: LatLon, r: number) => {
+      const x = toScene(p).x;
+      return blocks && x - r < -3 && x + r > -30 ? ground + 20 : ground;
+    };
+    const cam = new THREE.PerspectiveCamera(50, 390 / 844, 0.05, 100000);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt }));
+    d.setLaunch({ personAt: person, startUtcMs: 0, waiting: { centerY: 0.15, spanY: 0.7 } });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: ground + 2.4, groundM: ground, speedMs: 3, headingDeg: 90 });
+    run(d, 0, 2, 0.1, held);
+    expect(cam.position.y).toBeLessThan(60 + 2);
+    ground = 5; // the street, as drawn
+    run(d, 2, 10, 0.1, held);
+    expect(cam.position.y).toBeGreaterThan(5 + 1);
+    expect(cam.position.y).toBeLessThan(5 + 2);
+    blocks = true; // a terrace arrives where the camera stands (upwind, west)
+    run(d, 12, 12, 0.1, held);
+    expect(cam.position.x).toBeGreaterThan(-3);
+    expect(cam.position.y).toBeLessThan(5 + 2);
+  });
+
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     const H = 30;
