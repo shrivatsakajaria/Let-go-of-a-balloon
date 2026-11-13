@@ -50,7 +50,11 @@ export type Hud = {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean } = {}): Hud {
+/**
+ * `note`: a sentence in place of the view switch, for the 2D map, which has no camera views
+ * ("Your phone can't show the 3D world, so here is the route on a map.").
+ */
+export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reducedMotion?: boolean; note?: string } = {}): Hud {
   root.classList.add('hud');
   root.innerHTML = `
     <div class="hud-shade" aria-hidden="true"></div>
@@ -73,9 +77,9 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         <p class="day"></p>
         <button type="button" class="link pause">${COPY.pause}</button>
       </div>
-      <div class="views" role="group" aria-label="${COPY.view}">
+      ${opts.note ? `<p class="hud-note">${esc(opts.note)}</p>` : `<div class="views" role="group" aria-label="${COPY.view}">
         ${VIEWS.map(([m, label], i) => `${i ? '<span class="dot" aria-hidden="true">·</span>' : ''}<button type="button" class="link view" data-view="${m}" aria-pressed="${m === 'film'}">${label}</button>`).join('')}
-      </div>
+      </div>`}
       <div class="actions">
         <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
         <button type="button" class="link again"></button>

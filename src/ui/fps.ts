@@ -4,6 +4,8 @@
  * browser's animation frames over the last second, which is the rate the page is really drawn at,
  * in the 3D world and on the 2D map alike, and shows the slowest frame of that second.
  */
+import './fps.css';
+
 const WINDOW_MS = 1000;
 const SHOW_EVERY_MS = 500;
 

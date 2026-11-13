@@ -17,6 +17,7 @@ export const COPY = {
   tryAgain: 'Try again',
   brokenLink: 'This balloon link is broken.',
   letGoNewOne: 'Let go of a new one',
+  noWebGL: "Your phone can't show the 3D world, so here is the route on a map.",
   wholeTrip: 'Show me the whole trip',
   letGoAnother: 'Let go of another',
   letGoYourOwn: 'Let go of your own',

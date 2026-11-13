@@ -21,5 +21,7 @@ export default defineConfig({
     url: 'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // the sky checks use the tile proof page, which the live site's build leaves out
+    env: { DEBUG_PAGES: '1' },
   },
 });

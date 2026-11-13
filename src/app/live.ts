@@ -27,6 +27,8 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
+import { watchContextLoss, type ContextWatch } from './contextloss';
+import type { Handover } from './world';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -37,6 +39,8 @@ export type LiveDeps = {
   hudEl: HTMLElement;
   noticeEl: HTMLElement;
   setView(v: View): void;
+  /** The WebGL context was lost twice (or never came back): the page moves to the 2D map. */
+  onNoWebGL?(h: Handover): void;
 };
 
 type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean };
@@ -64,6 +68,11 @@ export type LiveHook = {
   routeError: string | null;
   groundM: number;
   feetM: number;
+  /** What the last frame drew (renderer.info, shadow pass included): for the performance checks. */
+  triangles: number;
+  calls: number;
+  /** WebGL context losses so far. */
+  contextLosses: number;
 };
 
 export class Live {
@@ -87,7 +96,8 @@ export class Live {
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0 };
+  private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -115,6 +125,12 @@ export class Live {
       { reducedMotion: reduced },
     );
     (window as unknown as { __live: LiveHook }).__live = this.hook;
+    this.context = watchContextLoss(this.canvas, {
+      onLost: () => this.hook.contextLosses++,
+      // three.js uploads the world again by itself; the shadows are redrawn on request only
+      onRestored: () => (this.scene.renderer.shadowMap.needsUpdate = true),
+      onGiveUp: () => deps.onNoWebGL?.(this.handover()),
+    });
     this.watchBand();
     this.setStart(choice);
   }
@@ -267,6 +283,23 @@ export class Live {
     this.canvas.setAttribute('aria-label', `A person in ${this.choice.kind === 'gps' ? 'your location' : this.choice.name} holding a red balloon`);
   }
 
+  /** What the 2D map needs to carry on from here. */
+  handover(): Handover {
+    return { choice: this.choice, state: this.state, flight: this.flight };
+  }
+
+  /** Stop drawing and let go of the GPU, the HUD and the canvas (the 2D map takes over). */
+  dispose(): void {
+    this.opening++;
+    this.context.dispose();
+    this.clearNotice();
+    this.scene.dispose();
+    this.hud.destroy();
+    this.canvas.remove();
+    delete this.deps.sceneEl.dataset.live;
+    delete (window as unknown as { __live?: LiveHook }).__live;
+  }
+
   // ---- every frame ----
 
   private frame(f: SceneFrame): void {
@@ -294,6 +327,9 @@ export class Live {
       h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
     } else h.subjectPx = null;
     h.feetM = f.feetM;
+    const info = this.scene.renderer.info.render;
+    h.triangles = info.triangles;
+    h.calls = info.calls;
 
     this.scene.measurePaused = this.state === 'launch';
     if (this.state === 'launch' && f.released && f.settled) {

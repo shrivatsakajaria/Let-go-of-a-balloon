@@ -1,0 +1,36 @@
+/* The 2D map (fallback/fallback2d.ts): two canvases filling the scene layer, over its sky. */
+
+.scene .map2d {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 600ms var(--ease), visibility 0s linear 600ms;
+}
+.scene .map2d.on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 600ms var(--ease), visibility 0s linear 0s;
+}
+.map2d canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* the coastline fades in from the sky once its tiles are in (spec 7.2: never grey squares) */
+.map2d .map2d-coast { opacity: 0; transition: opacity 600ms var(--ease); }
+.map2d.coast-in .map2d-coast { opacity: 1; }
+
+/* where the view switch would be: the 2D map has no camera views */
+.hud-note {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  max-width: 34ch;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
