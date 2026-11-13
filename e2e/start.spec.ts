@@ -41,6 +41,21 @@ test.describe('start screen', () => {
     await expect(credit.getByRole('link')).toHaveCount(4);
   });
 
+  test('the notice and the map credit share one row of small print', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    const n = (await page.locator('.notice').boundingBox())!;
+    const c = (await page.locator('.map-credit').boundingBox())!;
+    expect(n.x + n.width).toBeLessThanOrEqual(c.x);
+    expect(Math.min(n.y + n.height, c.y + c.height)).toBeGreaterThan(Math.max(n.y, c.y));
+    expect(Math.abs(n.y + n.height - (c.y + c.height))).toBeLessThan(2);
+    for (const sel of ['.notice', '.map-credit']) {
+      const px = await page.locator(sel).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(px).toBeLessThanOrEqual(11);
+      expect(px).toBeGreaterThanOrEqual(10);
+    }
+  });
+
   test('credits list every source and "A Still Signal build", and close with Escape', async ({ page }) => {
     await offline(page);
     await page.goto('/');

@@ -137,8 +137,10 @@ export function mountStart(
         ${cities.map((c) => `<li><button type="button" class="link city" data-city="${c.id}" aria-pressed="false">${esc(c.name)}</button></li>`).join('')}
       </ul>
       <div class="mine" hidden></div>
-      <p class="small notice">${esc(COPY.notice)}</p>
-      <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+      <div class="fineprint">
+        <p class="small notice">${esc(COPY.notice)}</p>
+        <p class="small map-credit"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Data from OpenStreetMap</a> <a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a></p>
+      </div>
     </div>
     <dialog class="credits" aria-labelledby="credits-title">
       <div class="credits-head">

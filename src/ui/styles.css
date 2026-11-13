@@ -253,15 +253,24 @@ a.link, .small a { color: var(--paper); }
 .mine .link:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
 .mine .status { font-variant-numeric: tabular-nums; }
 
+/* one row of small print: the notice on the left, the map credit on the right, sharing a bottom line */
+.fineprint {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+}
 .small {
-  margin: 12px 0 0;
-  max-width: 62ch;
-  font-size: 11px;
+  margin: 0;
+  font-size: 10px;
   font-weight: 450;
-  line-height: 1.4;
+  line-height: 1.35;
+  color: rgba(247, 243, 236, 0.88);
   text-wrap: pretty;
 }
-.small + .small { margin-top: 4px; }
+.notice { flex: 1 1 0; min-width: 0; max-width: 62ch; text-align: left; }
+.map-credit { flex: 0 1 auto; max-width: 40%; text-align: right; }
 .small a {
   white-space: nowrap;
   text-decoration: underline;
