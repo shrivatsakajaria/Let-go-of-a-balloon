@@ -265,7 +265,8 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: () =
   const band = host.band();
   const top = Math.max(0, band.top), bottom = Math.max(top + 160, band.bottom);
   const h = bottom - top;
-  const pad = { x: 24, y: 28 };
+  // room above and below for the landing's two lines
+  const pad = { x: 24, y: 52 };
   const gutter = 16;
   const w = W - 2 * gutter;
 
@@ -332,8 +333,9 @@ function routeMap(route: Route, names: ReplayName[], home: string, landing: () =
         landed = l;
         const right = lx < W / 2;
         const x = (lx + (right ? 9 : -9)).toFixed(1), anchor = right ? 'start' : 'end';
-        // above the ring when the route ends low on the map, else below it
-        const y0 = ly > h / 2 ? ly - 24 : ly + 4;
+        // on the side of the ring the route does not come from, so the words never cross the line
+        const fromBelow = at(Math.max(0, pts.length - 1 - Math.round(pts.length / 20)))[1] > ly;
+        const y0 = fromBelow ? ly - 30 : ly + 20;
         landingEl.innerHTML = `<text class="strong" x="${x}" y="${y0.toFixed(1)}" text-anchor="${anchor}">${esc(l.name)}</text><text x="${x}" y="${(y0 + 19).toFixed(1)}" text-anchor="${anchor}">${esc(l.line)}</text>`;
       }
       path.setAttribute('stroke-dashoffset', String(1 - frac));
