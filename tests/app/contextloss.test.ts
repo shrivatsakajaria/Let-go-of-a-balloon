@@ -59,3 +59,10 @@ test('dispose stops listening', () => {
   vi.advanceTimersByTime(60_000);
   expect(calls).toEqual([]);
 });
+
+test('a scene rebuilt after one loss gives up at its first loss (the page has lost two)', () => {
+  const w = watchContextLoss(canvas, handlers(), { losses: 1 });
+  lose(canvas);
+  expect(calls).toEqual(['lost', 'give up']);
+  expect(w.losses).toBe(2);
+});

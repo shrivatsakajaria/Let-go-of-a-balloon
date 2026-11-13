@@ -41,6 +41,10 @@ export type LiveDeps = {
   setView(v: View): void;
   /** The WebGL context was lost twice (or never came back): the page moves to the 2D map. */
   onNoWebGL?(h: Handover): void;
+  /** The WebGL context was lost and has come back: the page builds the 3D world again from h. */
+  onReload?(h: Handover): void;
+  /** Contexts the page lost before this world was built. */
+  contextLosses?: number;
 };
 
 type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean };
@@ -125,12 +129,16 @@ export class Live {
       { reducedMotion: reduced },
     );
     (window as unknown as { __live: LiveHook }).__live = this.hook;
-    this.context = watchContextLoss(this.canvas, {
-      onLost: () => this.hook.contextLosses++,
-      // three.js uploads the world again by itself; the shadows are redrawn on request only
-      onRestored: () => (this.scene.renderer.shadowMap.needsUpdate = true),
-      onGiveUp: () => deps.onNoWebGL?.(this.handover()),
-    });
+    this.hook.contextLosses = deps.contextLosses ?? 0;
+    this.context = watchContextLoss(
+      this.canvas,
+      {
+        onLost: () => this.hook.contextLosses++,
+        onRestored: () => deps.onReload?.(this.handover()),
+        onGiveUp: () => deps.onNoWebGL?.(this.handover()),
+      },
+      { losses: deps.contextLosses ?? 0 },
+    );
     this.watchBand();
     this.setStart(choice);
   }
@@ -288,7 +296,18 @@ export class Live {
     return { choice: this.choice, state: this.state, flight: this.flight };
   }
 
-  /** Stop drawing and let go of the GPU, the HUD and the canvas (the 2D map takes over). */
+  /** Carry on from what a world before this one was showing (its context was lost and came back). */
+  resume(h: Handover): void {
+    if (!h.flight) return this.backToStart();
+    const { route, home, own } = h.flight;
+    this.state = 'flight';
+    this.scene.fly(route, 'film');
+    this.hud.setView('film');
+    this.beginFlight(route, home, own);
+    this.deps.setView('flight');
+  }
+
+  /** Stop drawing and let go of the GPU, the HUD and the canvas (a new world or the 2D map takes over). */
   dispose(): void {
     this.opening++;
     this.context.dispose();

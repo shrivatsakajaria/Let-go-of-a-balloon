@@ -15,7 +15,7 @@ import { decodeBalloon, payloadFromLocation, type SavedBalloon } from './flight/
 import { COPY } from './ui/copy';
 import { showNotice, type Notice } from './ui/notice';
 import { mountStart, type StartChoice } from './ui/start';
-import type { View } from './app/live';
+import type { Live, View } from './app/live';
 import type { Handover, World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
 
@@ -35,7 +35,7 @@ let webgl = canUseWebGL();
 let latest: StartChoice | null = null;
 let broken: Notice | null = null;
 
-const deps = () => ({ start, sceneEl, hudEl, noticeEl, setView, onNoWebGL: toMap });
+const deps = (contextLosses = 0) => ({ start, sceneEl, hudEl, noticeEl, setView, onNoWebGL: toMap, onReload: reloadWorld, contextLosses });
 
 /** The 2D map in place of the 3D world, showing whatever flight the 3D world handed over. */
 function loadMap(h?: Handover): Promise<World> {
@@ -48,8 +48,28 @@ function loadMap(h?: Handover): Promise<World> {
   });
 }
 
+/** The 3D world lost its WebGL context and got it back: build it again and carry on where it was. */
+function reloadWorld(h: Handover) {
+  (live as Live | null)?.dispose();
+  live = null;
+  noticeEl.replaceChildren();
+  liveP = import('./app/live').then((m) => {
+    try {
+      const l = m.createLive(deps(1), h.choice);
+      l.resume(h);
+      live = l;
+      return l;
+    } catch {
+      return loadMap(h);
+    }
+  });
+  liveP.catch(() => toMap(h));
+}
+
 /** The 3D world gave up (its context was lost twice): carry on on the 2D map. */
 function toMap(h: Handover) {
+  (live as Live | null)?.dispose?.();
+  live = null;
   webgl = false;
   noticeEl.replaceChildren();
   liveP = loadMap(h);
