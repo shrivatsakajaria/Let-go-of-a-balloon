@@ -90,6 +90,7 @@ export class LiveScene {
   private wait: WaitFrame = { centerY: 0.15, spanY: 0.7 };
   private groundS = Number.NaN;
   private placedAt = 0;
+  private landmark: number | undefined = undefined;
   /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
   private holdUntil: { at: number; expire: () => void } | null = null;
   private feetS = Number.NaN;
@@ -149,7 +150,8 @@ export class LiveScene {
   // ---- what the scene shows ----
 
   /** The start screen at a place: the person holds the balloon in the establishing shot. */
-  setStart(p: LatLon): void {
+  setStart(p: LatLon, landmarkHeadingDeg?: number): void {
+    this.landmark = landmarkHeadingDeg;
     this.start = { lat: p.lat, lon: p.lon };
     this.route = null;
     this.released = false;
@@ -160,14 +162,14 @@ export class LiveScene {
     this.newBalloon();
     this.placePerson();
     this.director.paused = false;
-    this.director.setLaunch({ personAt: this.start, startUtcMs: Date.now(), waiting: this.wait });
+    this.director.setLaunch({ personAt: this.start, landmarkHeadingDeg: this.landmark, startUtcMs: Date.now(), waiting: this.wait });
   }
 
   /** The wind at the start is known: the person turns to it, and the street camera stands upwind. */
   setWind(w: { speedMs: number; headingDeg: number }): void {
     if (!Number.isFinite(w.speedMs) || !Number.isFinite(w.headingDeg)) return;
     this.wind = { ...w };
-    if (this.director.waiting && !this.released) this.setStart(this.start);
+    if (this.director.waiting && !this.released) this.setStart(this.start, this.landmark);
   }
 
   /** Where the start screen leaves the scene free (NDC). */

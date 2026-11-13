@@ -55,3 +55,10 @@ describe('cities.json', () => {
     for (const id of FEATURED_IDS) expect(list.find((c) => c.id === id)?.batch).toBe('launch');
   });
 });
+
+test('landmark heading for the launch camera: none until the sheet has one, a number when it does', async () => {
+  const { landmarkHeading } = await import('../../src/ui/featured');
+  expect(landmarkHeading(undefined)).toBeUndefined();
+  expect(landmarkHeading('no-such-city')).toBeUndefined();
+  expect(landmarkHeading('london')).toBeUndefined(); // headingDeg is null until Task 21 confirms the spots
+});

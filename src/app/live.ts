@@ -23,6 +23,7 @@ import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
+import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
@@ -123,7 +124,7 @@ export class Live {
     this.choice = c;
     warm(c);
     if (this.state !== 'start') return;
-    this.scene.setStart(c);
+    this.scene.setStart(c, landmarkHeading(c.cityId));
     this.askWind(c);
   }
 
@@ -161,7 +162,7 @@ export class Live {
     this.clearNotice();
     const moved = c.lat !== this.choice.lat || c.lon !== this.choice.lon;
     this.choice = c;
-    if (moved) this.scene.setStart(c);
+    if (moved) this.scene.setStart(c, landmarkHeading(c.cityId));
     this.state = 'launch';
     this.deps.setView('launch');
     this.hud.setPaused(false);
@@ -256,7 +257,7 @@ export class Live {
     history.replaceState(null, '', '/');
     this.deps.start.refresh();
     this.deps.setView('start');
-    this.scene.setStart(this.choice);
+    this.scene.setStart(this.choice, landmarkHeading(this.choice.cityId));
     this.askWind(this.choice);
     this.canvas.setAttribute('aria-label', `A person in ${this.choice.kind === 'gps' ? 'your location' : this.choice.name} holding a red balloon`);
   }

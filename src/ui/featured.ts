@@ -22,3 +22,14 @@ export function featuredCities(): FeaturedCity[] {
     return c ? [{ id, name: SHORT[id] ?? c.city, lat: c.launch.lat, lon: c.launch.lon, spot: c.launch.label }] : [];
   });
 }
+
+/**
+ * Bearing from a featured city's launch spot to its landmark (spec 6.2: in view during the launch), or
+ * undefined until the sheet has one (Task 21 confirms the spots; until then the director's fallback).
+ */
+export function landmarkHeading(cityId: string | undefined): number | undefined {
+  if (!cityId) return undefined;
+  const c = (cities as { id: string; launch: { headingDeg?: number | null } }[]).find((x) => x.id === cityId);
+  const h = c?.launch.headingDeg;
+  return typeof h === 'number' && Number.isFinite(h) ? h : undefined;
+}
