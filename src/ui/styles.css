@@ -672,6 +672,10 @@ a.link, .small a { color: var(--paper); }
 .card-actions [hidden] { display: none; }
 a.main-action { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
 
+/* the landed HUD's way back to the card: a quiet text action beside "Let go of …" (one main action) */
+.actions .show-card { margin-left: -8px; font-size: 15px; font-weight: 600; }
+.actions .show-card:not([hidden]) + .again { margin-left: 0; }
+
 /* the chrome behind steps back while the card is up (the scene stays, dimmed) */
 .card-open #app, .card-open #hud, .card-open #notice { visibility: hidden; }
 

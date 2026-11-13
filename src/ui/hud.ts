@@ -13,7 +13,6 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
-import { CARD_COPY } from './cardview';
 import { clockText, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
 
@@ -80,7 +79,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </div>
       <div class="actions">
         <button type="button" class="trip" hidden>${COPY.wholeTrip}</button>
-        <button type="button" class="main-action show-card" hidden>${CARD_COPY.show}</button>
+        <button type="button" class="link show-card" hidden>${COPY.showCard}</button>
         <button type="button" class="link again"></button>
       </div>
       <div class="fineprint">

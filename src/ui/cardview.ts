@@ -10,17 +10,6 @@
 import { COPY } from './copy';
 import { canShareFiles, downloadBlob, openInBrowserHref, shareCard, type CardWords, type ShareEnv } from './card';
 
-export const CARD_COPY = {
-  share: 'Share card',
-  save: 'Save image',
-  copy: 'Copy link',
-  copied: 'Link copied',
-  pressAndHold: 'Press and hold to save',
-  openInBrowser: 'Open in your browser',
-  close: COPY.close,
-  /** The flight HUD's way back to the card once the balloon is down. */
-  show: 'Show the card',
-} as const;
 
 export type CardViewOpts = {
   blob: Blob;
@@ -102,7 +91,7 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
   title.id = 'card-title';
   title.className = 'sr';
   title.textContent = o.words.sentence;
-  const close = button(o.closeLabel ?? CARD_COPY.close, 'link card-close');
+  const close = button(o.closeLabel ?? COPY.close, 'link card-close');
   head.append(title, close);
 
   const img = document.createElement('img');
@@ -119,28 +108,28 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
   if (o.inApp) {
     const hint = document.createElement('p');
     hint.className = 'card-hint';
-    hint.textContent = CARD_COPY.pressAndHold;
+    hint.textContent = COPY.pressAndHold;
     const open = document.createElement('a');
     open.className = 'main-action card-open';
     open.href = openInBrowserHref(o.link, o.ua);
-    open.textContent = CARD_COPY.openInBrowser;
+    open.textContent = COPY.openInBrowser;
     actions.append(hint, open);
     first = open;
   } else {
     const env: ShareEnv = { nav, download: downloadBlob };
     const sharable = canShareFiles(nav);
-    const share = button(CARD_COPY.share, 'main-action card-share');
+    const share = button(COPY.shareCard, 'main-action card-share');
     share.hidden = !sharable;
     share.addEventListener('click', () => void shareCard(o.blob, o.words, o.link, env));
-    const save = button(CARD_COPY.save, sharable ? 'link card-save' : 'main-action card-save');
+    const save = button(COPY.saveImage, sharable ? 'link card-save' : 'main-action card-save');
     save.addEventListener('click', () => downloadBlob(o.blob, o.words.filename));
-    const copy = button(CARD_COPY.copy, 'link card-copy');
+    const copy = button(COPY.copyLink, 'link card-copy');
     let reset = 0;
     copy.addEventListener('click', async () => {
       if (!(await copyText(o.link))) return;
-      copy.textContent = CARD_COPY.copied;
+      copy.textContent = COPY.linkCopied;
       clearTimeout(reset);
-      reset = window.setTimeout(() => (copy.textContent = CARD_COPY.copy), 2500);
+      reset = window.setTimeout(() => (copy.textContent = COPY.copyLink), 2500);
     });
     actions.append(share, save, copy);
     first = sharable ? share : save;

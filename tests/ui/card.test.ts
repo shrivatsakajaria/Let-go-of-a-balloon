@@ -214,3 +214,20 @@ describe('in-app browsers', () => {
     expect(openInBrowserHref(url, CHROME)).toBe(url);
   });
 });
+
+describe('strings and the landed HUD', () => {
+  test('the card strings live in copy.ts; the HUD does not pull in the card view, and "Show the card" is a quiet text action', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { COPY } = await import('../../src/ui/copy');
+    const hud = readFileSync(new URL('../../src/ui/hud.ts', import.meta.url), 'utf8');
+    expect(hud).not.toMatch(/cardview/);
+    expect(hud).toMatch(/class="link show-card"/);
+    expect(COPY.shareCard).toBe('Share card');
+    expect(COPY.saveImage).toBe('Save image');
+    expect(COPY.copyLink).toBe('Copy link');
+    expect(COPY.linkCopied).toBe('Link copied');
+    expect(COPY.pressAndHold).toBe('Press and hold to save');
+    expect(COPY.openInBrowser).toBe('Open in your browser');
+    expect(COPY.showCard).toBe('Show the card');
+  });
+});
