@@ -348,7 +348,8 @@ test('clearing the address on the broken-link screen goes back to the start scre
 });
 
 test('a link opened while a launch is waiting for its route takes over: the launch never lets go', async ({ context, page }) => {
-  await liveWorld(context, { windDelayMs: 3000 });
+  // the launch's winds take 20 s: the link arrives while the person is still holding on
+  await liveWorld(context, { windDelayMs: 20_000 });
   await startAtAlbertSquare(context);
   await page.goto('/');
   await ready(page);
@@ -358,10 +359,12 @@ test('a link opened while a launch is waiting for its route takes over: the laun
   await page.evaluate((h) => (location.hash = h), link.slice(1));
   await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
   await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
-  await page.waitForTimeout(8000); // past when the launch's route would have arrived
+  await page.waitForTimeout(8000); // past the launch's 6 s limit: no winds error either
   await expect(page.locator('.hud .day')).toHaveText('Day 1 of 3 · 14 h aloft');
   expect(new URL(page.url()).hash).toBe(link.slice(1));
   expect(await page.evaluate(() => localStorage.getItem('lgoab.balloons.v1'))).toBeNull();
+  await expect(page.getByRole('alert')).toBeHidden();
+  expect(await view(page)).toBe('flight');
 });
 
 test('the page keeps no test hook unless a test asks for one', async ({ context, page }) => {
