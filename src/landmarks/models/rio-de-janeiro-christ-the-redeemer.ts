@@ -25,9 +25,9 @@ import type { LandmarkModel } from '../types';
 type P3 = [number, number, number];
 
 /** Contour's deep sage (CONTOUR.land[4]): forest. */
-const FOREST: Color = '#76a063';
+const FOREST: Color = C.cypress;
 /** Contour's sage (CONTOUR.land[3]): scrub on the gentler rock. */
-const SCRUB: Color = '#88b06c';
+const SCRUB: Color = C.sage;
 
 /** The terrace's level (m, model frame): 700 m above the sea at full detail. */
 export const TERRACE_Y = 172;
