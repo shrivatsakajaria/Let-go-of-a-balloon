@@ -39,7 +39,7 @@ export type LiveDeps = {
   setView(v: View): void;
 };
 
-type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean };
+type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean };
 
 const PLACE_EVERY_MS = 6000;
 const HOLD_MS = 1200;
@@ -192,7 +192,7 @@ export class Live {
 
   private released(route: Route, c: StartChoice): void {
     const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
-    this.beginFlight(route, home, true);
+    this.beginFlight(route, home, true, true);
     const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
     store.add(saved);
     this.deps.start.refresh();
@@ -234,13 +234,13 @@ export class Live {
     this.scene.fly(route, mode);
     this.hud.setPaused(false);
     this.hud.setView(mode);
-    this.beginFlight(route, home, own);
+    this.beginFlight(route, home, own, false);
     this.deps.setView('flight');
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
-  private beginFlight(route: Route, home: Flight['home'], own: boolean): void {
-    this.flight = { route, home, own };
+  private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean): void {
+    this.flight = { route, home, own, launched };
     this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
     this.said = null;
     this.lastCountry = null;
@@ -356,7 +356,7 @@ export class Live {
 
       // the status region: the launch, a change of country, the landing
       const country = place?.kind === 'town' ? place.country ?? null : null;
-      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own };
+      const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched };
       const say = announcement(this.said, next);
       if (say) this.hud.announce(say);
       this.said = next;

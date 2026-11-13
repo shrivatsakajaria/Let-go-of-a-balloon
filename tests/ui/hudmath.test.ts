@@ -127,12 +127,15 @@ describe('sceneAltitude', () => {
 });
 
 describe('announcements: only the launch, a change of country and the landing', () => {
-  const base: AnnounceState = { phase: 'flying', home: 'London', country: 'United Kingdom', landing: null, own: true };
+  const base: AnnounceState = { phase: 'flying', home: 'London', country: 'United Kingdom', landing: null, own: true, launched: true };
   test('launch', () => {
     expect(announcement(null, { ...base })).toBe('Your balloon is on its way from London');
   });
+  test('reopening your own balloon hours later is not a launch either', () => {
+    expect(announcement(null, { ...base, launched: false })).toBeNull();
+  });
   test('a shared balloon opened in flight is not a launch', () => {
-    expect(announcement(null, { ...base, own: false })).toBeNull();
+    expect(announcement(null, { ...base, own: false, launched: false })).toBeNull();
   });
   test('nothing for the same country, or over the sea', () => {
     expect(announcement(base, { ...base })).toBeNull();

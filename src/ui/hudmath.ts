@@ -125,6 +125,8 @@ export type AnnounceState = {
   landing: Landing | null;
   /** The visitor's own balloon (launched here or saved), or one opened from someone's link. */
   own: boolean;
+  /** Let go just now on this page (not reopened later from a link or "Your balloons"). */
+  launched: boolean;
 };
 
 const whose = (own: boolean) => (own ? 'Your balloon' : 'This balloon');
@@ -149,7 +151,7 @@ export function announcement(prev: AnnounceState | null, next: AnnounceState): s
   if (next.phase === 'landed') {
     return prev?.phase === 'landed' ? null : `${whose(next.own)} ${landedWords(next.landing)}`;
   }
-  if (!prev) return next.own ? `${whose(true)} is on its way from ${next.home}` : null;
+  if (!prev) return next.launched ? `${whose(next.own)} is on its way from ${next.home}` : null;
   const ref = prev.country ?? prev.lastCountry ?? null;
   if (next.country && ref && next.country !== ref) return `${whose(next.own)} is over ${next.country} now`;
   return null;
