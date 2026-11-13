@@ -661,6 +661,8 @@ a.link, .small a { color: var(--paper); }
   max-height: calc(100dvh - 176px);
   aspect-ratio: 4 / 5;
   border-radius: 4px;
+  /* a hairline, so the card's ink edge still reads against the dimmed scene */
+  box-shadow: 0 0 0 1px rgba(247, 243, 236, 0.14);
   object-fit: contain;
   animation: card-rise 420ms var(--ease);
 }
@@ -669,6 +671,9 @@ a.link, .small a { color: var(--paper); }
 .card-actions .link { font-size: 15px; font-weight: 600; }
 .card-actions [hidden] { display: none; }
 a.main-action { display: inline-flex; align-items: center; text-decoration: none; box-sizing: border-box; }
+
+/* the chrome behind steps back while the card is up (the scene stays, dimmed) */
+.card-open #app, .card-open #hud, .card-open #notice { visibility: hidden; }
 
 /* in an in-app browser: the card as large as the screen allows, to press and hold */
 .card-layer.in-app { gap: 12px; }

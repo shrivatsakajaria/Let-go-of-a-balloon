@@ -6,7 +6,7 @@
  * from the balloon toward the start and into the haze (both ends show when the route is short enough
  * for the haze; a long route's start lies beyond the horizon and the trail fades toward it).
  *
- * For the one frame the sky is set to golden hour (sun 7 degrees up, from behind the camera's right),
+ * For the one frame the sky is set to golden hour (sun 7 degrees up, ahead and to the left),
  * the live balloon and person are hidden (the card draws its own balloon at the landing point), and
  * everything is put back before the call returns, in the same task, so no live frame ever sees it.
  *
@@ -29,7 +29,20 @@ const FOV = 36;
 /** Haze for the card: clear to 6 km, gone at 30 km. */
 const FOG_FAR = 30000;
 const FOG_NEAR = 6000;
-const GOLDEN = { elevationDeg: 7, offsetDeg: 140 };
+/**
+ * The sun 7 degrees up, 40 degrees left of where the camera looks: low light across and toward the
+ * camera, so slopes read by their shading and keep their sage and chalk. With the sun behind the
+ * camera every slope faces it and the clay turns orange, which takes the colour from the balloon.
+ */
+const GOLDEN = { elevationDeg: 7, offsetDeg: -40 };
+/**
+ * The camera looks this far off the line of the route, so the trail runs across the picture rather
+ * than straight up behind the balloon; less when the start is close enough to show through the haze,
+ * so both ends are in the picture.
+ */
+const SKEW_DEG = 25;
+const SKEW_NEAR_DEG = 11;
+const NEAR_START_KM = 28;
 /** The trail is sampled this often along the route. */
 const TRAIL_STEP_MS = 2 * 60e3;
 
@@ -48,6 +61,17 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
+/** Where the card's camera looks (degrees from north) and where the golden-hour sun stands. */
+export function cardView(route: Route): { viewDeg: number; sun: { elevationDeg: number; azimuthDeg: number } } {
+  const pts = route.points;
+  const near = haversineKm(pts[0], pts[pts.length - 1]) <= NEAR_START_KM;
+  const viewDeg = (lookBack(route) + (near ? SKEW_NEAR_DEG : SKEW_DEG)) % 360;
+  return { viewDeg, sun: { elevationDeg: GOLDEN.elevationDeg, azimuthDeg: (viewDeg + GOLDEN.offsetDeg + 360) % 360 } };
+}
+
+/** How clear the trail is at distance d through the card's haze: never quite gone until past the haze. */
+const clarity = (d: number) => (1 - 0.85 * smooth(FOG_NEAR * 0.6, FOG_FAR * 0.9, d)) * (1 - smooth(FOG_FAR, FOG_FAR * 1.3, d));
+
 export function cardScene(live: LiveScene): CardScene {
   return { cardFrame: (route, w, h) => cardFrame(live, route, w, h) };
 }
@@ -56,7 +80,7 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
   const { renderer, scene, stream, sky } = live;
   const last = route.points[route.points.length - 1];
   const landing: LatLon = { lat: last.lat, lon: last.lon };
-  const look = lookBack(route);
+  const { viewDeg: look, sun } = cardView(route);
   const g = stream.groundAt(landing);
 
   // the camera: behind the landing, high, pitched so the landing sits at LANDING_Y
@@ -77,15 +101,16 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
 
   // what is changed for the frame, to put back
   const prev = { sun: { ...sky.sun }, moon: sky.moon ? { ...sky.moon } : null, rising: sky.rising };
+  // the live balloon and person (the card draws its balloon), and the clouds, placed round the live camera
   const hidden: THREE.Object3D[] = [];
-  for (const o of [live.balloon.root, live.person?.root]) if (o?.visible) hidden.push(o);
+  for (const o of [live.balloon.root, live.person?.root, live.clouds.mesh]) if (o?.visible) hidden.push(o);
   const target = renderer.getRenderTarget();
   const rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, depthBuffer: true, colorSpace: THREE.SRGBColorSpace });
   (rt as unknown as { isXRRenderTarget: boolean }).isXRRenderTarget = true;
   rt.texture.internalFormat = 'RGBA8';
   const px = new Uint8Array(w * h * 4);
   try {
-    const L = sky.apply({ elevationDeg: GOLDEN.elevationDeg, azimuthDeg: (look + 180 + GOLDEN.offsetDeg) % 360 }, null, false);
+    const L = sky.apply(sun, null, false);
     stream.materials.setGroundTint(L.groundTint);
     stream.setNight(L.night);
     sky.setView(camera, FOG_FAR, h / 2);
@@ -129,7 +154,8 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
     v.set(s.x, stream.groundAt(p) + 2, s.z);
     const d = v.distanceTo(camera.position);
     v.project(camera);
-    const a = 1 - smooth(FOG_NEAR * 0.5, FOG_FAR * 0.85, d);
+    // clear near the balloon, fading into the haze but never quite gone (the line still leads home)
+    const a = clarity(d);
     const inside = v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.6 && v.y > -1.6 && a > 0.02;
     if (!inside) {
       if (line.length > 1) trail.push(line);
@@ -139,7 +165,12 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
     line.push({ x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, a });
   }
   if (line.length > 1) trail.push(line);
+  const s0 = stream.toScene(route.points[0]);
+  v.set(s0.x, stream.groundAt(route.points[0]) + 2, s0.z);
+  const d0 = v.distanceTo(camera.position);
+  v.project(camera);
+  const start = v.z > -1 && v.z < 1 && Math.abs(v.x) < 0.97 && v.y > -0.97 && v.y < 0.97 ? { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, a: clarity(d0) } : null;
   v.set(l.x, g, l.z).project(camera);
   const landingPx = v.z > -1 && v.z < 1 ? { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h } : null;
-  return { image: canvas, trail, landing: landingPx };
+  return { image: canvas, trail, landing: landingPx, start };
 }

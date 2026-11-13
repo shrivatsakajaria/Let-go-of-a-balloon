@@ -150,6 +150,7 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
   document.body.append(el);
   const inert = INERT.map((id) => document.getElementById(id)).filter((n): n is HTMLElement => !!n && !n.inert);
   for (const n of inert) n.inert = true;
+  document.documentElement.classList.add('card-open');
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -166,6 +167,7 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
       closed = true;
       document.removeEventListener('keydown', onKey);
       for (const n of inert) n.inert = false;
+      document.documentElement.classList.remove('card-open');
       el.remove();
       if (!o.inApp) URL.revokeObjectURL(src);
       if (current === view) current = null;

@@ -51,6 +51,13 @@ describe('the card', () => {
     expect(sizes('credit')).toEqual([22]);
   });
 
+  test('the credit line breaks between credits, never inside one ("© Mapterhorn" stays together)', () => {
+    const lines = cardLayout(cardWords(facts()), measure).texts.filter((t) => t.role === 'credit').map((t) => t.text);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.join(' · ')).toBe(CARD_CREDIT);
+    for (const l of lines) expect(l).not.toMatch(/(^·|·$|©$)/);
+  });
+
   test('headline for Manchester to Bergen fits on two lines at the chosen size', () => {
     const h = fitHeadline('Manchester', 'Bergen', measure, 1080 - 2 * 72);
     expect(h.size).toBe(120);
@@ -108,6 +115,11 @@ describe('the card', () => {
     expect(w.credit).toBe(CARD_CREDIT);
     expect(CARD_CREDIT).toBe('Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Terrain: © Mapterhorn · A Still Signal build');
     expect(w.filename).toBe('balloon-manchester-to-bergen.png');
+  });
+
+  test('a slow balloon\'s top speed keeps a decimal rather than reading "0 km/h"', () => {
+    expect(cardWords(facts({ topSpeedKmh: 0.36 })).stats[2].value).toBe('0.4 km/h');
+    expect(cardWords(facts({ topSpeedKmh: 9.96 })).stats[2].value).toBe('10 km/h');
   });
 
   test('a landing place that could not be named still makes a card', () => {

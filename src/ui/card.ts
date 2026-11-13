@@ -114,7 +114,7 @@ export function cardWords(f: CardFacts): CardWords {
   const stats = [
     { label: 'Distance', value: km(f.distanceKm) },
     { label: 'Time aloft', value: `${f.hoursAloft} h` },
-    { label: 'Top speed', value: `${Math.round(f.topSpeedKmh)} km/h` },
+    { label: 'Top speed', value: `${f.topSpeedKmh < 9.95 ? f.topSpeedKmh.toFixed(1) : Math.round(f.topSpeedKmh)} km/h` },
   ];
   const route = to ? `${f.home} to ${to}` : `From ${f.home}`;
   return {
@@ -262,6 +262,21 @@ function wrap(text: string, f: CardFont, m: Measure, max: number): string[] {
   return lines;
 }
 
+/** The credit line, broken only between credits (the " · " at a break is left out); a credit too long for a line wraps by word. */
+function wrapCredits(text: string, f: CardFont, m: Measure, max: number): string[] {
+  const lines: string[] = [];
+  let cur = '';
+  for (const part of text.split(' · ')) {
+    const next = cur ? `${cur} · ${part}` : part;
+    if (cur && m(next, f) > max) {
+      lines.push(cur);
+      cur = part;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.flatMap((l) => (m(l, f) > max ? wrap(l, f, m, max) : [l]));
+}
+
 /** Where every piece of text goes, laid out from the bottom up so the stack always ends at the same place. */
 export function cardLayout(w: CardWords, m: Measure): CardLayout {
   const W = CARD_W, H = CARD_H, X = CARD_MARGIN, inner = W - 2 * X;
@@ -272,7 +287,7 @@ export function cardLayout(w: CardWords, m: Measure): CardLayout {
 
   // credits, 22 px, wrapped
   const creditF: CardFont = { size: 22, weight: 450, condensed: false };
-  const credit = wrap(w.credit, creditF, m, inner);
+  const credit = wrapCredits(w.credit, creditF, m, inner);
   let y = H - BOTTOM - (credit.length - 1) * 30;
   credit.forEach((line, i) => put('credit', line, X, y + i * 30, creditF, 'secondary'));
   y -= 22 + 22;
@@ -333,6 +348,8 @@ export type CardFrame = {
   trail: { x: number; y: number; a: number }[][];
   /** The landing point on the ground, frame px. */
   landing: { x: number; y: number } | null;
+  /** The start, when it is in the picture (a small route knot, as on the string line). */
+  start?: { x: number; y: number; a: number } | null;
 };
 
 export type CardScene = { cardFrame(route: Route, w: number, h: number): CardFrame | null };
@@ -396,39 +413,35 @@ function sketchFrame(route: Route, w: number, h: number): CardFrame {
     const depth = 1 + 3 * Math.max(0, fwd);
     return { x: w / 2 + (side * w * 0.45) / depth, y: horizon + (h * 0.42 - horizon) / depth, a: 1 - 0.6 * Math.max(0, fwd) };
   });
-  return { image: c, trail: [out], landing: out[out.length - 1] };
+  return { image: c, trail: [out], landing: out[out.length - 1], start: out[0] };
 }
 
 function drawTrail(ctx: CanvasRenderingContext2D, frame: CardFrame): void {
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const line of frame.trail) {
+  for (const raw of frame.trail) {
+    // far points crowd together near the horizon: keep one per 1.5 px
+    const line = raw.filter((p, i) => i === 0 || i === raw.length - 1 || Math.hypot(p.x - raw[i - 1].x, p.y - raw[i - 1].y) >= 1.5 || p.a > 0.9);
     if (line.length < 2) continue;
-    for (let i = 1; i < line.length; i++) {
-      const a = line[i - 1], b = line[i];
-      const alpha = Math.min(a.a, b.a);
-      if (alpha <= 0.01) continue;
-      // a faint ink edge keeps the line clear over chalk and sand
-      ctx.strokeStyle = `rgba(${INK}, ${(0.18 * alpha).toFixed(3)})`;
-      ctx.lineWidth = 9;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
+    // one path per line (overlapping segments would build up), shaded from its haziest to its clearest point
+    const near = line.reduce((p, q) => (q.a > p.a ? q : p));
+    const far = line.reduce((p, q) => (q.a < p.a ? q : p));
+    const along = Math.hypot(near.x - far.x, near.y - far.y) > 1;
+    const paint = (rgb: string, alpha: (a: number) => number) => {
+      if (!along) return `rgba(${rgb}, ${alpha(near.a).toFixed(3)})`;
+      const g = ctx.createLinearGradient(far.x, far.y, near.x, near.y);
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) g.addColorStop(t, `rgba(${rgb}, ${alpha(far.a + (near.a - far.a) * t).toFixed(3)})`);
+      return g;
+    };
     ctx.beginPath();
     ctx.moveTo(line[0].x, line[0].y);
     for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
-    // fade with the haze: one stroke per polyline, coloured by a gradient between its clearest and haziest points
-    const near = line.reduce((p, q) => (q.a > p.a ? q : p));
-    const far = line.reduce((p, q) => (q.a < p.a ? q : p));
-    const grad = Math.hypot(near.x - far.x, near.y - far.y) > 1 ? ctx.createLinearGradient(far.x, far.y, near.x, near.y) : null;
-    if (grad) {
-      grad.addColorStop(0, `rgba(${PAPER}, ${far.a.toFixed(3)})`);
-      grad.addColorStop(1, `rgba(${PAPER}, ${near.a.toFixed(3)})`);
-    }
-    ctx.strokeStyle = grad ?? `rgba(${PAPER}, ${near.a.toFixed(3)})`;
+    // a faint ink edge keeps the line clear over chalk and sand, only where it is clear itself
+    ctx.strokeStyle = paint(INK, (a) => 0.16 * a ** 4);
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.strokeStyle = paint(PAPER, (a) => a);
     ctx.lineWidth = 6;
     ctx.stroke();
   }
@@ -469,11 +482,11 @@ function drawBalloon(ctx: CanvasRenderingContext2D, at: { x: number; y: number }
 /** The fade into ink: eased stops, so no edge shows. */
 function drawFade(ctx: CanvasRenderingContext2D, L: CardLayout): void {
   const g = ctx.createLinearGradient(0, L.fadeTop, 0, L.fadeBottom);
-  const stops: [number, number][] = [[0, 0], [0.18, 0.08], [0.4, 0.3], [0.62, 0.6], [0.82, 0.84], [1, 0.95]];
+  const stops: [number, number][] = [[0, 0], [0.18, 0.08], [0.4, 0.3], [0.62, 0.62], [0.82, 0.88], [1, 1]];
   for (const [t, a] of stops) g.addColorStop(t, `rgba(${INK}, ${a})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, L.fadeTop, L.width, L.fadeBottom - L.fadeTop);
-  ctx.fillStyle = `rgba(${INK}, 0.95)`;
+  ctx.fillStyle = `rgb(${INK})`;
   ctx.fillRect(0, L.fadeBottom, L.width, L.height - L.fadeBottom);
 }
 
@@ -500,6 +513,12 @@ export async function drawCard(route: Route, scene: CardScene | null, words: Car
   frame ??= sketchFrame(route, CARD_W, CARD_SCENE_H);
   ctx.drawImage(frame.image, 0, 0, CARD_W, CARD_SCENE_H);
   drawTrail(ctx, frame);
+  if (frame.start) {
+    ctx.fillStyle = `rgba(${PAPER}, ${Math.max(0.35, frame.start.a).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(frame.start.x, frame.start.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (frame.landing) drawBalloon(ctx, frame.landing);
   drawFade(ctx, L);
 
