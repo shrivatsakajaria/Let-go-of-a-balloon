@@ -22,6 +22,8 @@ export type CardViewOpts = {
   closeLabel?: string;
   onClose?(): void;
   nav?: ShareEnv['nav'];
+  /** False once the visitor has moved on while the card was being got ready: nothing opens. */
+  isCurrent?(): boolean;
 };
 
 export type CardView = { readonly el: HTMLElement; close(): void };
@@ -73,10 +75,14 @@ function button(label: string, cls: string): HTMLButtonElement {
   return b;
 }
 
-export async function showCardView(o: CardViewOpts): Promise<CardView> {
+export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   current?.close();
   const nav = o.nav ?? (navigator as ShareEnv['nav']);
   const src = o.inApp ? await blobToDataUrl(o.blob) : URL.createObjectURL(o.blob);
+  if (o.isCurrent && !o.isCurrent()) {
+    if (!o.inApp) URL.revokeObjectURL(src);
+    return null;
+  }
   const before = document.activeElement as HTMLElement | null;
 
   const el = document.createElement('div');
@@ -85,6 +91,12 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
   el.setAttribute('aria-modal', 'true');
   el.setAttribute('aria-labelledby', 'card-title');
 
+  const say = (text: string) => {
+    const st = el.querySelector('[role="status"]');
+    if (!st) return;
+    st.textContent = '';
+    requestAnimationFrame(() => (st.textContent = text));
+  };
   const head = document.createElement('div');
   head.className = 'card-head';
   const title = document.createElement('h2');
@@ -126,7 +138,25 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
     const copy = button(COPY.copyLink, 'link card-copy');
     let reset = 0;
     copy.addEventListener('click', async () => {
-      if (!(await copyText(o.link))) return;
+      if (!(await copyText(o.link))) {
+        // say so, and put the link where it can be selected and copied by hand
+        if (!el.querySelector('.card-link')) {
+          const note = document.createElement('p');
+          note.className = 'card-note';
+          note.setAttribute('role', 'alert');
+          note.textContent = COPY.copyFailed;
+          const field = document.createElement('input');
+          field.className = 'card-link';
+          field.readOnly = true;
+          field.value = o.link;
+          field.setAttribute('aria-label', COPY.linkLabel);
+          field.addEventListener('focus', () => field.select());
+          el.append(note, field);
+        }
+        (el.querySelector('.card-link') as HTMLInputElement).select();
+        return;
+      }
+      say(COPY.linkCopied);
       copy.textContent = COPY.linkCopied;
       clearTimeout(reset);
       reset = window.setTimeout(() => (copy.textContent = COPY.copyLink), 2500);
@@ -135,7 +165,12 @@ export async function showCardView(o: CardViewOpts): Promise<CardView> {
     first = sharable ? share : save;
   }
 
-  el.append(head, img, actions);
+  // a polite status region for "Link copied"
+  const status = document.createElement('p');
+  status.className = 'sr';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  el.append(head, img, actions, status);
   document.body.append(el);
   const inert = INERT.map((id) => document.getElementById(id)).filter((n): n is HTMLElement => !!n && !n.inert);
   for (const n of inert) n.inert = true;

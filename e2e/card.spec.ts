@@ -114,8 +114,26 @@ test('Copy link copies this balloon\'s link and says "Link copied"', async ({ co
   const copy = page.getByRole('dialog').getByRole('button', { name: 'Copy link' });
   await copy.click();
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Link copied' })).toBeVisible();
+  // and said in the polite status region too
+  await expect(page.getByRole('dialog').getByRole('status')).toHaveText('Link copied');
   const text = await page.evaluate(() => navigator.clipboard.readText());
   expect(text).toMatch(/^http:\/\/localhost:\d+\/#b=/);
+});
+
+test('when the link cannot be copied it says so and shows the link to copy by hand', async ({ context, page }) => {
+  await liveWorld(context);
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('denied')) } });
+    document.execCommand = () => false;
+  });
+  await page.goto(await linkTo(eastward(80)));
+  await opened(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Copy link' }).click();
+  await expect(dialog.getByText("Couldn't copy the link. Select it below to copy it.")).toBeVisible();
+  const field = dialog.getByRole('textbox', { name: 'Link to this balloon' });
+  await expect(field).toHaveValue(/^http:\/\/localhost:\d+\/#b=/);
+  await expect(dialog.getByRole('button', { name: 'Link copied' })).toHaveCount(0);
 });
 
 test.describe('in an in-app browser', () => {

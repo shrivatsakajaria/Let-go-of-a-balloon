@@ -61,18 +61,26 @@ export type PresentOpts = {
   onClose?(): void;
 };
 
+let latest = 0;
+
 export async function presentCard(o: PresentOpts): Promise<CardView | null> {
+  const id = ++latest;
+  // the visitor moved on: nothing opens, and the hook says so (unless a newer card is on its way)
+  const abort = () => {
+    if (id === latest) cardHook.state = 'idle';
+    return null;
+  };
   cardHook.state = 'waiting';
   try {
     const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
     const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
     cardHook.waitedMs = await settled(o.live, o.waitMs ?? 8000, o.isCurrent);
-    if (!o.isCurrent()) return null;
+    if (!o.isCurrent()) return abort();
     const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: Date.now() }));
     const drawn = await drawCard(o.route, cardScene(o.live), words);
     const blob = await toPng(drawn.canvas);
     const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
-    if (!o.isCurrent()) return null;
+    if (!o.isCurrent()) return abort();
     const ua = navigator.userAgent;
     const inApp = isInAppBrowser(ua);
     const view = await showCardView({
@@ -81,12 +89,14 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
       link,
       inApp,
       ua,
+      isCurrent: o.isCurrent,
       closeLabel: o.closeLabel,
       onClose: () => {
         cardHook.state = 'closed';
         o.onClose?.();
       },
     });
+    if (!view) return abort();
     const L = drawn.layout;
     const heads = L.headline.lines.map((l) => l.map((s) => s.text).join(''));
     const widths = L.headline.lines.map((_, i) => lineWidthOf(L, i));

@@ -43,6 +43,7 @@ export const COPY = {
   copyLink: 'Copy link',
   linkCopied: 'Link copied',
   copyFailed: "Couldn't copy the link. Select it below to copy it.",
+  linkLabel: 'Link to this balloon',
   pressAndHold: 'Press and hold to save',
   openInBrowser: 'Open in your browser',
   /** The landed HUD's way back to the card. */
