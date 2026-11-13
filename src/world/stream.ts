@@ -69,6 +69,8 @@ export type StreamOptions = {
   fallbackGround?: (p: LatLon) => number | undefined;
   /** Landmark footprints whose map buildings are not drawn. */
   hidden?: HiddenFootprint[];
+  /** The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's corridor). */
+  want?: (camera: LodCamera, budget: number) => TileKey[];
 };
 
 type Ground = GroundGrid & { south: number; north: number; west: number; dLon: number; mLon: number };
@@ -138,6 +140,7 @@ export class WorldStream {
   private readonly fadeMs: number;
   private readonly fallbackGround: (p: LatLon) => number | undefined;
   private readonly hidden: HiddenFootprint[];
+  private readonly want: StreamOptions['want'];
   private readonly vectorUrl: () => Promise<string>;
   private tpl: string | null = null;
   private tplLoading = false;
@@ -168,6 +171,7 @@ export class WorldStream {
     this.recentreM = opts.recentreM ?? 5000;
     this.fadeMs = opts.fadeMs ?? 400;
     this.hidden = opts.hidden ?? [];
+    this.want = opts.want;
     this.fallbackGround = opts.fallbackGround ?? (() => undefined);
     const v = opts.vectorUrl;
     this.vectorUrl = typeof v === 'string' ? () => Promise.resolve(v) : v ?? (() => vectorTileTemplate());
@@ -384,7 +388,7 @@ export class WorldStream {
   private retarget(camera: LodCamera): void {
     const keep = new Set<string>();
     for (const e of this.entries.values()) if (e.state !== 'leaving') keep.add(e.key);
-    this.wantedKeys = tilesFor(camera, this.maxTiles, { keep });
+    this.wantedKeys = this.want ? this.want(camera, this.maxTiles) : tilesFor(camera, this.maxTiles, { keep });
     this.wantedStr = this.wantedKeys.map(tileKey);
     const wanted = new Set(this.wantedStr);
     for (const e of [...this.entries.values()]) {
