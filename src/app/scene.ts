@@ -132,7 +132,8 @@ export class LiveScene {
   onFirstFrame: (() => void) | null = null;
 
   private readonly canvas: HTMLCanvasElement;
-  private readonly pool: WorkerPool<BuildRequest, BuildReply>;
+  /** The mesh workers (the landing card's own coarse world builds on them too). */
+  readonly pool: WorkerPool<BuildRequest, BuildReply>;
   private readonly reduced: boolean;
   private start: LatLon;
   private route: Route | null = null;
@@ -376,6 +377,11 @@ export class LiveScene {
 
   get replaying(): boolean {
     return this.replay !== null;
+  }
+
+  /** Disposed: nothing may be drawn with it any more (the landing card checks before it renders). */
+  get gone(): boolean {
+    return this.disposed;
   }
 
   /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */

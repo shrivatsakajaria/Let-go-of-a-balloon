@@ -28,8 +28,11 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
 import { LiveScene, type SceneFrame } from './scene';
+import { cardHook, homeFor, prepareCard, presentCard } from './landingcard';
+import { cardScene, farStats, isFarRoute, settledWorld } from './cardshot';
+import { closeCardView } from '../ui/cardview';
 import { watchContextLoss, type ContextWatch } from './contextloss';
-import { resumeAction, type Handover } from './world';
+import { resumeAction, savedFor, type Handover } from './world';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -48,10 +51,12 @@ export type LiveDeps = {
   contextLosses?: number;
 };
 
-type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean };
+type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean; saved: SavedBalloon; carded?: boolean };
 
 const PLACE_EVERY_MS = 6000;
 const HOLD_MS = 1200;
+/** The landing card comes up this long after touchdown, once the balloon has settled. */
+const CARD_AFTER_MS = 1500;
 
 /** What the page's test hooks can read (no state of the page is changed through it). */
 export type LiveHook = {
@@ -111,6 +116,8 @@ export class Live {
   private said: AnnounceState | null = null;
   private sunUp: boolean | null = null;
   private windAsk = 0;
+  /** Counts cards asked for, so only the latest one opens. */
+  private cardTicket = 0;
   /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
@@ -121,8 +128,24 @@ export class Live {
   private overLine = '';
   /** Pause as it was before the replay (the replay plays; Back to live puts it back). */
   private pausedBefore = false;
-  /** Where the whole-trip replay ends (it then holds on the landing): by default, back to live. */
-  onReplayEnd: (route: Route) => void = () => this.backToLive();
+  /**
+   * Where the whole-trip replay ends (it then holds on the landing): the landing card opens over it
+   * ("Expected to land near ...", the card the replay began making), and owns Escape from then; until it
+   * is up, Escape still goes back to live (and a card that cannot be made leaves the replay's own Back to
+   * live on screen). Closing the card ("Back to live") returns to live at now.
+   */
+  onReplayEnd: (route: Route, landed?: boolean) => void = (route, landed) => {
+    const run = this.replayRun;
+    const onKey = (e: KeyboardEvent) => {
+      if (this.replayRun !== run) return removeEventListener('keydown', onKey);
+      if (e.key === 'Escape') this.backToLive();
+    };
+    addEventListener('keydown', onKey);
+    // once the card is up it owns Escape; if it never comes, Escape stays with the held replay
+    void this.showCard(route, { closeLabel: COPY.backToLive, onClose: () => this.backToLive(), waitMs: 0, landed, while: () => this.replayRun === run }).then((up) => {
+      if (up) removeEventListener('keydown', onKey);
+    });
+  };
   /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
   private unwatch: () => void = () => {};
   private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
@@ -240,6 +263,10 @@ export class Live {
     this.cancelReplayPrep();
     this.opening++;
     this.windAsk++;
+    // the landing card: one being made never opens, one on screen closes, a delayed one never comes
+    this.cardTicket++;
+    closeCardView();
+    this.flight = null;
     this.unwatch();
     this.context.dispose();
     this.clearNotice();
@@ -290,8 +317,8 @@ export class Live {
   private released(route: Route, c: StartChoice): void {
     if (this.state !== 'launch') return;
     const home = { name: c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name, lat: c.lat, lon: c.lon };
-    this.beginFlight(route, home, true, true);
     const saved: SavedBalloon = { v: 1, name: c.kind === 'gps' ? COPY.yourLocation : c.name, start: { lat: c.lat, lon: c.lon }, release: route.release, hourly: route.hourly, runId: route.runId };
+    this.beginFlight(route, home, true, true, saved);
     store.add(saved);
     this.deps.start.refresh();
     encodeBalloon(saved)
@@ -328,28 +355,33 @@ export class Live {
     const own = store.list().some((x) => x.id === balloonId(b));
     const ticket = ++this.opening;
     let route: Route;
+    let name: string;
     try {
-      route = await linkRoute(b);
+      // "your location" only on the visitor's own balloon; a shared one is named for its place
+      [route, name] = await Promise.all([linkRoute(b), homeFor(b, own)]);
     } catch (e) {
       if (ticket === this.opening) this.state = 'start';
       throw e;
     }
     if (ticket !== this.opening || this.state !== 'flight') return; // the visitor moved on meanwhile
-    const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
+    const home = { name, lat: b.start.lat, lon: b.start.lon };
     // a landed balloon is seen from the side, in its field or on its sea, not from straight above
     const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
     this.scene.fly(route, mode);
     this.hud.setPaused(false);
     this.hud.setView(mode);
-    this.beginFlight(route, home, own, false);
+    this.beginFlight(route, home, own, false, b);
     this.deps.setView('flight');
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 
-  private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean): void {
+  private beginFlight(route: Route, home: Flight['home'], own: boolean, launched: boolean, saved: SavedBalloon): void {
     this.backToLive();
     this.cancelReplayPrep();
-    this.flight = { route, home, own, launched };
+    closeCardView();
+    this.cardTicket++;
+    this.hud.setCard(null);
+    this.flight = { route, home, own, launched, saved };
     this.overLine = '';
     // a link is in flight at once: its replay names are worked out when the page is idle; a launch waits
     // until the camera has settled (frame), so the lookups never compete with the launch's tiles
@@ -371,6 +403,8 @@ export class Live {
     this.cancelReplayPrep();
     this.hud.setTrip(false);
     this.opening++;
+    this.cardTicket++;
+    closeCardView();
     this.clearNotice();
     this.flight = null;
     this.state = 'start';
@@ -392,6 +426,8 @@ export class Live {
     if (!fl || this.replayRun || this.state !== 'flight') return;
     const ctl = new AbortController();
     this.replayRun = ctl;
+    // a card on its way (a landed link's) never opens over the replay
+    this.cardTicket++;
     const t0 = performance.now();
     this.hook.replayMs = null;
     // names and the landing arrive in the background (asked now if they were not yet); the first name is
@@ -408,6 +444,15 @@ export class Live {
     this.scene.setPaused(false);
     this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
     const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
+    // the landing card is made while the replay plays (its land loads meanwhile) and pictured at the end,
+    // so it is ready as the replay holds on the landing; Back to live before the end cancels it
+    let ended = () => {};
+    const gate = new Promise<void>((r) => (ended = r));
+    ctl.signal.addEventListener('abort', () => ended());
+    const replaying = () => this.replayRun === ctl && this.flight === fl && !this.scene.gone;
+    // the card for the state the replay began in: a balloon that lands meanwhile still ends on this one
+    const landed = Date.now() >= landedAt(fl.route);
+    void prepareCard({ scene: cardScene(this.scene), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate, landed });
     void playReplay(fl.route, {
       host: {
         scene: this.scene,
@@ -422,8 +467,9 @@ export class Live {
       home: fl.home.name,
       signal: ctl.signal,
       onEnd: () => {
+        ended();
         this.hook.replayMs = performance.now() - t0;
-        this.onReplayEnd(fl.route);
+        this.onReplayEnd(fl.route, landed);
       },
     });
   }
@@ -494,7 +540,7 @@ export class Live {
       this.hud.setPaused(!!h.paused);
       this.scene.setPaused(!!h.paused);
       this.hud.setView(a.mode);
-      this.beginFlight(route, home, own, h.flight.launched ?? false);
+      this.beginFlight(route, home, own, h.flight.launched ?? false, savedFor(h.flight));
       this.deps.setView('flight');
       // a launched flight's names are otherwise asked when its launch settles, which a resumed one skips
       this.prepareReplaySoon();
@@ -566,6 +612,16 @@ export class Live {
     this.hud.frame({ now: f.now, point: f.point, aglM: f.aglM, speedMs: f.point.speedMs, landed: f.landed });
     if (!this.flight || this.replayRun) return;
 
+    // down: the landing card, once per flight (a landed link opens on it too), a moment after touchdown
+    if (f.landed && !this.flight.carded) {
+      const fl = this.flight;
+      fl.carded = true;
+      this.hud.setCard(() => void this.showCard(fl.route));
+      setTimeout(() => {
+        if (this.flight === fl && !this.replayRun) void this.showCard(fl.route);
+      }, CARD_AFTER_MS);
+    }
+
     // the sun crossing the horizon is a film event
     const up = f.sunElevationDeg > 0;
     if (this.sunUp !== null && up !== this.sunUp) this.event(up ? 'sunrise' : 'sunset');
@@ -576,6 +632,37 @@ export class Live {
       this.placeBusy = true;
       this.refreshPlace(this.flight, f).finally(() => (this.placeBusy = false));
     }
+  }
+
+  /**
+   * The landing card for the balloon on show (spec 6.5): when it comes down, when a landed link opens,
+   * from "Show the card", and at the end of the replay. Resolves once the card is on screen (true), or
+   * with false when it was not made (the visitor moved on meanwhile, or it could not be).
+   */
+  async showCard(route?: Route, opts: { closeLabel?: string; onClose?: () => void; waitMs?: number; landed?: boolean; while?: () => boolean } = {}): Promise<boolean> {
+    const fl = this.flight;
+    if (!fl) return false;
+    const r = route ?? fl.route;
+    const ticket = ++this.cardTicket;
+    const landing = this.landingFor === r && this.landing ? Promise.resolve(this.landing) : landingPlace(r).catch(() => null);
+    const isCurrent = () => ticket === this.cardTicket && this.flight === fl && (opts.while?.() ?? true);
+    cardHook.world = farStats;
+    const view = await presentCard({
+      scene: cardScene(this.scene),
+      // a long route's card world is its own: no wait for the live world round the landing
+      settle: isFarRoute(r) ? undefined : () => settledWorld(this.scene, opts.waitMs ?? 8000, isCurrent),
+      route: r,
+      saved: fl.saved,
+      own: fl.own,
+      landing,
+      isCurrent,
+      // the card goes on being made while this balloon is on screen (a newer request shares it)
+      alive: () => this.flight === fl && !this.scene.gone,
+      closeLabel: opts.closeLabel,
+      onClose: opts.onClose,
+      landed: opts.landed,
+    });
+    return view !== null;
   }
 
   private event(kind: DirectorEvent): void {

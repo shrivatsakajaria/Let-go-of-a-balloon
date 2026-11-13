@@ -57,13 +57,14 @@ class FakePool implements BuildPool {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function setup(opts: { origin?: LatLon; fallback?: number } = {}) {
+function setup(opts: { origin?: LatLon; fallback?: number; arriveTriangles?: number } = {}) {
   const scene = new THREE.Scene();
   const pool = new FakePool();
   const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, {
     vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf',
     origin: opts.origin ?? MANCHESTER,
     fallbackGround: () => opts.fallback,
+    arriveTriangles: opts.arriveTriangles,
   });
   return { scene, pool, stream };
 }
@@ -479,6 +480,17 @@ describe('WorldStream: review carries', () => {
     expect(live()).toBe(3);
   });
 
+  it('an offscreen world drawn once (arriveTriangles Infinity) takes every built tile at once, z14 too', async () => {
+    const { pool, stream } = setup({ arriveTriangles: Infinity });
+    await start(stream, cam(MANCHESTER));
+    const jobs = pool.open();
+    expect(jobs.some((j) => j.msg.z === 14)).toBe(true);
+    for (const j of jobs) pool.answer(j);
+    await tick();
+    stream.update(cam(MANCHESTER), 100);
+    expect(stream.tiles().filter((t) => t.state === 'live').length).toBe(jobs.length);
+  });
+
   it('fitView: over budget, the farthest buildings in view are left out of this frame only; ground never', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER, 90, 300));
@@ -601,5 +613,16 @@ describe('WorldStream: lamps follow the shared night', () => {
     stream.haze.uNight.value = 0;
     stream.update(cam(MANCHESTER), 82);
     expect(lamps().visible).toBe(false);
+  });
+});
+
+describe('WorldStream wanted tiles', () => {
+  it("can be told exactly which tiles to draw (the landing card's corridor of coarse land)", async () => {
+    const scene = new THREE.Scene();
+    const pool = new FakePool();
+    const want = [{ z: 7, x: 63, y: 41 }, { z: 7, x: 64, y: 40 }, { z: 7, x: 64, y: 41 }];
+    const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, { vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf', origin: MANCHESTER, want: () => want, maxTiles: 8 });
+    await start(stream, cam(MANCHESTER, 90, 60000));
+    expect(pool.open().map((j) => `${j.msg.z}/${j.msg.x}/${j.msg.y}`).sort()).toEqual(['7/63/41', '7/64/40', '7/64/41']);
   });
 });

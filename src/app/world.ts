@@ -5,11 +5,20 @@
 import { FLIGHT_HOURS } from '../config';
 import type { SavedBalloon } from '../flight/codec';
 import type { Route } from '../flight/route';
+import { COPY } from '../ui/copy';
 import type { StartChoice } from '../ui/start';
 
 export type Home = { name: string; lat: number; lon: number };
 /** A balloon being shown: its route, where it was let go, and whether it is the visitor's own. */
-export type Flight = { route: Route; home: Home; own: boolean; launched?: boolean };
+export type Flight = { route: Route; home: Home; own: boolean; launched?: boolean; saved?: SavedBalloon };
+
+/** The balloon a flight shows, as saved and linked (the landing card's link): its own, or rebuilt from the route. */
+export function savedFor(f: Flight): SavedBalloon {
+  if (f.saved) return f.saved;
+  // a "Use my location" start is shown as "your location" and saved as "Your location"
+  const name = f.home.name === COPY.yourLocation.toLowerCase() ? COPY.yourLocation : f.home.name;
+  return { v: 1, name, start: { lat: f.home.lat, lon: f.home.lon }, release: f.route.release, hourly: f.route.hourly, runId: f.route.runId };
+}
 
 export type World = {
   letGo(c: StartChoice): void;

@@ -68,8 +68,15 @@ export type StreamOptions = {
   fadeMs?: number;
   /** Ground height where no tile is loaded (default: the route's coarse ground, else 0). */
   fallbackGround?: (p: LatLon) => number | undefined;
+  /**
+   * Triangles of arriving tiles taken into the scene per update (default ARRIVE_TRIANGLES, one z14 tile
+   * at most); Infinity takes every built tile at once (an offscreen world drawn once, the card's).
+   */
+  arriveTriangles?: number;
   /** Landmark footprints whose map buildings are not drawn. */
   hidden?: HiddenFootprint[];
+  /** The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's corridor). */
+  want?: (camera: LodCamera, budget: number) => TileKey[];
 };
 
 type Ground = GroundGrid & { south: number; north: number; west: number; dLon: number; mLon: number };
@@ -143,8 +150,10 @@ export class WorldStream {
   private readonly maxInFlight: number;
   private readonly recentreM: number;
   private readonly fadeMs: number;
+  private readonly arriveTriangles: number;
   private readonly fallbackGround: (p: LatLon) => number | undefined;
   private readonly hidden: HiddenFootprint[];
+  private readonly want: StreamOptions['want'];
   private readonly vectorUrl: () => Promise<string>;
   private tpl: string | null = null;
   private tplLoading = false;
@@ -182,7 +191,9 @@ export class WorldStream {
     this.maxInFlight = opts.maxInFlight ?? MAX_IN_FLIGHT;
     this.recentreM = opts.recentreM ?? 5000;
     this.fadeMs = opts.fadeMs ?? 400;
+    this.arriveTriangles = opts.arriveTriangles ?? ARRIVE_TRIANGLES;
     this.hidden = opts.hidden ?? [];
+    this.want = opts.want;
     this.fallbackGround = opts.fallbackGround ?? (() => undefined);
     const v = opts.vectorUrl;
     this.vectorUrl = typeof v === 'string' ? () => Promise.resolve(v) : v ?? (() => vectorTileTemplate());
@@ -483,7 +494,7 @@ export class WorldStream {
   private retarget(camera: LodCamera): void {
     const keep = new Set<string>();
     for (const e of this.entries.values()) if (e.state !== 'leaving') keep.add(e.key);
-    this.wantedKeys = tilesFor(camera, this.maxTiles, { keep, scale: this.scale });
+    this.wantedKeys = this.want ? this.want(camera, this.maxTiles) : tilesFor(camera, this.maxTiles, { keep, scale: this.scale });
     this.wantedStr = this.wantedKeys.map(tileKey);
     const wanted = new Set(this.wantedStr);
     for (const e of [...this.entries.values()]) {
@@ -626,12 +637,13 @@ export class WorldStream {
    */
   private takeArrival(): void {
     let taken = 0;
-    while (this.arrivals.length > 0 && taken < ARRIVE_TRIANGLES) {
+    const all = this.arriveTriangles === Infinity;
+    while (this.arrivals.length > 0 && taken < this.arriveTriangles) {
       const { e, reply } = this.arrivals.shift()!;
       if (this.entries.get(e.key) !== e || e.state !== 'loading') continue; // cancelled meanwhile
       this.arrive(e, reply);
       taken += e.view?.triangles ?? 0;
-      if (e.t.z === 14) return; // a z14 tile is a frame's upload on its own
+      if (e.t.z === 14 && !all) return; // a z14 tile is a frame's upload on its own
     }
   }
 
