@@ -12,6 +12,7 @@ import { placeTrees, rasteriseLandcover, rasteriseLevels, treeZones } from './la
 import { buildBuildings, gapFill, type Circle } from './buildings';
 import { buildRoads, buildWaterways, placeLamps } from './lines';
 import { buildWater, waterLevels } from './water';
+import { srgbToLinear } from './color';
 
 /** A circle (from a landmark) whose buildings the map should not draw. */
 export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
@@ -131,6 +132,34 @@ export function buildTileMeshes(
     labels,
     stats: { buildings: built, gapHouses, trees: trees.length / 16, lamps: lamps.length / 3 },
   };
+}
+
+/**
+ * A bucket packed for the GPU and for transfer: positions as they are, normals as signed bytes and
+ * colours as linear bytes, both with a fourth padding component (4-byte aligned attributes).
+ */
+export type PackedBuffers = { position: Float32Array; normal: Int8Array; color: Uint8Array };
+
+/** Pack a bucket (colours from sRGB to linear). */
+export function packBuffers(b: MeshBuffers): PackedBuffers {
+  const n = b.position.length / 3;
+  const normal = new Int8Array(n * 4);
+  const color = new Uint8Array(n * 4);
+  // colours repeat per face: convert each distinct value once
+  const lut = new Map<number, number>();
+  const lin = (c: number) => {
+    let v = lut.get(c);
+    if (v === undefined) lut.set(c, (v = Math.round(srgbToLinear(Math.min(1, Math.max(0, c))) * 255)));
+    return v;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      normal[i * 4 + k] = Math.round(Math.max(-1, Math.min(1, b.normal[i * 3 + k])) * 127);
+      color[i * 4 + k] = lin(b.color[i * 3 + k]);
+    }
+    color[i * 4 + 3] = 255;
+  }
+  return { position: b.position, normal, color };
 }
 
 /** Every ArrayBuffer in a TileMeshes, for postMessage transfer. */

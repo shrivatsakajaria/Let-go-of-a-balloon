@@ -30,3 +30,8 @@ export function hslOf(hex: Color): { h: number; s: number; l: number } {
   const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return { h: h * 60, s, l };
 }
+
+/** One sRGB channel (0..1) to linear light, the space three.js expects vertex colours in. */
+export function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}

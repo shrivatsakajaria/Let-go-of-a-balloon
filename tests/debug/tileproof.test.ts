@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { blockBounds, farLandBuffers, gridPlacements, orbitPose, sceneXZ } from '../../src/debug/tilegrid';
-import { srgbToLinear, toGeometry, treeGeometry, triangleCount } from '../../src/debug/tilegeom';
 import { tileFrame } from '../../src/world/frame';
 
 const ALBERT = { lat: 53.4794, lon: -2.2453 };
@@ -74,49 +73,6 @@ describe('orbitPose', () => {
     expect(orbitPose(100, o).azimuthDeg).toBeCloseTo(180, 6);
     expect(orbitPose(25, o).azimuthDeg).toBeCloseTo(270, 6);
     expect(orbitPose(25, o).x).toBeCloseTo(-866.03, 1); // west is -x
-  });
-});
-
-describe('toGeometry', () => {
-  const buffers = (tris: number) => ({
-    position: new Float32Array(tris * 9).map((_, i) => i),
-    normal: new Float32Array(tris * 9).fill(0.5),
-    color: new Float32Array(tris * 9).fill(0.5),
-  });
-
-  it('keeps every triangle and vertex', () => {
-    const g = toGeometry(buffers(4))!;
-    expect(g.getAttribute('position').count).toBe(12);
-    expect(g.getAttribute('normal').count).toBe(12);
-    expect(g.getAttribute('color').count).toBe(12);
-    expect(g.index).toBeNull();
-    expect(triangleCount(g)).toBe(4);
-  });
-
-  it('converts sRGB vertex colours to linear', () => {
-    const g = toGeometry(buffers(1))!;
-    expect(g.getAttribute('color').getX(0)).toBeCloseTo(0.214, 3);
-    expect(srgbToLinear(0)).toBe(0);
-    expect(srgbToLinear(1)).toBeCloseTo(1, 9);
-  });
-
-  it('returns null for an empty bucket', () => {
-    expect(toGeometry({ position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) })).toBeNull();
-  });
-
-  it('rejects mismatched buffers', () => {
-    expect(() => toGeometry({ position: new Float32Array(9), normal: new Float32Array(6), color: new Float32Array(9) })).toThrow();
-  });
-});
-
-describe('treeGeometry', () => {
-  it('is a flat-shaded cone standing on the ground', () => {
-    const g = treeGeometry(11, 3.4, 7);
-    expect(g.index).toBeNull();
-    expect(triangleCount(g)).toBe(7);
-    g.computeBoundingBox();
-    expect(g.boundingBox!.min.y).toBeCloseTo(0, 6);
-    expect(g.boundingBox!.max.y).toBeCloseTo(11, 6);
   });
 });
 

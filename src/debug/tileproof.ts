@@ -7,7 +7,6 @@
  * ?clean=1 hides the caption, for the social preview image.
  */
 import * as THREE from 'three';
-import { DPR_CAP } from '../config';
 import type { LatLon } from '../geo/coords';
 import { tileFrame } from '../world/frame';
 import { CONTOUR, DEFAULT_REGION, lightFor, lerpHex, parseHex } from '../world/palette';
@@ -17,8 +16,14 @@ import { vectorTileTemplate } from '../world/vector';
 import type { BuildReply, BuildRequest } from '../world/worker';
 import type { TileMeshes } from '../world/meshjob';
 import { blockBounds, farLandBuffers, gridPlacements, orbitPose, type TilePlacement } from './tilegrid';
-import { toGeometry, treeGeometry } from './tilegeom';
+import { toGeometry } from '../world/geometry';
 import { WorkerPool } from '../world/workerpool';
+import { createRenderer } from '../world/render';
+import { createHaze, setBlockHaze } from '../world/haze';
+import { ContourMaterials, noCoverage } from '../world/materials';
+import { SkyDome } from '../world/skydome';
+import { SunLight, sunDirection } from '../world/sunlight';
+import { TileView } from '../world/tileview';
 
 const ALBERT: LatLon = { lat: 53.4794, lon: -2.2453 };
 const Z = 14;
@@ -29,7 +34,6 @@ const Z = 14;
 const SUN_ELEVATION = 8;
 const SUN_AZIMUTH = 250;
 const L = lightFor(SUN_ELEVATION);
-const TREE_COLOURS = ['#5f8f5a', '#527f50', '#6c9a62', '#4a7449'];
 
 /**
  * One turn in 105 s around the square, starting from the north-north-west (side-lit, the Irwell in
@@ -45,101 +49,42 @@ if (params.get('clean') === '1') document.documentElement.classList.add('clean')
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const still = () => fixedT !== null || reducedMotion.matches;
 
-const col = (hex: string) => new THREE.Color(hex);
-
 // ---- renderer, scene, camera ----
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(DPR_CAP, window.devicePixelRatio || 1));
-renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 1.08;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+const renderer = createRenderer(canvas);
 
 const scene = new THREE.Scene();
-// Supplies fogNear/fogFar to the materials; withHaze replaces the fog colour with the haze colour.
-scene.fog = new THREE.Fog(col(L.skyHorizon), FOG.near, FOG.far);
+// Supplies fogNear/fogFar to the materials; the haze patch replaces the fog colour with the haze colour.
+scene.fog = new THREE.Fog(new THREE.Color(L.skyHorizon), FOG.near, FOG.far);
 const camera = new THREE.PerspectiveCamera(40, 1, 5, 30000);
 
 /** Target on the ground at Albert Square; its height arrives with the centre terrain tile. */
 const target = new THREE.Vector3(0, 40, 0);
 
-const sunDir = (() => {
-  const az = (SUN_AZIMUTH * Math.PI) / 180, el = (SUN_ELEVATION * Math.PI) / 180;
-  return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
-})();
-
-const sun = new THREE.DirectionalLight(col(lerpHex(L.sun, '#ffffff', 0.15)), L.sunIntensity * 2.0);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-{
-  // Shadows only around the square. The light is low, so the ground disc seen from the sun is wide
-  // and short: a tall thin box gives about 1 m by 0.3 m per shadow texel.
-  const R = 1150;
-  const c = sun.shadow.camera;
-  c.left = -R; c.right = R;
-  c.top = R * Math.sin((SUN_ELEVATION * Math.PI) / 180) + 160;
-  c.bottom = -c.top;
-  c.near = 2000; c.far = 6000;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.8;
-}
-scene.add(sun, sun.target);
-// The skylight takes a little of the warm horizon: at golden hour most of the sky is not the zenith.
-const hemi = new THREE.HemisphereLight(col(lerpHex(L.hemiSky, L.skyHorizon, 0.35)), col(L.hemiGround), 2.2);
-scene.add(hemi);
-
+const sunDir = sunDirection(SUN_ELEVATION, SUN_AZIMUTH);
+// Shadows only around the square (a tall thin box, about 1 m by 0.3 m per shadow texel).
+const sun = new SunLight(L, sunDir, { radius: 1150, mapSize: 2048, snap: 0 });
+sun.addTo(scene);
 function placeSun() {
-  sun.target.position.copy(target);
-  sun.position.copy(target).addScaledVector(sunDir, 4000);
-  sun.target.updateMatrixWorld();
+  sun.place(target);
+  renderer.shadowMap.needsUpdate = true;
 }
 placeSun();
 
+const haze = createHaze(L, sunDir);
 /**
- * One colour for the sky and the haze, by view direction, in display (sRGB) values so the sky and
- * every hazed surface agree to the pixel. Up: skyHorizon to skyTop. Down: the haze deepens from the
- * bright horizon to a muted land haze, so the far city fades through a gradient, not a wall.
- * Warmer toward the sun.
+ * Haze at the block's edge: within 760 m of the edge of the tile block, everything dissolves into
+ * the haze colour, and past 2.7 km from Albert Square too, which rounds off the corners. So the
+ * block never shows an edge from any orbit angle, but each side keeps all the city it has.
+ * Camera-distance fog adds depth inside.
  */
-const srgb = (hex: string) => {
-  const [r, g, b] = parseHex(hex);
-  return new THREE.Vector3(r / 255, g / 255, b / 255);
-};
-const hazeUniforms = {
-  uTop: { value: srgb(L.skyTop) },
-  uHor: { value: srgb(L.skyHorizon) },
-  uLow: { value: srgb(lerpHex(L.skyHorizon, '#a3988a', 0.3)) },
-  uSunCol: { value: srgb(L.sun) },
-  uSunDir: { value: sunDir },
-};
-const HAZE_GLSL = `uniform vec3 uTop; uniform vec3 uHor; uniform vec3 uLow; uniform vec3 uSunCol; uniform vec3 uSunDir;
-vec3 hazeCol(vec3 d) {
-  float up = smoothstep(0.0, 0.24, d.y);
-  vec3 c = d.y >= 0.0 ? mix(uHor, uTop, up) : mix(uHor, uLow, smoothstep(0.0, -0.32, d.y));
-  float s = max(dot(d, uSunDir), 0.0);
-  return mix(c, uSunCol, (pow(s, 5.0) * 0.32 + pow(s, 48.0) * 0.3) * (1.0 - up * 0.7));
-}`;
+setBlockHaze(haze, blockBounds(gridPlacements(ALBERT, Z)), { inner: 40, band: 760, radius: 2700, radiusBand: 700 });
+const materials = new ContourMaterials(haze, noCoverage(), { groundTint: L.groundTint });
 
-// Sky dome: follows the camera; not tone-mapped, as it is already display colour.
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(20000, 32, 16),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    fog: false,
-    toneMapped: false,
-    uniforms: hazeUniforms,
-    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `${HAZE_GLSL}
-      varying vec3 vP;
-      void main(){ gl_FragColor = vec4(hazeCol(normalize(vP)), 1.0); }`,
-  }),
-);
-sky.renderOrder = -1;
-scene.add(sky);
+const sky = new SkyDome(haze);
+scene.add(sky.mesh);
 
 // Faceted land around the tile block (built once the terrain is in), so the block has no edge.
 const FAR_COLOURS = [
@@ -154,131 +99,19 @@ const FAR_COLOURS = [
   return [c[0] / 255, c[1] / 255, c[2] / 255] as [number, number, number];
 });
 
-// ---- materials ----
-
-/**
- * Haze at the block's edge: within HAZE.band metres of the edge of the tile block, everything
- * dissolves into the haze colour, and past HAZE.radius from Albert Square too, which rounds off the
- * corners. So the block never shows an edge from any orbit angle, but each side keeps all the city
- * it has. Camera-distance fog adds depth inside.
- */
-const BLOCK = blockBounds(gridPlacements(ALBERT, Z));
-const HAZE = { inner: 40, band: 760, radius: 2700, radiusBand: 700 };
-
-/**
- * Shader patch for every world material: distance fog and the block-edge haze, both in the haze
- * colour of the view direction, then a per-tile fade (the tile emerges from the haze). Walls also get a faint window grid (the prototype's withWindows, in metres,
- * faded out where a window would be under a pixel, so it never shimmers).
- */
-function withHaze(m: THREE.MeshStandardMaterial, fade: { value: number }, windows = false): THREE.MeshStandardMaterial {
-  m.onBeforeCompile = (sh) => {
-    sh.uniforms.uFade = fade;
-    sh.uniforms.uBlock = { value: new THREE.Vector4(BLOCK.minX, BLOCK.maxX, BLOCK.minZ, BLOCK.maxZ) };
-    sh.uniforms.uHaze = { value: new THREE.Vector4(HAZE.inner, HAZE.inner + HAZE.band, HAZE.radius - HAZE.radiusBand, HAZE.radius) };
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
-      .replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-        mat4 wm = modelMatrix;
-        #ifdef USE_INSTANCING
-          wm = modelMatrix * instanceMatrix;
-        #endif
-        vWP = (wm * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(wm) * objectNormal);`,
-      );
-    Object.assign(sh.uniforms, hazeUniforms);
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vWP; varying vec3 vWN; uniform float uFade; uniform vec4 uHaze; uniform vec4 uBlock;\n${HAZE_GLSL}`)
-      .replace(
-        '#include <fog_fragment>',
-        `vec3 hz = hazeCol(normalize(vWP - cameraPosition));
-        float far = smoothstep(fogNear, fogFar, vFogDepth);
-        float edge = min(min(vWP.x - uBlock.x, uBlock.y - vWP.x), min(vWP.z - uBlock.z, uBlock.w - vWP.z));
-        float ring = max(1.0 - smoothstep(uHaze.x, uHaze.y, edge), smoothstep(uHaze.z, uHaze.w, length(vWP.xz)));
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, hz, max(far, ring));
-        gl_FragColor.rgb = mix(hz, gl_FragColor.rgb, uFade);`,
-      );
-    if (windows) {
-      sh.fragmentShader = sh.fragmentShader.replace(
-        '#include <emissivemap_fragment>',
-        `#include <emissivemap_fragment>
-        float side = step(abs(vWN.y), 0.5);
-        vec2 g = vec2((abs(vWN.x) > 0.5 ? vWP.z : vWP.x) / 3.4, vWP.y / 3.6);
-        vec2 f = fract(g);
-        float win = step(0.3, f.x) * step(f.x, 0.7) * step(0.32, f.y) * step(f.y, 0.78);
-        float px = max(fwidth(g.x), fwidth(g.y));
-        float vis = 1.0 - smoothstep(0.18, 0.4, px);
-        diffuseColor.rgb *= 1.0 - win * side * vis * 0.16;`,
-      );
-    }
-  };
-  m.customProgramCacheKey = () => `contour-haze-${windows}`;
-  return m;
-}
-
-/** Flat-shaded, vertex-coloured Contour material. */
-function contourMaterial(opts: { windows?: boolean; roughness?: number; offset?: number; tint?: string }, fade: { value: number }) {
-  const m = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    color: col(opts.tint ?? '#ffffff'),
-    roughness: opts.roughness ?? 0.95,
-    metalness: 0,
-    flatShading: true,
-  });
-  if (opts.offset) {
-    m.polygonOffset = true;
-    m.polygonOffsetFactor = -opts.offset;
-    m.polygonOffsetUnits = -opts.offset;
-  }
-  return withHaze(m, fade, opts.windows);
-}
-
-const treeGeo = treeGeometry();
-
 // ---- tiles ----
 
-/** Anything fading in from the haze. */
-type Fading = { fade: { value: number }; born: number };
+/** Anything fading in from the haze: its slot, and when it arrived. */
+type Fading = { slot: number; born: number; fade: number };
 const placed: Fading[] = [];
 let built = 0, failed = 0;
 
 function addTile(tile: TilePlacement, meshes: TileMeshes) {
-  const fade = { value: 0 };
-  const group = new THREE.Group();
-  group.position.set(tile.offsetX, 0, tile.offsetZ);
-  group.scale.set(tile.scaleX, 1, 1);
-  const add = (buf: TileMeshes['ground'], mat: THREE.Material, cast: boolean, receive = true) => {
-    const g = toGeometry(buf);
-    if (!g) return;
-    const mesh = new THREE.Mesh(g, mat);
-    mesh.castShadow = cast;
-    mesh.receiveShadow = receive;
-    group.add(mesh);
-  };
-  add(meshes.ground, contourMaterial({ tint: L.groundTint }, fade), false);
-  add(meshes.water, contourMaterial({ roughness: 0.32, offset: 1 }, fade), false);
-  add(meshes.waterways, contourMaterial({ roughness: 0.32, offset: 2 }, fade), false);
-  add(meshes.roads, contourMaterial({ offset: 2 }, fade), false);
-  add(meshes.buildings, contourMaterial({ windows: true }, fade), true);
-  add(meshes.roofs, contourMaterial({}, fade), true);
-
-  const count = meshes.trees.length / 16;
-  if (count > 0) {
-    const mat = withHaze(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0, flatShading: true }), fade);
-    const trees = new THREE.InstancedMesh(treeGeo, mat, count);
-    trees.instanceMatrix = new THREE.InstancedBufferAttribute(meshes.trees, 16);
-    const c = new THREE.Color();
-    for (let i = 0; i < count; i++) {
-      const h = Math.abs(Math.sin(meshes.trees[i * 16 + 12] * 12.9898 + meshes.trees[i * 16 + 14] * 78.233) * 43758.5453) % 1;
-      trees.setColorAt(i, c.set(TREE_COLOURS[Math.floor(h * TREE_COLOURS.length)]));
-    }
-    trees.computeBoundingSphere();
-    trees.castShadow = true;
-    trees.receiveShadow = true;
-    group.add(trees);
-  }
-  scene.add(group);
-  placed.push({ fade, born: performance.now() });
+  const view = new TileView(meshes, materials, { zoom: Z, castShadow: true, clip: false });
+  view.place(tile.offsetX, 0, tile.offsetZ, tile.scaleX);
+  scene.add(view.group);
+  placed.push({ slot: view.slot, born: performance.now(), fade: 0 });
+  renderer.shadowMap.needsUpdate = true;
   built++;
 }
 
@@ -327,13 +160,14 @@ function addFarLand(tiles: TilePlacement[], terrains: Map<TilePlacement, Terrain
     }
     return target.y;
   };
-  const g = toGeometry(farLandBuffers(b, edgeHeight, FAR_COLOURS));
+  const slot = materials.slots.alloc(Z);
+  const g = toGeometry(farLandBuffers(b, edgeHeight, FAR_COLOURS), slot);
   if (!g) return;
-  const fade = { value: 0 };
-  const mesh = new THREE.Mesh(g, contourMaterial({ tint: L.groundTint }, fade));
+  const mesh = new THREE.Mesh(g, materials.solid.ground);
   mesh.receiveShadow = true;
   scene.add(mesh);
-  placed.push({ fade, born: performance.now() });
+  placed.push({ slot, born: performance.now(), fade: 0 });
+  renderer.shadowMap.needsUpdate = true;
 }
 
 const LOAD_FAILED = 'The map did not load. Check the connection and reload the page.';
@@ -397,7 +231,7 @@ function frameCamera(tSec: number) {
   const p = orbitPose(tSec, ORBIT);
   camera.position.set(target.x + p.x, target.y + p.y, target.z + p.z);
   camera.lookAt(target);
-  sky.position.copy(camera.position);
+  sky.follow(camera);
 }
 
 let lastSize = '';
@@ -417,9 +251,10 @@ let shown = false;
 function frame(now: number) {
   let dirty = resize();
   for (const p of placed) {
-    if (p.fade.value < 1) {
-      p.fade.value = ease((now - p.born) / FADE_MS);
-      if (p.fade.value > 0.999) p.fade.value = 1;
+    if (p.fade < 1) {
+      p.fade = ease((now - p.born) / FADE_MS);
+      if (p.fade > 0.999) p.fade = 1;
+      materials.slots.set(p.slot, p.fade);
       dirty = true;
     }
   }
