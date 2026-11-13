@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { Route, RoutePoint } from '../../src/flight/route';
 import * as THREE from 'three';
-import { cardView, corridorTiles, farCamera, farShot, lookBack, NEAR_START_KM } from '../../src/app/cardshot';
+import { cardView, corridorTiles, farCamera, farShot, isFarRoute, lookBack, NEAR_START_KM, pumpUntil, viewTiles } from '../../src/app/cardshot';
+import { tilesFor, tileKey } from '../../src/world/lod';
 import { lonLatToTile } from '../../src/geo/coords';
 import { M_PER_DEG } from '../../src/world/frame';
 
@@ -107,5 +108,55 @@ describe('the card camera for a long route (both ends in the picture)', () => {
     const firstOff = keys.findIndex((k) => !underTrail.has(k));
     expect(firstOff).toBeGreaterThan(2);
     expect(keys.slice(firstOff).every((k) => !underTrail.has(k))).toBe(true);
+  });
+});
+
+describe('the card world can be cut short, and draws only what it sees', () => {
+  test('waiting for its tiles stops at once when the visitor moves on', async () => {
+    let alive = true;
+    let steps = 0;
+    const t0 = Date.now();
+    setTimeout(() => (alive = false), 120);
+    const r = await pumpUntil(() => (steps++, false), { maxMs: 20000, everyMs: 20, alive: () => alive });
+    expect(r).toBe('cancelled');
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(steps).toBeGreaterThan(1);
+  });
+
+  test('it ends when the tiles are in (twice in a row), or when the time is up', async () => {
+    let n = 0;
+    expect(await pumpUntil(() => ++n >= 3, { maxMs: 5000, everyMs: 1, alive: () => true })).toBe('ready');
+    expect(n).toBe(4);
+    expect(await pumpUntil(() => false, { maxMs: 50, everyMs: 5, alive: () => true })).toBe('timeout');
+  });
+
+  test('a long route skips the wait for the live world (its card world is its own)', () => {
+    const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
+    expect(isFarRoute(between(MANCHESTER, { lat: 60.39, lon: 5.32 }))).toBe(true);
+    expect(isFarRoute(between(MANCHESTER, { lat: 53.6, lon: -2.1 }))).toBe(false);
+  });
+
+  test('tiles the camera cannot see (behind it, below the frame) are not asked for; both ends are', () => {
+    const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
+    for (const end of [{ lat: 60.39, lon: 5.32 }, { lat: 53.75, lon: -1.9 }]) {
+      const r = between(MANCHESTER, end);
+      const shot = farShot(r);
+      const cam = farCamera(shot, 0);
+      const camLL = { lat: shot.landing.lat + cam.position.z / -M_PER_DEG, lon: shot.landing.lon + cam.position.x / (M_PER_DEG * Math.cos((shot.landing.lat * Math.PI) / 180)) };
+      const rings = tilesFor({ lat: camLL.lat, lon: camLL.lon, altM: cam.position.y, headingDeg: shot.viewDeg }, 40);
+      const all = [...corridorTiles(r, shot), ...rings];
+      const seen = viewTiles(all, shot, 0);
+      const keys = new Set(seen.map(tileKey));
+      expect(seen.length).toBeLessThan(all.length);
+      const key = (p: { lat: number; lon: number }, z = 7) => {
+        const t = lonLatToTile(p.lat, p.lon, z);
+        return `${z}/${Math.floor(t.x)}/${Math.floor(t.y)}`;
+      };
+      expect(keys.has(key(end))).toBe(true);
+      expect(keys.has(key(MANCHESTER))).toBe(true);
+      // the camera's own ground point is well below the bottom of the frame: its fine tiles are dropped
+      expect(rings.map(tileKey)).toContain(key(camLL, rings.some((t) => t.z === 14) ? 14 : 7));
+      if (rings.some((t) => t.z === 14)) expect(keys.has(key(camLL, 14))).toBe(false);
+    }
   });
 });

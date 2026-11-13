@@ -26,7 +26,7 @@
 import * as THREE from 'three';
 import type { Route } from '../flight/route';
 import { positionAt } from '../flight/route';
-import { bearingDeg, destination, haversineKm, lonLatToTile, type LatLon } from '../geo/coords';
+import { bearingDeg, destination, haversineKm, lonLatToTile, tileBounds, type LatLon } from '../geo/coords';
 import { seaAt } from '../geo/gazetteer';
 import { tameWarm, type CardFrame, type CardScene } from '../ui/card';
 import { M_PER_DEG } from '../world/frame';
@@ -232,12 +232,60 @@ export async function settledWorld(live: LiveScene, maxMs: number, isCurrent: ()
   return performance.now() - t0;
 }
 
+/** A route long enough for a card world of its own (its start beyond NEAR_START_KM). */
+export function isFarRoute(route: Route): boolean {
+  const pts = route.points;
+  return haversineKm(pts[0], pts[pts.length - 1]) > NEAR_START_KM;
+}
+
+/**
+ * Step until `ready` has said yes twice running, the time is up, or `alive` says the visitor has
+ * moved on (checked before every step, so a cancelled card world stops within one step).
+ */
+export async function pumpUntil(ready: () => boolean, o: { maxMs: number; everyMs: number; alive: () => boolean }): Promise<'ready' | 'timeout' | 'cancelled'> {
+  const t0 = performance.now();
+  let calm = 0;
+  for (;;) {
+    if (!o.alive()) return 'cancelled';
+    calm = ready() ? calm + 1 : 0;
+    if (calm >= 2) return 'ready';
+    if (performance.now() - t0 >= o.maxMs) return 'timeout';
+    await new Promise((r) => setTimeout(r, o.everyMs));
+  }
+}
+
+/**
+ * Only the tiles the far camera can see (any part of them inside its view, from 2 km under the
+ * landing's ground to 5 km over it): the camera-centred rings reach behind it and under the frame.
+ */
+export function viewTiles(tiles: TileKey[], shot: FarShot, groundM: number): TileKey[] {
+  const cam = farCamera(shot, groundM);
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+  const box = new THREE.Box3();
+  const seen = new Set<string>();
+  const out: TileKey[] = [];
+  for (const t of tiles) {
+    const k = tileKey(t);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const b = tileBounds(t.z, t.x, t.y);
+    box.makeEmpty();
+    for (const lat of [b.south, b.north])
+      for (const lon of [b.west, b.east]) {
+        const p = toLocal(shot.landing, { lat, lon });
+        box.expandByPoint(new THREE.Vector3(p.x, groundM - 2000, p.z));
+        box.expandByPoint(new THREE.Vector3(p.x, groundM + 5000, p.z));
+      }
+    if (frustum.intersectsBox(box)) out.push(t);
+  }
+  return out;
+}
+
 export function cardScene(live: LiveScene): CardScene {
   return {
-    cardFrame: (route, w, h) => {
+    cardFrame: (route, w, h, alive) => {
       if (live.gone) return null;
-      const pts = route.points;
-      return haversineKm(pts[0], pts[pts.length - 1]) <= NEAR_START_KM ? cardFrame(live, route, w, h) : farFrame(live, route, w, h);
+      return isFarRoute(route) ? farFrame(live, route, w, h, alive) : cardFrame(live, route, w, h);
     },
   };
 }
@@ -426,7 +474,8 @@ async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Ca
 export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0 };
 
 /** Far: a card world of its own, drawn once and disposed. */
-export async function farFrame(live: LiveScene, route: Route, w: number, h: number): Promise<CardFrame | null> {
+export async function farFrame(live: LiveScene, route: Route, w: number, h: number, alive: () => boolean = () => true): Promise<CardFrame | null> {
+  const going = () => !live.gone && alive();
   const shot = farShot(route);
   const g = live.stream.groundAt(shot.landing);
   const scene = new THREE.Scene();
@@ -437,12 +486,17 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
   // map tile is not drawn in time, the coast still reads, softened by the haze, never a hole
   const plain = await seaPlain(route, shot, Math.min(0, g) - 300, camera, L.skyHorizon);
   scene.add(plain);
+  if (!going()) {
+    sky.dispose();
+    plain.geometry.dispose();
+    (plain.material as THREE.Material).dispose();
+    return null;
+  }
   const camGround = fromLocal(shot.landing, camera.position.x, camera.position.z);
   const lod = { lat: camGround.lat, lon: camGround.lon, altM: camera.position.y, headingDeg: shot.viewDeg };
-  // the coarse corridor, plus the usual finer rings round the camera's ground point (shorter routes)
-  const tiles = corridorTiles(route, shot);
-  const keys = new Set(tiles.map(tileKey));
-  for (const t of tilesFor(lod, 40)) if (!keys.has(tileKey(t))) tiles.push(t);
+  // the coarse corridor, plus the usual finer rings round the camera's ground point (shorter routes),
+  // keeping only what the camera can see
+  const tiles = viewTiles([...corridorTiles(route, shot), ...tilesFor(lod, 40)], shot, g);
   const stream = new WorldStream(scene, live.pool, regionStyle, {
     haze: sky.haze,
     groundTint: L.groundTint,
@@ -457,21 +511,22 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     // the stream is told it stands at the landing, so its origin (and the shot's frame) stays there
     const here = { lat: shot.landing.lat, lon: shot.landing.lon, altM: camera.position.y, headingDeg: shot.viewDeg };
     const t0 = performance.now();
-    let calm = 0;
-    while (performance.now() - t0 < FAR_WAIT_MS) {
-      if (live.gone) return null;
-      stream.update(here, performance.now());
-      calm = stream.stats().ready ? calm + 1 : 0;
-      if (calm >= 2) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
+    // the visitor moving on stops it: its builds are cancelled as the stream is disposed (finally)
+    const how = await pumpUntil(
+      () => {
+        stream.update(here, performance.now());
+        return stream.stats().ready;
+      },
+      { maxMs: FAR_WAIT_MS, everyMs: 100, alive: going },
+    );
+    if (how === 'cancelled') return null;
     // twice, a second apart: tiles that came in just now are placed by the first and faded fully in
     // by the second (a tile still fading shows as haze)
     stream.update(here, performance.now() + 1000);
     stream.update(here, performance.now() + 2000);
     const st = stream.stats();
     Object.assign(farStats, { tiles: tiles.length, settled: st.settled, failed: st.failed, ms: Math.round(performance.now() - t0) });
-    if (live.gone) return null;
+    if (!going()) return null;
     sky.setView(camera, shot.fogFar, h / 2);
     sky.fog.near = shot.fogNear;
     sky.place(new THREE.Vector3(0, g, 0));

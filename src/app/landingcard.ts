@@ -7,6 +7,7 @@
  */
 import { encodeBalloon, linkFor, type SavedBalloon } from '../flight/codec';
 import type { Route } from '../flight/route';
+import type { LatLon } from '../geo/coords';
 import { nearestPlace, type Place } from '../geo/gazetteer';
 import { cardFacts, cardWords, startName, type CardLayout, type CardScene, type CardWords, drawCard, isInAppBrowser, toPng, type Landing } from '../ui/card';
 import { showCardView, type CardView } from '../ui/cardview';
@@ -42,6 +43,39 @@ async function homeName(saved: SavedBalloon): Promise<string> {
   return startName(saved.start, await nearestPlace(saved.start).catch(() => null));
 }
 
+type NearPlace = Parameters<typeof startName>[1];
+
+/**
+ * The start's name in the flight (the HUD's facts, the status region): "your location" only on the
+ * visitor's own "Use my location" balloon; someone opening a shared one sees the place (startName).
+ */
+export async function homeFor(saved: SavedBalloon, own: boolean, near: (p: LatLon) => Promise<NearPlace | null> = nearestPlace): Promise<string> {
+  if (saved.name !== COPY.yourLocation) return saved.name;
+  if (own) return COPY.yourLocation.toLowerCase();
+  return startName(saved.start, await near(saved.start).catch(() => null));
+}
+
+/**
+ * One result per key: a request while one is being made waits on it; a result that is null (not
+ * made: cancelled or failed) or that `keep` turns down is not kept, so the next request tries again.
+ */
+export function onceFor<K extends object, V>(cache: WeakMap<K, Promise<V | null>>, key: K, make: () => Promise<V | null>, keep: (v: V) => boolean): Promise<V | null> {
+  const had = cache.get(key);
+  if (had) return had;
+  const p = make().then(
+    (v) => {
+      if (v === null || !keep(v)) cache.delete(key);
+      return v;
+    },
+    (e) => {
+      cache.delete(key);
+      throw e;
+    },
+  );
+  cache.set(key, p);
+  return p;
+}
+
 export type PresentOpts = {
   /** What draws the card's picture: the 3D scene, the 2D map, or none (a sketch of the route). */
   scene: CardScene | null;
@@ -51,8 +85,10 @@ export type PresentOpts = {
   saved: SavedBalloon;
   own: boolean;
   landing: Promise<Place | null>;
-  /** False once the visitor has moved on (another balloon, the start screen). */
+  /** False once this request is out of date (a newer one, another balloon, the start screen): it opens nothing. */
   isCurrent(): boolean;
+  /** False once the balloon itself is off the screen: the card stops being made (a newer request for it shares it). */
+  alive?(): boolean;
   closeLabel?: string;
   onClose?(): void;
 };
@@ -60,8 +96,24 @@ export type PresentOpts = {
 let latest = 0;
 
 /** A card made for a route: kept, so "Show the card" opens it again at once. */
-type Made = { blob: Blob; words: CardWords; link: string; layout: CardLayout; frame: 'scene' | 'sketch'; landed: boolean };
-const made = new WeakMap<Route, Made>();
+type Made = { blob: Blob; words: CardWords; link: string; layout: CardLayout; frame: 'scene' | 'sketch' };
+/** Cards being made or made, by route: one set for "Expected to" cards and one for "Landed" ones. */
+const made = { air: new WeakMap<Route, Promise<Made | null>>(), down: new WeakMap<Route, Promise<Made | null>>() };
+
+async function makeCard(o: PresentOpts): Promise<Made | null> {
+  const alive = o.alive ?? o.isCurrent;
+  const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
+  const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
+  cardHook.waitedMs = o.settle ? await o.settle() : 0;
+  if (!alive()) return null;
+  const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: Date.now() }));
+  const drawn = await drawCard(o.route, o.scene, words, alive);
+  if (!alive()) return null;
+  cardHook.renders++;
+  const blob = await toPng(drawn.canvas);
+  const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
+  return { blob, words, link, layout: drawn.layout, frame: drawn.frame };
+}
 
 export async function presentCard(o: PresentOpts): Promise<CardView | null> {
   const id = ++latest;
@@ -73,24 +125,11 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
   cardHook.state = 'waiting';
   cardHook.startedAt = Date.now();
   try {
-    let card = made.get(o.route);
-    // a card made before the balloon was down says "Expected to"; once landed it is made again
-    if (card && card.landed !== Date.now() >= landedAt(o.route)) card = undefined;
-    if (!card) {
-      const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
-      const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
-      cardHook.waitedMs = o.settle ? await o.settle() : 0;
-      if (!o.isCurrent()) return abort();
-      const facts = cardFacts(o.route, { home, landing, own: o.own, now: Date.now() });
-      const words = cardWords(facts);
-      const drawn = await drawCard(o.route, o.scene, words);
-      cardHook.renders++;
-      const blob = await toPng(drawn.canvas);
-      const link = new URL(linkFor(await encodeBalloon(o.saved)), location.origin).href;
-      card = { blob, words, link, layout: drawn.layout, frame: drawn.frame, landed: facts.landed };
-      made.set(o.route, card);
-    }
-    if (!o.isCurrent()) return abort();
+    // a card made before the balloon was down says "Expected to"; once landed it is made again. A
+    // plain sketch (the picture could not be made) is not kept: "Show the card" tries again.
+    const landed = Date.now() >= landedAt(o.route);
+    const card = await onceFor(landed ? made.down : made.air, o.route, () => makeCard(o), (c) => c.frame !== 'sketch');
+    if (!card || !o.isCurrent()) return abort();
     const { blob, words, link } = card;
     const ua = navigator.userAgent;
     const inApp = isInAppBrowser(ua);
