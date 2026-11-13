@@ -144,6 +144,7 @@ export function buildTileMeshes(
             landcover,
             region,
             boxes,
+            hidden,
             residentialAreas: features.landuse.filter((a) => a.cls === 'residential').map((a) => a.polygon),
             roadCells: roadInfo.cells,
             roadAngle: roadInfo.angle,

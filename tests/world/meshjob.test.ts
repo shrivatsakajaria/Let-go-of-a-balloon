@@ -254,6 +254,16 @@ test('gap fill: houses in residential land with no buildings, about one per 350 
   expect(tb.stats.gapHouses).toBe(1500);
 });
 
+test('gap fill: no house inside a landmark hiding circle (the landmark stands there)', () => {
+  const s = emptyFeatures();
+  s.landuse.push({ cls: 'residential', subclass: '', polygon: rect(300, -300, 500, -500) });
+  const c = frame.toLatLon(400, -400);
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION, { hiddenFootprints: [{ lat: c.lat, lon: c.lon, radiusM: 50 }] });
+  expect(t.stats.gapHouses).toBeGreaterThan(20); // the rest of the area still gets houses
+  for (const b of [t.buildings, t.roofs])
+    for (let i = 0; i < b.position.length; i += 3) expect(Math.hypot(b.position[i] - 400, b.position[i + 2] + 400)).toBeGreaterThan(50);
+});
+
 test('roads and rivers drape 0.3 m above the drawn ground', () => {
   for (const b of [m.roads, m.waterways]) {
     expect(b.position.length).toBeGreaterThan(0);
