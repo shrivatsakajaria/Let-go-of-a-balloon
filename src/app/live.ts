@@ -21,7 +21,7 @@ import { nearestPlace, type Place } from '../geo/gazetteer';
 import { overText, placeOver, townAhead } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
-import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
+import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
@@ -102,7 +102,7 @@ export class Live {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'world';
     this.canvas.setAttribute('role', 'img');
-    this.canvas.setAttribute('aria-label', `A person in ${choice.kind === 'gps' ? 'your location' : choice.name} holding a red balloon`);
+    this.canvas.setAttribute('aria-label', startLabel(choice));
     deps.sceneEl.append(this.canvas);
     this.scene = new LiveScene(this.canvas, choice, { reducedMotion: reduced });
     this.scene.onFirstFrame = () => {
@@ -306,7 +306,7 @@ export class Live {
     this.deps.setView('start');
     this.scene.setStart(this.choice, landmarkHeading(this.choice.cityId));
     this.askWind(this.choice);
-    this.canvas.setAttribute('aria-label', `A person in ${this.choice.kind === 'gps' ? 'your location' : this.choice.name} holding a red balloon`);
+    this.canvas.setAttribute('aria-label', startLabel(this.choice));
   }
 
   // ---- every frame ----

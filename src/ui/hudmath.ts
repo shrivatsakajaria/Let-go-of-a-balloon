@@ -174,6 +174,11 @@ export function announcement(prev: AnnounceState | null, next: AnnounceState): s
   return null;
 }
 
+/** The 3D canvas's label on the start screen: "A person standing in London, holding an orange balloon". */
+export function startLabel(c: { name: string; kind: string }): string {
+  return `A person standing ${c.kind === 'gps' ? 'where you are' : `in ${c.name}`}, holding an orange balloon`;
+}
+
 /** The 3D canvas's label: "Your balloon is over the North Sea, 412 km from Manchester". */
 export function sceneLabel(s: { own: boolean; over: string; km: number; home: string; landed: string | null }): string {
   const km = s.km < 10 ? s.km.toFixed(1) : String(Math.round(s.km));

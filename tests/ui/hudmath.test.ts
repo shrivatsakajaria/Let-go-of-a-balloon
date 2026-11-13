@@ -11,6 +11,7 @@ import {
   sceneAltitude,
   speedText,
   sceneLabel,
+  startLabel,
   brightLuminance,
   type AnnounceState,
 } from '../../src/ui/hudmath';
@@ -179,5 +180,12 @@ describe('brightLuminance', () => {
     for (let i = 0; i < 100; i++) px.set(i < 85 ? [20, 20, 30, 255] : [255, 255, 255, 255], i * 4);
     expect(brightLuminance(px)).toBeGreaterThan(0.9);
     expect(brightLuminance(new Uint8Array(4 * 10))).toBe(0);
+  });
+});
+
+describe('startLabel', () => {
+  test('names the place, or "where you are" for a GPS start, and the balloon is orange', () => {
+    expect(startLabel({ name: 'London', kind: 'default' })).toBe('A person standing in London, holding an orange balloon');
+    expect(startLabel({ name: 'Your location', kind: 'gps' })).toBe('A person standing where you are, holding an orange balloon');
   });
 });
