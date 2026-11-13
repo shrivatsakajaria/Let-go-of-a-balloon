@@ -409,11 +409,15 @@ export class Fallback implements World {
     });
   }
 
-  /** Between the clock and stats at the top and the fact line at the bottom. */
+  /**
+   * Between the clock and stats at the top and the fact line at the bottom, and below the darkest part
+   * of the top shading, so the balloon is never drawn dimmed under it.
+   */
   private band(w: number, h: number): Band {
     const top = this.deps.hudEl.querySelector('.hud-top')?.getBoundingClientRect().bottom ?? 0;
+    const shade = document.querySelector('.shade-top')?.getBoundingClientRect().bottom ?? 0;
     const bottom = this.deps.hudEl.querySelector('.hud-bottom')?.getBoundingClientRect().top ?? h;
-    const b = { left: 16, right: w - 16, top: top + 16, bottom: bottom - 16 };
+    const b = { left: 16, right: w - 16, top: Math.max(top + 16, shade - 24), bottom: bottom - 16 };
     // a landscape phone leaves too little: use the whole screen then
     return b.bottom - b.top < 120 ? { left: 16, right: w - 16, top: 16, bottom: h - 16 } : b;
   }
