@@ -19,7 +19,7 @@ import { Director, type DirectorMode, type WaitFrame } from '../camera/director'
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
-import { brightLuminance, sceneAltitude } from '../ui/hudmath';
+import { brightLuminance, climbFloor, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
 import { standableGround, startLiftM, type GroundSources } from './standable';
@@ -96,6 +96,8 @@ export class LiveScene {
   private wind = { speedMs: 2, headingDeg: 90 };
   private wait: WaitFrame = { centerY: 0.15, spanY: 0.7 };
   private groundS = Number.NaN;
+  /** Scene y of the balloon when it was let go here (NaN for a balloon opened from a link). */
+  private releaseY = Number.NaN;
   private placedAt = 0;
   private landmark: number | undefined = undefined;
   /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
@@ -169,7 +171,7 @@ export class LiveScene {
     this.route = null;
     this.released = false;
     this.holdUntil = null;
-    this.groundS = this.feetS = Number.NaN;
+    this.groundS = this.feetS = this.releaseY = Number.NaN;
     // move the world's origin here first, so the director's street spots are chosen in the new frame
     this.stream.update({ lat: p.lat, lon: p.lon, altM: this.stream.groundAt(p) + 2, headingDeg: this.wind.headingDeg }, performance.now());
     this.newBalloon();
@@ -224,6 +226,7 @@ export class LiveScene {
         this.holdUntil = null;
         this.route = ready;
         this.released = true;
+        this.releaseY = this.feetS + 1.5;
         this.balloon.root.visible = true;
         this.balloon.release();
         onRelease(ready!);
@@ -251,7 +254,7 @@ export class LiveScene {
     this.released = true;
     this.holdUntil = null;
     this.start = route.points[0];
-    this.groundS = Number.NaN;
+    this.groundS = this.releaseY = Number.NaN;
     const p = positionAt(route, Date.now());
     this.stream.update({ lat: p.lat, lon: p.lon, altM: p.altM, headingDeg: p.headingDeg }, performance.now());
     this.person?.dispose();
@@ -380,6 +383,8 @@ export class LiveScene {
     // never inside a landmark's own ground (the route's climb starts from it: this only catches a
     // replayed route, which knows nothing of the terrace)
     if (this.released) y = Math.max(y, this.landmarks.groundAt(pt) + 1.5);
+    // just let go, it rises from where the hand opened, though the drawn slope below falls away
+    if (this.released && route && !landed && Number.isFinite(this.releaseY)) y = climbFloor(y, pt.tSec, this.releaseY, pt.altM, route.points[0].altM);
     const s = this.stream.toScene(pt, this.tmp);
     this.pos.set(s.x, y, s.z);
 

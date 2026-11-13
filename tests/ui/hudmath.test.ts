@@ -9,6 +9,7 @@ import {
   midnightTicks,
   progress,
   sceneAltitude,
+  climbFloor,
   speedText,
   sceneLabel,
   startLabel,
@@ -132,6 +133,22 @@ describe('sceneAltitude', () => {
   test('never under the drawn ground', () => {
     expect(sceneAltitude(700, 100, 900)).toBeGreaterThanOrEqual(930);
     expect(sceneAltitude(NaN, 50, 12)).toBe(13.5);
+  });
+});
+
+describe('climbFloor: a balloon just let go never sinks below where it was let go', () => {
+  // let go at y 690 on a summit terrace; route height 640 then, and the drawn slope falls away below
+  test('in the first minutes it is drawn at least as high as the release plus what it has climbed', () => {
+    expect(climbFloor(616, 30, 690, 685, 640)).toBeCloseTo(690 + 45, 6);
+    expect(climbFloor(800, 30, 690, 685, 640)).toBe(800); // already higher: unchanged
+  });
+  test('the floor fades out from 5 to 15 minutes, so the flight itself is untouched', () => {
+    const at = (t: number) => climbFloor(1000, t, 690, 1400, 640);
+    expect(at(300)).toBeCloseTo(690 + 760, 6);
+    expect(at(600)).toBeGreaterThan(1000);
+    expect(at(600)).toBeLessThan(690 + 760);
+    expect(at(900)).toBe(1000);
+    expect(at(3600)).toBe(1000);
   });
 });
 
