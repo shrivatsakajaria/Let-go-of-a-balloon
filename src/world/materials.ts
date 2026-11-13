@@ -252,15 +252,26 @@ export class ContourMaterials {
   readonly lamps: THREE.ShaderMaterial;
   readonly slots: TileSlots;
   readonly haze: HazeUniforms;
+  private readonly shared: Shared;
 
   constructor(haze: HazeUniforms, coverage: CoverageUniforms, opts: { groundTint: string; slots?: TileSlots }) {
     this.haze = haze;
     this.slots = opts.slots ?? new TileSlots();
-    const shared: Shared = { haze, slots: this.slots, coverage };
+    const shared: Shared = (this.shared = { haze, slots: this.slots, coverage });
     const all = (clip: boolean) => Object.fromEntries(BUCKETS.map((b) => [b, make(b, shared, clip, opts.groundTint)])) as Record<Bucket, THREE.MeshStandardMaterial>;
     this.solid = all(false);
     this.clip = all(true);
     this.lamps = lampMaterial(shared);
+  }
+
+  /**
+   * A solid Contour material of its own (vertex colours, haze, the slot fade, the night's tone), for
+   * one-off meshes such as landmarks that need their own emissive. The caller disposes it.
+   */
+  extra(name: string, o: { roughness?: number; windows?: boolean } = {}): THREE.MeshStandardMaterial {
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, color: new THREE.Color('#ffffff'), roughness: o.roughness ?? 0.95, metalness: 0, flatShading: true });
+    m.name = `contour-${name}-solid`;
+    return patch(m, this.shared, { clip: false, windows: !!o.windows, glow: 0 });
   }
 
   /** The light-dependent ground tint (palette Light.groundTint). */
