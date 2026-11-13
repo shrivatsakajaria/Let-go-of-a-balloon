@@ -26,13 +26,13 @@ class FakeWorker implements WorkerLike {
   }
 }
 
-function pool(size = 1, timeoutMs = 1000) {
+function pool(size = 1, timeoutMs = 1000, maxTimeouts?: number) {
   const fakes: FakeWorker[] = [];
   const p = new WorkerPool<Req, Rep>(() => {
     const f = new FakeWorker();
     fakes.push(f);
     return f;
-  }, size, { timeoutMs });
+  }, size, { timeoutMs, maxTimeouts });
   return { p, fakes };
 }
 
@@ -115,5 +115,78 @@ describe('WorkerPool', () => {
     await expect(a).rejects.toThrow(/terminated/);
     expect(fakes.every((f) => f.terminated)).toBe(true);
     expect(p.size).toBe(0);
+  });
+
+  it('sends a request to the least busy worker', async () => {
+    const { p, fakes } = pool(2);
+    const a = p.request({ n: 1 }); // worker 0
+    void p.request({ n: 2 }).catch(() => {}); // worker 1
+    const c = p.request({ n: 3 }); // worker 0
+    fakes[0].reply({ id: fakes[0].sent[0].id, doubled: 2 });
+    fakes[0].reply({ id: fakes[0].sent[1].id, doubled: 6 });
+    await Promise.all([a, c]);
+    void p.request({ n: 4 }).catch(() => {}); // worker 0 is idle, worker 1 still busy
+    expect(fakes.map((f) => f.sent.length)).toEqual([3, 1]);
+    p.terminate();
+  });
+
+  it('cancels a request: it rejects as aborted, frees its place, tells the worker, and its late reply is ignored', async () => {
+    const { p, fakes } = pool(1);
+    const ac = new AbortController();
+    const a = p.request({ n: 1 }, [], { signal: ac.signal });
+    expect(p.inFlight).toBe(1);
+    const id = fakes[0].sent[0].id;
+    ac.abort();
+    await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+    expect(p.inFlight).toBe(0);
+    expect(fakes[0].sent[1]).toEqual({ type: 'cancel', id });
+    expect(() => fakes[0].reply({ id, doubled: 2 })).not.toThrow(); // late: ignored
+    const b = p.request({ n: 2 });
+    fakes[0].reply({ id: fakes[0].sent[2].id, doubled: 4 });
+    await expect(b).resolves.toMatchObject({ doubled: 4 });
+  });
+
+  it('rejects at once, posting nothing, when the signal is already aborted', async () => {
+    const { p, fakes } = pool(1);
+    const ac = new AbortController();
+    ac.abort();
+    await expect(p.request({ n: 1 }, [], { signal: ac.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fakes[0].sent).toHaveLength(0);
+    expect(p.inFlight).toBe(0);
+  });
+
+  it('retires a worker that times out repeatedly and starts a fresh one in its place', async () => {
+    vi.useFakeTimers();
+    const { p, fakes } = pool(1, 500, 2);
+    const a = p.request({ n: 1 });
+    const b = p.request({ n: 2 });
+    const checks = Promise.all([expect(a).rejects.toThrow(/timed out/), expect(b).rejects.toThrow(/timed out/)]);
+    vi.advanceTimersByTime(501);
+    await checks;
+    expect(fakes[0].terminated).toBe(true);
+    expect(fakes).toHaveLength(2);
+    expect(p.size).toBe(1);
+    const c = p.request({ n: 3 });
+    expect(fakes[1].sent).toHaveLength(1);
+    fakes[1].reply({ id: fakes[1].sent[0].id, doubled: 6 });
+    await expect(c).resolves.toMatchObject({ doubled: 6 });
+  });
+
+  it('a reply in between resets the timeout count', async () => {
+    vi.useFakeTimers();
+    const { p, fakes } = pool(1, 500, 2);
+    const a = p.request({ n: 1 });
+    const check = expect(a).rejects.toThrow(/timed out/);
+    vi.advanceTimersByTime(501);
+    await check;
+    const b = p.request({ n: 2 });
+    fakes[0].reply({ id: fakes[0].sent[1].id, doubled: 4 });
+    await b;
+    const c = p.request({ n: 3 });
+    const check2 = expect(c).rejects.toThrow(/timed out/);
+    vi.advanceTimersByTime(501);
+    await check2;
+    expect(fakes[0].terminated).toBe(false);
+    expect(fakes).toHaveLength(1);
   });
 });

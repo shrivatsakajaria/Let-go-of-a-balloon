@@ -389,6 +389,25 @@ test('worker: fetches the tile from the template, builds, and lists every buffer
   expect(err.reply.type).toBe('error');
 });
 
+test('worker: a cancelled build stops at the fetch and is reported, not built', async () => {
+  const { handleBuild } = await import('../../src/world/worker');
+  const ac = new AbortController();
+  let seen: AbortSignal | undefined;
+  const fakeFetch = (async (_u: string, init?: RequestInit) => {
+    seen = init?.signal ?? undefined;
+    ac.abort(); // cancelled while the tile downloads
+    return new Response(buf);
+  }) as typeof fetch;
+  const req = {
+    type: 'build' as const, id: 9, z: Z, x: X, y: Y, region: DEFAULT_REGION,
+    vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf', terrain: { heights, size: SIZE },
+  };
+  const { reply, transfer } = await handleBuild(req, fakeFetch, ac.signal);
+  expect(seen).toBe(ac.signal);
+  expect(reply).toMatchObject({ type: 'error', id: 9, message: 'cancelled' });
+  expect(transfer).toHaveLength(0);
+});
+
 test('lakes lie flat at their lowest shore height, and the ground under them is lowered so they show', () => {
   const s = emptyFeatures();
   const lake = rect(400, -400, 560, -540);
