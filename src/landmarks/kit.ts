@@ -122,6 +122,17 @@ export class Kit {
     return this;
   }
 
+  /**
+   * Put an object (the pivot of a part turned in animate, such as a clock hand) at (x, y, z) of the
+   * current frame, turned with the frame: its -z is the frame's front.
+   */
+  place<T extends THREE.Object3D>(o: T, x = 0, y = 0, z = 0): T {
+    const f = this.f;
+    o.position.set(f.x + x * f.c - z * f.s, f.y + y, f.z + x * f.s + z * f.c);
+    o.rotation.set(0, -f.deg * D2R, 0);
+    return o;
+  }
+
   pop(): this {
     const f = this.stack.pop();
     if (!f) throw new Error('Kit.pop without push');

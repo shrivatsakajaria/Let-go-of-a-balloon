@@ -70,6 +70,28 @@ test('prisms, spires, gables and discs face outward; push/turn moves and turns w
   expect(outward(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute((tg.getAttribute('position').array as Float32Array).slice(0, 30 * 3), 3)).setAttribute('normal', new THREE.BufferAttribute((tg.getAttribute('normal').array as Float32Array).slice(0, 30 * 3), 3)), 110, 1, 50)).toBe(true);
 });
 
+test('place puts an object (a clock hand pivot) where the kit frame is, turned with it', () => {
+  const k = new Kit();
+  k.push(100, 0, 50, 90);
+  k.push(0, 0, -10, 90);
+  const o = new THREE.Object3D();
+  k.place(o, 0, 5, -2);
+  // a box drawn at the same spot in the same frame lands where the object is
+  k.box('walls', LANDMARK_COLOURS.stone, 0, 5, -2, 0.2, 0.2, 0.2);
+  k.pop();
+  k.pop();
+  const g = (k.group('t').children[0] as THREE.Mesh).geometry;
+  g.computeBoundingBox();
+  const c = g.boundingBox!.getCenter(new THREE.Vector3());
+  expect(o.position.x).toBeCloseTo(c.x, 5);
+  expect(o.position.y).toBeCloseTo(5 + 0.1, 0);
+  expect(o.position.z).toBeCloseTo(c.z, 5);
+  // turned 180 deg in all: its -z (front) faces +z (south)
+  o.updateMatrixWorld(true);
+  const front = new THREE.Vector3(0, 0, -1).transformDirection(o.matrixWorld);
+  expect(front.z).toBeCloseTo(1, 5);
+});
+
 test('a prism can be closed below (an overhang, a cornice: no sky through it from under)', () => {
   const k = new Kit();
   k.prism('plain', LANDMARK_COLOURS.stone, 0, 5, 0, 3, 2, 8, { bottom: true, r1: 2 });
