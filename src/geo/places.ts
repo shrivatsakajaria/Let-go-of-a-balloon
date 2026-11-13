@@ -13,6 +13,10 @@ const LANDMARK_KINDS = new Set(['park', 'peak', 'mountain_peak', 'nature_reserve
 
 /** A water label only counts when the balloon is this close to it (labels sit at the middle of the water). */
 const WATER_LABEL_KM = 3;
+/** Seas, bays and straits: their labels count from WATER_LABEL_KM. Lakes and rivers only from this close. */
+const OPEN_WATER = new Set(['ocean', 'sea', 'bay', 'strait', 'channel']);
+const INLAND_WATER_KM = 1;
+const SMALL_WATER = /\b(fountains?|pond|pool|basin|lido|moat|reflecting)\b/i;
 const TOWN_LABEL_KM = 5;
 const LANDMARK_KM = 5;
 /** A gazetteer town this close is "over" it; further out it is "near" it. */
@@ -58,7 +62,10 @@ function nearest(labels: Label[], p: LatLon, kinds: Set<string>, maxKm: number):
  * Order: a water name right here, a town within 5 km, a park or peak within 5 km, then the gazetteer.
  */
 export async function placeOver(p: LatLon, labels: Label[]): Promise<string> {
-  const water = nearest(labels, p, WATER_KINDS, WATER_LABEL_KM);
+  // ornamental water (a fountain, a pond) is never what a balloon is over; a lake or river label sits in
+  // its middle, so it only counts close by
+  const real = labels.filter((l) => !SMALL_WATER.test(l.name) && (OPEN_WATER.has(l.kind) || haversineKm(p, l) <= INLAND_WATER_KM));
+  const water = nearest(real, p, WATER_KINDS, WATER_LABEL_KM);
   if (water) return withArticle(water.name, water.kind);
   const town = nearest(labels, p, TOWN_KINDS, TOWN_LABEL_KM);
   if (town) return town.name;

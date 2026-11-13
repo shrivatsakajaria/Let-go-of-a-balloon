@@ -48,8 +48,10 @@ const CRANE_M = 6;
 const CRANE_EL = 8 * RAD;
 /** No building within this radius of the camera's ground point, or the camera goes over its roof. */
 const STREET_CLEAR_M = 1.5;
-/** The start screen frames the person and the held balloon: feet to the top of the balloon, about 2.6 m. */
-const WAIT_SUBJECT_M = 2.6;
+/** The start screen frames the person and the held balloon: feet to the top of the balloon, about 3 m. */
+const WAIT_SUBJECT_M = 3;
+/** ...filling about a third of the screen's height (NDC), less on a short band. */
+const WAIT_FILL = 0.62;
 
 /** The interface curve cubic-bezier(0.22, 1, 0.36, 1), x -> y, no overshoot. */
 export function easeOut(x: number): number {
@@ -552,7 +554,7 @@ export class Director {
   /**
    * The start screen's establishing shot: on the street camera's line through the person (so the
    * launch push-in is a straight move in), far enough back that the person and the held balloon fill
-   * about 70% of the free band, centred in it. The first spot that is not in a building and has no
+   * about a third of the screen (at most 70% of the free band), centred in the band. The first spot that is not in a building and has no
    * building between it and the person wins; nearer spots are tried, down to the street spot itself.
    */
   private waitTarget(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, S: THREE.Vector3, w: WaitFrame): Target {
@@ -582,7 +584,7 @@ export class Director {
       const len = u.length();
       if (len > 1e-6) u.divideScalar(len); else u.set(0, 0, -1);
       const H = WAIT_SUBJECT_M;
-      const want = Math.min(18, Math.max(6, H / (0.7 * (span / 2) * tanV * 2)));
+      const want = Math.min(20, Math.max(6, H / (Math.min(0.7 * span, WAIT_FILL) * tanV)));
       let pick: THREE.Vector3 | null = null;
       for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
         const c = new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(u, -want * k);
@@ -597,7 +599,7 @@ export class Director {
     const C = this.wide;
     const dh = Math.max(0.5, Math.hypot(ps.x - C.x, ps.z - C.z));
     // nearer than wanted (a building behind): widen the view so the subject still fits the band
-    const tanW = Math.max(tanV, Math.min(Math.tan(35 * RAD), WAIT_SUBJECT_M / (0.7 * span * dh)));
+    const tanW = Math.max(tanV, Math.min(Math.tan(35 * RAD), WAIT_SUBJECT_M / (Math.min(0.7 * span, WAIT_FILL) * dh)));
     const fovW = (2 * Math.atan(tanW)) / RAD;
     const mid = gP + WAIT_SUBJECT_M / 2;
     const camPitch = Math.atan2(mid - C.y, dh) - Math.atan(w.centerY * tanW);

@@ -63,3 +63,12 @@ test('article rules', () => {
   expect(withArticle('The Hague', 'town')).toBe('The Hague');
   expect(withArticle('open sea', 'sea')).toBe('the open sea');
 });
+
+test('a fountain or pond is not what the balloon is over, and a lake only counts close by', async () => {
+  const p = { lat: 51.5007, lon: -0.1263 };
+  const labels = [label('Jubilee Fountain', 'lake', 51.5009, -0.126), label('London', 'city', 51.507, -0.1277)];
+  expect(await placeOver(p, labels)).toBe('London');
+  const lake = [label('Serpentine', 'lake', 51.505, -0.165), label('London', 'city', 51.507, -0.1277)];
+  expect(await placeOver(p, lake)).toBe('London'); // 2.7 km away: not under the balloon
+  expect(await placeOver({ lat: 51.5055, lon: -0.166 }, lake)).toBe('Serpentine');
+});
