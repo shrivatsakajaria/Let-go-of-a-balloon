@@ -123,7 +123,7 @@ let uid = 0;
  */
 export function mountSearch(
   host: HTMLElement,
-  opts: { onPick(p: Place, label: string): void; onCancel(): void; fetcher?: typeof searchPlaces },
+  opts: { onPick(p: Place, label: string): void; onCancel(): void; onOpenChange?(open: boolean): void; fetcher?: typeof searchPlaces },
 ): SearchUi {
   const id = `place-${++uid}`;
   const el = document.createElement('div');
@@ -250,6 +250,7 @@ export function mountSearch(
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.hidden = false;
       document.documentElement.classList.add('searching');
+      opts.onOpenChange?.(true);
       input.value = '';
       render({ kind: 'idle' });
       input.focus({ preventScroll: true });
@@ -259,6 +260,7 @@ export function mountSearch(
       searcher.cancel();
       el.hidden = true;
       document.documentElement.classList.remove('searching');
+      opts.onOpenChange?.(false);
       returnFocus?.focus({ preventScroll: true });
     },
     get isOpen() {

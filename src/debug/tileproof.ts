@@ -4,6 +4,7 @@
  * a slow orbit. A check page for SK, not the product.
  *
  * Query: ?t=<seconds> holds the orbit at that time (for screenshots). Reduced motion holds it at 0.
+ * ?clean=1 hides the caption, for the social preview image.
  */
 import * as THREE from 'three';
 import { DPR_CAP } from '../config';
@@ -40,6 +41,7 @@ const FADE_MS = 1100;
 
 const params = new URLSearchParams(location.search);
 const fixedT = params.has('t') ? Number(params.get('t')) || 0 : null;
+if (params.get('clean') === '1') document.documentElement.classList.add('clean');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const still = () => fixedT !== null || reducedMotion.matches;
 

@@ -1,0 +1,288 @@
+import { readFileSync } from 'node:fs';
+import { expect, test, type Page } from '@playwright/test';
+import { isFontsGoogle, offline } from './net';
+
+type Choice = { name: string; lat: number; lon: number; kind: string; cityId?: string };
+
+/** Resolves with the StartChoice of the next Let go. */
+function nextLetGo(page: Page): Promise<Choice> {
+  return page.evaluate(() => new Promise<Choice>((resolve) => {
+    window.addEventListener('lgoab:letgo', (e) => resolve((e as CustomEvent).detail), { once: true });
+  }));
+}
+
+async function letGo(page: Page): Promise<Choice> {
+  const got = nextLetGo(page);
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  return got;
+}
+
+const fromButton = (page: Page) => page.getByRole('button', { name: /^From / });
+
+test.describe('start screen', () => {
+  test('first visit shows "From London" and Let go works without searching', async ({ page }) => {
+    const net = await offline(page);
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Let go of a balloon');
+    await expect(page.getByText("Pick a place, let go, and follow it on today's real winds for three days")).toBeVisible();
+    await expect(fromButton(page)).toHaveText('From London');
+    const c = await letGo(page);
+    expect(c).toEqual({ name: 'London', lat: 51.5007, lon: -0.1263, kind: 'default', cityId: 'london' });
+    expect(net.searches).toHaveLength(0);
+  });
+
+  test('the simulation notice and the map credit are on screen', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await expect(page.getByText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.')).toBeInViewport();
+    const credit = page.locator('.map-credit');
+    await expect(credit).toHaveText('OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn');
+    await expect(credit).toBeInViewport();
+    await expect(credit.getByRole('link')).toHaveCount(4);
+  });
+
+  test('credits list every source and "A Still Signal build", and close with Escape', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Credits' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Credits' });
+    await expect(dialog).toBeVisible();
+    for (const t of ['NOAA GFS', 'Place search: Open-Meteo.com (GeoNames, CC BY 4.0)', 'Place names: GeoNames', '© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.', 'A Still Signal build']) {
+      await expect(dialog).toContainText(t);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+  });
+
+  test('the last place used is where the next visit starts', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Tokyo', exact: true }).click();
+    await expect(fromButton(page)).toHaveText('From Tokyo');
+    expect(await letGo(page)).toEqual({ name: 'Tokyo', lat: 35.6595, lon: 139.7005, kind: 'featured', cityId: 'tokyo' });
+    await page.reload();
+    await expect(fromButton(page)).toHaveText('From Tokyo');
+    await expect(page.getByRole('button', { name: 'Tokyo', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('works with storage blocked', async ({ page }) => {
+    await offline(page);
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('denied', 'SecurityError'); } });
+    });
+    await page.goto('/');
+    await expect(fromButton(page)).toHaveText('From London');
+    await page.getByRole('button', { name: 'Paris', exact: true }).click();
+    expect((await letGo(page)).name).toBe('Paris');
+  });
+});
+
+test.describe('featured cities', () => {
+  test('one sideways row of six plain text links, launch batch first', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    const row = page.getByRole('list', { name: 'Featured cities' });
+    const items = row.getByRole('button');
+    await expect(items).toHaveText(['Paris', 'New York', 'Tokyo', 'Sydney', 'Rio de Janeiro', 'Cappadocia']);
+    // one row: every item shares a top edge; plain text: no fill, border or rounded box
+    const boxes = await items.evaluateAll((els) => els.map((el) => {
+      const s = getComputedStyle(el);
+      return { top: el.getBoundingClientRect().top, bg: s.backgroundColor, border: s.borderTopWidth, radius: s.borderTopLeftRadius };
+    }));
+    for (const b of boxes) {
+      expect(b.top).toBe(boxes[0].top);
+      expect(b.bg).toBe('rgba(0, 0, 0, 0)');
+      expect(b.border).toBe('0px');
+      expect(b.radius).toBe('0px');
+    }
+    expect(await row.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto');
+  });
+});
+
+test.describe('town search', () => {
+  test('search input follows the combobox pattern (role, aria-expanded, aria-activedescendant)', async ({ page }) => {
+    const net = await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    const box = page.getByRole('combobox', { name: 'Search for a town' });
+    await expect(box).toBeFocused();
+    await expect(box).toHaveAttribute('placeholder', 'Search for a town');
+    await expect(box).toHaveAttribute('aria-expanded', 'false');
+    const listId = await box.getAttribute('aria-controls');
+    await box.pressSequentially('Winder', { delay: 30 });
+    const list = page.locator(`#${listId}`);
+    await expect(list).toHaveAttribute('role', 'listbox');
+    await expect(box).toHaveAttribute('aria-expanded', 'true');
+    const options = list.getByRole('option');
+    await expect(options).toHaveCount(8);
+    await expect(options.nth(1)).toHaveText('Windermere, England, United Kingdom');
+    // debounced: one request for the whole word, not one per letter
+    expect(net.searches).toEqual(['?name=Winder&count=8&language=en']);
+    await expect(box).not.toHaveAttribute('aria-activedescendant');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    const active = await box.getAttribute('aria-activedescendant');
+    await expect(options.nth(1)).toHaveAttribute('id', active!);
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowUp');
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Escape');
+    await expect(box).toHaveAttribute('aria-expanded', 'false');
+    await expect(box).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(box).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(box).toBeHidden();
+    await expect(fromButton(page)).toHaveText('From Windermere');
+    const c = await letGo(page);
+    expect(c).toMatchObject({ name: 'Windermere', kind: 'search' });
+    // the map tile for the open-space check is blocked here, so the start stays at the search point
+    expect(c.lat).toBeCloseTo(54.38, 1);
+    expect(c.lon).toBeCloseTo(-2.9, 1);
+  });
+
+  test('"Searching" shows inline while the answer is on its way', async ({ page }) => {
+    await offline(page, { searchDelayMs: 800 });
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('combobox').fill('Manchester');
+    await expect(page.getByRole('status').filter({ hasText: 'Searching' })).toBeVisible();
+    await expect(page.getByRole('option').first()).toHaveText('Manchester, England, United Kingdom');
+    await expect(page.getByText('Searching')).toBeHidden();
+  });
+
+  test('no results shows "No places found. Try a nearby town."', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('combobox').fill('Xqzzyplorf');
+    await expect(page.getByText('No places found. Try a nearby town.')).toBeVisible();
+    await expect(page.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('a failed search says so plainly', async ({ page }) => {
+    await offline(page, { searchFails: true });
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('combobox').fill('Leeds');
+    await expect(page.getByText("We can't search right now. Try again in a moment.")).toBeVisible();
+  });
+
+  test('Cancel and Escape return to the start screen unchanged', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(fromButton(page)).toBeFocused();
+    await fromButton(page).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('combobox')).toBeHidden();
+    await expect(fromButton(page)).toHaveText('From London');
+  });
+});
+
+test.describe('my location', () => {
+  test('Use my location starts the route at the exact GPS position', async ({ browser }) => {
+    const ctx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      permissions: ['geolocation'],
+      geolocation: { latitude: 54.598765432, longitude: -5.928765432 },
+    });
+    const page = await ctx.newPage();
+    await offline(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    await expect(fromButton(page)).toHaveText('From your location');
+    const c = await letGo(page);
+    expect(c).toEqual({ name: 'Your location', lat: 54.598765432, lon: -5.928765432, kind: 'gps' });
+    await ctx.close();
+  });
+
+  test('the link reads "Finding you" while waiting', async ({ page }) => {
+    await offline(page);
+    await page.addInitScript(() => {
+      navigator.geolocation.getCurrentPosition = () => {}; // never answers
+    });
+    await page.goto('/');
+    const link = page.locator('.locate');
+    await link.click();
+    await expect(link).toHaveText('Finding you');
+  });
+
+  test('location refused falls back to search with no repeat prompt', async ({ page }) => {
+    await offline(page);
+    await page.addInitScript(() => {
+      (window as unknown as { geoCalls: number }).geoCalls = 0;
+      navigator.geolocation.getCurrentPosition = (_ok, fail) => {
+        (window as unknown as { geoCalls: number }).geoCalls++;
+        setTimeout(() => fail?.({ code: 1, message: 'denied', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError), 50);
+      };
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    const box = page.getByRole('combobox', { name: 'Search for a town' });
+    await expect(box).toBeFocused();
+    await expect(page.getByText('Location is off. Search for your town instead.')).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    await expect(box).toBeVisible();
+    await expect(page.getByText('Location is off. Search for your town instead.')).toBeHidden();
+    expect(await page.evaluate(() => (window as unknown as { geoCalls: number }).geoCalls)).toBe(1);
+  });
+});
+
+test.describe('your balloons', () => {
+  test('listed only when there are some, and open on tap', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await expect(page.getByText('Your balloons')).toHaveCount(0);
+    await page.evaluate(() => {
+      const hourly = Array.from({ length: 73 }, (_, h) => ({ lat: 38.72 + h * 0.05, lon: -9.14 + h * 0.2 }));
+      const b = { v: 1, name: 'Lisbon', start: hourly[0], release: Date.now() - 14.5 * 3600e3, hourly, runId: '1731403800' };
+      localStorage.setItem('lgoab.balloons.v1', JSON.stringify([b]));
+    });
+    await page.reload();
+    const group = page.getByRole('group', { name: 'Your balloons' });
+    await expect(group.getByRole('button')).toHaveText('Lisbon · 14 h aloft');
+    const opened = page.evaluate(() => new Promise<string>((r) => window.addEventListener('lgoab:open', (e) => r((e as CustomEvent).detail.name), { once: true })));
+    await group.getByRole('button').click();
+    expect(await opened).toBe('Lisbon');
+  });
+});
+
+test.describe('page shell', () => {
+  test('index.html has Open Graph and X card tags and a 1200x627 preview image', async ({ page, request }) => {
+    await offline(page);
+    await page.goto('/');
+    const meta = (sel: string) => page.locator(sel).getAttribute('content');
+    expect(await meta('meta[property="og:title"]')).toBe('Let go of a balloon');
+    expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today's real winds for three days");
+    expect(await meta('meta[property="og:image"]')).toBe('https://let-go-of-a-balloon.pages.dev/og.png');
+    expect(await meta('meta[property="og:image:width"]')).toBe('1200');
+    expect(await meta('meta[property="og:image:height"]')).toBe('627');
+    expect(await meta('meta[name="twitter:card"]')).toBe('summary_large_image');
+    expect(await page.locator('link[rel="icon"]').getAttribute('href')).toBe('/favicon.svg');
+    const png = await (await request.get('/og.png')).body();
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    expect(png.readUInt32BE(16)).toBe(1200);
+    expect(png.readUInt32BE(20)).toBe(627);
+    expect((await request.get('/favicon.svg')).ok()).toBe(true);
+  });
+
+  test('no request goes to fonts.googleapis.com; Archivo comes from this site', async ({ page }) => {
+    const google: string[] = [];
+    page.on('request', (r) => { if (isFontsGoogle(r)) google.push(r.url()); });
+    const fonts: string[] = [];
+    page.on('response', (r) => { if (r.url().endsWith('.woff2')) fonts.push(new URL(r.url()).pathname); });
+    await offline(page);
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => document.fonts.check('700 40px Archivo'))).toBe(true);
+    expect(google).toEqual([]);
+    expect(fonts).toContain('/fonts/archivo-subset.woff2');
+    const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    expect(html).not.toMatch(/fonts\.googleapis|fonts\.gstatic/);
+  });
+});

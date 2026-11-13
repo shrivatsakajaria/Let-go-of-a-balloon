@@ -2,28 +2,42 @@
 <html lang="en-GB">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Let go of a balloon</title>
+    <meta name="description" content="Pick a place, let go, and follow it on today's real winds for three days" />
+    <meta name="theme-color" content="#2a3346" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/fonts/archivo-subset.woff2" as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Let go of a balloon" />
+    <meta property="og:title" content="Let go of a balloon" />
+    <meta property="og:description" content="Pick a place, let go, and follow it on today's real winds for three days" />
+    <meta property="og:url" content="https://let-go-of-a-balloon.pages.dev/" />
+    <meta property="og:image" content="https://let-go-of-a-balloon.pages.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="627" />
+    <meta property="og:image:alt" content="An orange balloon drifting over a low-poly model of central Manchester in golden-hour light" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Let go of a balloon" />
+    <meta name="twitter:description" content="Pick a place, let go, and follow it on today's real winds for three days" />
+    <meta name="twitter:image" content="https://let-go-of-a-balloon.pages.dev/og.png" />
+
     <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        background: #f4f7fb;
-        color: #14202e;
-      }
-      main { flex: 1; display: grid; place-items: center; padding: 1rem; }
-      h1 { font-size: clamp(2rem, 8vw, 3.5rem); margin: 0; }
-      footer { padding: 1rem; text-align: center; font-size: 0.875rem; color: #4a5a6c; }
+      /* first paint, before any script: a calm evening sky the real light replaces */
+      html { background: #2a3346; }
+      body { margin: 0; }
+      .scene { position: fixed; inset: 0; background: linear-gradient(#4a5a7e, #c99a7f); }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Let go of a balloon</h1>
-    </main>
-    <footer>A Still Signal build</footer>
+    <div class="scene" id="scene" aria-hidden="true"></div>
+    <div id="app" class="start">
+      <header class="top">
+        <h1 class="title">Let go of a balloon</h1>
+        <p class="explainer">Pick a place, let go, and follow it on today's real winds for three days</p>
+      </header>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
