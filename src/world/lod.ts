@@ -113,8 +113,9 @@ const DOWN_AFTER_MS = 700;
 const DOWN_FORCE_MS = 4000;
 /**
  * A step up when the view, as measured at the present step, has stayed under UP_SHARE of the limit
- * for UP_AFTER_MS with the stream settled. A step up undone within BOUNCE_MS doubles the next wait
- * (up to UP_MAX_MS), so a view that sits between the two never flips back and forth.
+ * for UP_AFTER_MS with the stream settled. A step up undone before its tiles are in, or within
+ * BOUNCE_MS of their coming in, doubles the next wait (up to UP_MAX_MS), so a view that sits between
+ * the two never flips back and forth, however long the tiles take to load (a slow phone).
  */
 const UP_SHARE = 0.75;
 const UP_AFTER_MS = 4000;
@@ -137,7 +138,9 @@ const SLOW_SMOOTH_MS = 1000;
 export class DetailBudget {
   private step = 0;
   private changedAt = -Infinity;
-  private lastUpAt = -Infinity;
+  /** A step up whose tiles are not all in yet, and when the last one's were. */
+  private upPending = false;
+  private upLandedAt = -Infinity;
   private upWait = UP_AFTER_MS;
   private settledSince = true;
   private quietSince = NaN;
@@ -164,7 +167,13 @@ export class DetailBudget {
    * stream has settled (nothing loading or leaving). Returns the scale to stream with.
    */
   update(viewTriangles: number, nowMs: number, frameMs?: number, settled = true): number {
-    if (settled) this.settledSince = true;
+    if (settled) {
+      this.settledSince = true;
+      if (this.upPending) {
+        this.upPending = false;
+        this.upLandedAt = nowMs;
+      }
+    }
     // frame time, smoothed over about a second: a phone that stays slow is over budget too
     if (frameMs !== undefined && Number.isFinite(frameMs)) {
       const k = Math.min(1, Math.max(0, frameMs) / SLOW_SMOOTH_MS);
@@ -183,8 +192,10 @@ export class DetailBudget {
       // a slow phone steps at most every SLOW_FOR_MS: the smoothing lags the change
       if (!over && since < SLOW_FOR_MS) return this.scale;
       if (this.step < DETAIL_STEPS.length - 1 && ready) {
-        // a step up undone soon after: the next one waits twice as long
-        if (nowMs - this.lastUpAt < BOUNCE_MS) this.upWait = Math.min(UP_MAX_MS, this.upWait * 2);
+        // a step up undone before its tiles were in, or soon after: the next one waits twice as long
+        if (this.upPending || nowMs - this.upLandedAt < BOUNCE_MS) this.upWait = Math.min(UP_MAX_MS, this.upWait * 2);
+        this.upPending = false;
+        this.upLandedAt = -Infinity;
         this.change(1, nowMs);
       }
       return this.scale;
@@ -201,7 +212,7 @@ export class DetailBudget {
     if (Number.isNaN(this.quietSince)) this.quietSince = nowMs;
     if (nowMs - this.quietSince >= this.upWait && nowMs - this.changedAt >= this.upWait) {
       this.change(-1, nowMs);
-      this.lastUpAt = nowMs;
+      this.upPending = true;
     }
     return this.scale;
   }

@@ -199,6 +199,48 @@ describe('DetailBudget', () => {
     t = feed(d, 280_000, t, 5200 + 9000);
     expect(d.scale).toBe(1);
   });
+
+  it('on a slow phone the bounce counts from when the step up\'s tiles are in, not from the step itself', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    let t = feed(d, 280_000, 100, 4200);
+    expect(d.scale).toBe(1); // up at 4.1 s
+    // the outer ring takes 13 s to load: the stream is busy all that while, the view under the limit
+    t = feed(d, 280_000, t, 17_000, { settled: false });
+    expect(d.scale).toBe(1);
+    // all in at 17 s; half a second later the full reach is over again: that is the step up undone
+    t = feed(d, 280_000, t, 17_500);
+    t = feed(d, 450_000, t, 18_200);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    expect(d.upWaitMs).toBe(8000);
+    // so the next step up waits 8 s of quiet, not 4 (no cycle every ~15 s re-loading the ring)
+    t = feed(d, 280_000, t, 18_200 + 7000);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+  });
+
+  it('a step down while the step up\'s tiles are still coming in is a bounce too', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    let t = feed(d, 280_000, 100, 4200);
+    expect(d.scale).toBe(1);
+    // still loading 11 s after the step up, and over: the forced step down (4 s) undoes it
+    t = feed(d, 280_000, t, 15_000, { settled: false });
+    t = feed(d, 450_000, t, 16_000, { settled: false });
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    expect(d.upWaitMs).toBe(8000);
+  });
+
+  it('a step up that held for a while after its tiles came in is not a bounce', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    let t = feed(d, 280_000, 100, 4200);
+    expect(d.scale).toBe(1);
+    t = feed(d, 280_000, t, 9000, { settled: false });
+    t = feed(d, 280_000, t, 9000 + 11_000); // in at 9 s, then 11 s at full reach
+    t = feed(d, 450_000, t, t + 200);
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    expect(d.upWaitMs).toBe(4000);
+  });
 });
 
 describe('DetailBudget and frame time', () => {
