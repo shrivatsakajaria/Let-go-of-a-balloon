@@ -279,7 +279,7 @@ test('with the world live, the HUD never takes taps meant for the start screen (
   await liveWorld(context, { windsDown: true });
   await startAtAlbertSquare(context);
   const credits = async () => {
-    await page.getByRole('button', { name: 'Credits' }).click({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Credits' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
