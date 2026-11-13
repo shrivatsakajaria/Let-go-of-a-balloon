@@ -5,11 +5,13 @@
  *
  * Query: ?t=<seconds> holds the orbit at that time (for screenshots). Reduced motion holds it at 0.
  * ?clean=1 hides the caption, for the social preview image.
+ * ?utc=<ISO time or ms> lights the square by the real sun and moon at that time (Sky) instead of the
+ * fixed golden hour; ?flat=1 uses flat ground instead of the terrain service (browser tests).
  */
 import * as THREE from 'three';
 import type { LatLon } from '../geo/coords';
 import { tileFrame } from '../world/frame';
-import { CONTOUR, DEFAULT_REGION, lightFor, lerpHex, parseHex } from '../world/palette';
+import { CONTOUR, DEFAULT_REGION, lerpHex, parseHex } from '../world/palette';
 import { heightAt } from '../world/terrain';
 import { terrainTile, type TerrainTile } from '../world/terrainsrc';
 import { vectorTileTemplate } from '../world/vector';
@@ -18,10 +20,9 @@ import { blockBounds, farLandBuffers, gridPlacements, orbitPose, type TilePlacem
 import { toGeometry } from '../world/geometry';
 import { WorkerPool } from '../world/workerpool';
 import { createRenderer } from '../world/render';
-import { createHaze, setBlockHaze } from '../world/haze';
+import { setBlockHaze } from '../world/haze';
 import { ContourMaterials, noCoverage } from '../world/materials';
-import { SkyDome } from '../world/skydome';
-import { SunLight, sunDirection } from '../world/sunlight';
+import { Sky } from '../world/sky';
 import { TileView, type TileBuffers } from '../world/tileview';
 
 const ALBERT: LatLon = { lat: 53.4794, lon: -2.2453 };
@@ -32,7 +33,6 @@ const Z = 14;
 /** Golden hour: a low sun from the west-south-west, so shadows rake east across the streets. */
 const SUN_ELEVATION = 8;
 const SUN_AZIMUTH = 250;
-const L = lightFor(SUN_ELEVATION);
 
 /**
  * One turn in 105 s around the square, starting from the north-north-west (side-lit, the Irwell in
@@ -44,6 +44,14 @@ const FADE_MS = 1100;
 
 const params = new URLSearchParams(location.search);
 const fixedT = params.has('t') ? Number(params.get('t')) || 0 : null;
+/** ?utc=: an ISO time or milliseconds since 1970. */
+const UTC = (() => {
+  const v = params.get('utc');
+  if (!v) return null;
+  const t = /^-?\d+$/.test(v) ? Number(v) : Date.parse(v);
+  return Number.isFinite(t) ? t : null;
+})();
+const FLAT = params.get('flat') === '1';
 if (params.get('clean') === '1') document.documentElement.classList.add('clean');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const still = () => fixedT !== null || reducedMotion.matches;
@@ -55,24 +63,29 @@ const statusEl = document.getElementById('status') as HTMLElement;
 const renderer = createRenderer(canvas);
 
 const scene = new THREE.Scene();
-// Supplies fogNear/fogFar to the materials; the haze patch replaces the fog colour with the haze colour.
-scene.fog = new THREE.Fog(new THREE.Color(L.skyHorizon), FOG.near, FOG.far);
 const camera = new THREE.PerspectiveCamera(40, 1, 5, 30000);
 
 /** Target on the ground at Albert Square; its height arrives with the centre terrain tile. */
 const target = new THREE.Vector3(0, 40, 0);
 
-const sunDir = sunDirection(SUN_ELEVATION, SUN_AZIMUTH);
+// The sky, light and haze: the real sun and moon with ?utc=, else the fixed golden hour.
 // Shadows only around the square (a tall thin box, about 1 m by 0.3 m per shadow texel).
-const sun = new SunLight(L, sunDir, { radius: 1150, mapSize: 2048, snap: 0 });
-sun.addTo(scene);
+const sky = new Sky(scene, { shadow: { radius: 1150, mapSize: 2048, snap: 0 } });
+const L = UTC !== null ? sky.update(UTC, ALBERT) : sky.apply({ elevationDeg: SUN_ELEVATION, azimuthDeg: SUN_AZIMUTH });
+// Supplies fogNear/fogFar to the materials; the haze patch replaces the fog colour with the haze colour.
+sky.fog.near = FOG.near;
+sky.fog.far = FOG.far;
+if (UTC !== null) {
+  document.body.style.background = L.skyHorizon;
+  canvas.setAttribute('aria-label', 'Albert Square in Manchester and the streets around it, drawn as a small 3D model from real map data in the light of the chosen time');
+}
 function placeSun() {
-  sun.place(target);
+  sky.place(target);
   renderer.shadowMap.needsUpdate = true;
 }
 placeSun();
 
-const haze = createHaze(L, sunDir);
+const haze = sky.haze;
 /**
  * Haze at the block's edge: within 760 m of the edge of the tile block, everything dissolves into
  * the haze colour, and past 2.7 km from Albert Square too, which rounds off the corners. So the
@@ -82,8 +95,6 @@ const haze = createHaze(L, sunDir);
 setBlockHaze(haze, blockBounds(gridPlacements(ALBERT, Z)), { inner: 40, band: 760, radius: 2700, radiusBand: 700 });
 const materials = new ContourMaterials(haze, noCoverage(), { groundTint: L.groundTint });
 
-const sky = new SkyDome(haze);
-scene.add(sky.mesh);
 
 // Faceted land around the tile block (built once the terrain is in), so the block has no edge.
 const FAR_COLOURS = [
@@ -107,6 +118,7 @@ let built = 0, failed = 0;
 
 function addTile(tile: TilePlacement, meshes: TileBuffers) {
   const view = new TileView(meshes, materials, { zoom: Z, castShadow: true, clip: false });
+  view.setNight(L.night);
   view.place(tile.offsetX, 0, tile.offsetZ, tile.scaleX);
   scene.add(view.group);
   placed.push({ slot: view.slot, born: performance.now(), fade: 0 });
@@ -169,6 +181,9 @@ function addFarLand(tiles: TilePlacement[], terrains: Map<TilePlacement, Terrain
   renderer.shadowMap.needsUpdate = true;
 }
 
+/** Level ground at 40 m, for browser tests that must not call the terrain service. */
+const flatTerrain = (): TerrainTile => ({ heights: new Float32Array(64 * 64).fill(40), size: 64 });
+
 const LOAD_FAILED = 'The map did not load. Check the connection and reload the page.';
 
 async function load() {
@@ -183,7 +198,7 @@ async function load() {
     }
     const terrains = new Map<TilePlacement, TerrainTile>();
     const terrainIn = tiles.map(async (tile, i) => {
-      const t = await terrainTile(tile.z, tile.x, tile.y);
+      const t = FLAT ? flatTerrain() : await terrainTile(tile.z, tile.x, tile.y);
       terrains.set(tile, t);
       if (i === 0) {
         target.y = groundAt(t, tile);
@@ -215,7 +230,7 @@ async function load() {
 
 // ---- frame loop ----
 
-const hook = { done: false, built: 0, failed: 0, calls: 0, triangles: 0, geometries: 0, frames: 0 };
+const hook = { done: false, built: 0, failed: 0, calls: 0, triangles: 0, geometries: 0, frames: 0, sunEl: sky.sun.elevationDeg, night: L.night };
 (window as unknown as { __tileproof: typeof hook }).__tileproof = hook;
 
 function frameCamera(tSec: number) {
@@ -230,9 +245,11 @@ function frameCamera(tSec: number) {
   const p = orbitPose(tSec, ORBIT);
   camera.position.set(target.x + p.x, target.y + p.y, target.z + p.z);
   camera.lookAt(target);
-  sky.follow(camera);
+  camera.updateMatrixWorld();
+  sky.setView(camera, undefined, renderer.getDrawingBufferSize(drawSize).y / 2);
 }
 
+const drawSize = new THREE.Vector2();
 let lastSize = '';
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight;

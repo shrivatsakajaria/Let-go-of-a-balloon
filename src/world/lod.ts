@@ -57,7 +57,7 @@ const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: fals
 export const LOD_LEVELS: LodLevel[] = [
   { z: 14, radiusM: 1500, lcSize: 64, detail: { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true }, skirtM: 25, dropM: 0, castShadow: true, split: true },
   { z: 13, radiusM: 5000, lcSize: 48, detail: { buildings: 'lite', roadMinRank: 2, waterways: true, trees: false, lamps: false }, skirtM: 40, dropM: 2, castShadow: false, split: true },
-  { z: 12, radiusM: 10000, lcSize: 64, detail: { ...NONE, roadMinRank: 4, waterways: true, waterFacets: 10 }, skirtM: 120, dropM: 6, castShadow: false, split: false },
+  { z: 12, radiusM: 10000, lcSize: 64, detail: { ...NONE, roadMinRank: 4, waterways: true, waterFacets: 10, boats: true }, skirtM: 120, dropM: 6, castShadow: false, split: false },
   { z: 10, radiusM: 40000, lcSize: 48, detail: { ...NONE, waterFacets: 6 }, skirtM: 400, dropM: 25, castShadow: false, split: false },
   { z: 7, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 4 }, skirtM: 800, dropM: 80, castShadow: false, split: false },
 ];

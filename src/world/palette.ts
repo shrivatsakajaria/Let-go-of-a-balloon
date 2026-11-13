@@ -24,10 +24,10 @@ type Key = Light & { el: number };
  * saturation at every elevation (warm apricot, never the balloon's orange).
  */
 const KEYS: Key[] = [
-  { el: -18, skyTop: '#0a1022', skyHorizon: '#18223c', groundTint: '#46526e', sun: '#9fb0d8', sunIntensity: 0.35, hemiSky: '#34446e', hemiGround: '#1e222a', night: 1 },
-  { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#55607c', sun: '#93a6d2', sunIntensity: 0.42, hemiSky: '#425382', hemiGround: '#262a32', night: 0.8 },
+  { el: -18, skyTop: '#0a1022', skyHorizon: '#18223c', groundTint: '#7480a6', sun: '#9fb0d8', sunIntensity: 0.35, hemiSky: '#46598c', hemiGround: '#252a35', night: 1 },
+  { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#68738f', sun: '#93a6d2', sunIntensity: 0.42, hemiSky: '#4a5c8c', hemiGround: '#2a2f39', night: 0.8 },
   { el: -4, skyTop: '#2a3c64', skyHorizon: '#78809a', groundTint: '#8f93a6', sun: '#d6ab8c', sunIntensity: 0.9, hemiSky: '#67779a', hemiGround: '#444048', night: 0.35 },
-  { el: 0, skyTop: '#4a5a7e', skyHorizon: '#eea878', groundTint: '#ffd2ae', sun: '#f6b688', sunIntensity: 1.5, hemiSky: '#8f98b2', hemiGround: '#5e5148', night: 0.12 },
+  { el: 0, skyTop: '#4a5a7e', skyHorizon: '#e8b392', groundTint: '#f2d6c0', sun: '#f6b688', sunIntensity: 1.5, hemiSky: '#8f98b2', hemiGround: '#5e5148', night: 0.12 },
   { el: 5, skyTop: '#5c7aa6', skyHorizon: '#f4c595', groundTint: '#ffe0c4', sun: '#ffb676', sunIntensity: 1.8, hemiSky: '#a8b7d0', hemiGround: '#6d6150', night: 0 },
   { el: 15, skyTop: '#5e90ca', skyHorizon: '#d8e3e6', groundTint: '#fff0e0', sun: '#ffe0b8', sunIntensity: 2.2, hemiSky: '#c4d6e8', hemiGround: '#78805c', night: 0 },
   { el: 40, skyTop: '#5a9edf', skyHorizon: '#d6e8f0', groundTint: '#ffffff', sun: '#fff3df', sunIntensity: 2.6, hemiSky: '#d2e6f8', hemiGround: '#7f8b5c', night: 0 },

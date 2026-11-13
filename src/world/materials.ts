@@ -64,7 +64,7 @@ export const BUCKETS: Bucket[] = ['ground', 'water', 'waterways', 'roads', 'buil
 
 /** Lit windows, street lamps and city glow at night: warm, pale amber (never the balloon's orange). */
 export const WINDOW_LIGHT = [1.0, 0.74, 0.42] as const;
-export const GLOW_LIGHT = [0.9, 0.6, 0.32] as const;
+export const GLOW_LIGHT = [1.0, 0.82, 0.6] as const;
 export const LAMP_LIGHT = [1.0, 0.8, 0.52] as const;
 const vec3 = (c: readonly number[]) => `vec3(${c.map((v) => v.toFixed(3)).join(', ')})`;
 
@@ -124,8 +124,8 @@ const FRAGMENT_FOG = `
  * The prototype's withWindows, in metres (${WIN_GRID_M} x 3.6 m): a subtle darker pane by day, faded out
  * where a window is under a pixel so it never shimmers. At night some windows are lit (a hash of
  * the window's cell, repeating every ${WIN_REPEAT} windows so the shift can stay small), scaled by uNight;
- * where windows are under a pixel the wall takes their average light instead, so a far city still
- * glimmers.
+ * where windows are under a pixel, patches of windows light together instead, so a far city still
+ * glimmers rather than glowing flat.
  */
 const FRAGMENT_WINDOWS = `
   {
@@ -141,18 +141,24 @@ const FRAGMENT_WINDOWS = `
       vec2 cl = mod(floor(g), ${WIN_REPEAT.toFixed(1)});
       float h = fract(sin(dot(cl, vec2(12.9898, 78.233))) * 43758.5453);
       float lit = step(0.56, h) * (0.75 + 0.5 * fract(h * 7.31));
-      float light = mix(0.115, win * lit, vis);
-      totalEmissiveRadiance += ${vec3(WINDOW_LIGHT)} * (light * side * uNight * 2.2);
+      // Far off, windows are under a pixel: patches of 4 x 2 windows lit together keep a sparkle
+      // (a patch index repeats every ${WIN_REPEAT / 4} patches across, so the pattern still repeats
+      // every ${WIN_REPEAT} windows).
+      vec2 cp = mod(floor(g / vec2(4.0, 2.0)), vec2(${(WIN_REPEAT / 4).toFixed(1)}, 64.0));
+      float hp = fract(sin(dot(cp, vec2(39.3468, 11.1351))) * 43758.5453);
+      float far = 0.03 + 0.2 * step(0.7, hp);
+      float light = mix(far, win * lit, vis);
+      totalEmissiveRadiance += ${vec3(WINDOW_LIGHT)} * (light * side * uNight * 2.0);
     }
   }`;
 
 /** City glow: a soft warm light on the ground and streets where buildings and roads are densest. */
-const FRAGMENT_GLOW = `
-  totalEmissiveRadiance += ${vec3(GLOW_LIGHT)} * (vGlow * vGlow * uNight * 0.55);`;
+const fragmentGlow = (k: number) => `
+  totalEmissiveRadiance += ${vec3(GLOW_LIGHT)} * (vGlow * uNight * ${k.toFixed(3)});`;
 
 type Shared = { haze: HazeUniforms; slots: TileSlots; coverage: CoverageUniforms };
 
-function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean; windows: boolean; glow: boolean }): THREE.MeshStandardMaterial {
+function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean; windows: boolean; glow: number }): THREE.MeshStandardMaterial {
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, shared.haze, { uSlots: shared.slots.uniform });
     if (o.clip) Object.assign(sh.uniforms, shared.coverage);
@@ -163,19 +169,20 @@ function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean
       .replace('#include <common>', `#include <common>\n${FRAGMENT_PARS}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${FRAGMENT_CLIP}`)
       .replace('#include <fog_fragment>', FRAGMENT_FOG);
-    const extra = (o.windows ? FRAGMENT_WINDOWS : '') + (o.glow ? FRAGMENT_GLOW : '');
+    const extra = (o.windows ? FRAGMENT_WINDOWS : '') + (o.glow > 0 ? fragmentGlow(o.glow) : '');
     if (extra) sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${extra}`);
   };
-  m.customProgramCacheKey = () => `contour-${o.clip ? 'clip' : 'solid'}-${o.windows ? 'win' : 'plain'}-${o.glow ? 'glow' : 'dark'}`;
+  m.customProgramCacheKey = () => `contour-${o.clip ? 'clip' : 'solid'}-${o.windows ? 'win' : 'plain'}-glow${o.glow}`;
   return m;
 }
 
-type Spec = { vertexColors: boolean; roughness: number; offset?: number; windows?: boolean; tint?: boolean; glow?: boolean; double?: boolean };
+/** glow: how strongly the bucket takes the city glow at night (0: not at all). */
+type Spec = { vertexColors: boolean; roughness: number; offset?: number; windows?: boolean; tint?: boolean; glow?: number; double?: boolean };
 const SPECS: Record<Bucket, Spec> = {
-  ground: { vertexColors: true, roughness: 0.95, tint: true, glow: true },
+  ground: { vertexColors: true, roughness: 0.95, tint: true, glow: 0.3 },
   water: { vertexColors: true, roughness: 0.32, offset: 1 },
   waterways: { vertexColors: true, roughness: 0.32, offset: 2 },
-  roads: { vertexColors: true, roughness: 0.95, offset: 2, glow: true },
+  roads: { vertexColors: true, roughness: 0.95, offset: 2, glow: 0.6 },
   buildings: { vertexColors: true, roughness: 0.95, windows: true },
   roofs: { vertexColors: true, roughness: 0.95 },
   trees: { vertexColors: false, roughness: 0.9 },
@@ -198,7 +205,7 @@ function make(b: Bucket, shared: Shared, clip: boolean, groundTint: string): THR
     m.polygonOffsetUnits = -s.offset;
   }
   m.name = `contour-${b}-${clip ? 'clip' : 'solid'}`;
-  return patch(m, shared, { clip, windows: !!s.windows, glow: !!s.glow });
+  return patch(m, shared, { clip, windows: !!s.windows, glow: s.glow ?? 0 });
 }
 
 /**

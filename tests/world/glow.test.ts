@@ -5,18 +5,16 @@ import { tileFrame } from '../../src/world/frame';
 import { glowGrid, vertexGlow, placeBoats, BOAT_STRIDE } from '../../src/world/glow';
 import { buildTileMeshes, packMeshes, transferables } from '../../src/world/meshjob';
 import { DEFAULT_REGION } from '../../src/world/palette';
-import { LC } from '../../src/world/terrain';
 
 const [Z, X, Y] = [14, 8089, 5300];
 const frame = tileFrame(Z, X, Y);
 const W = frame.widthM, H = frame.heightM;
 const N = 32;
 const rect = (x0: number, z0: number, x1: number, z1: number): Polygon => [Float64Array.from([x0, z0, x1, z0, x1, z1, x0, z1])];
-const noLand = new Uint8Array(N * N);
 
 describe('city glow', () => {
   it('is zero where nothing is built', () => {
-    const g = glowGrid(emptyFeatures(), frame, N, noLand);
+    const g = glowGrid(emptyFeatures(), frame, N);
     expect(g.length).toBe(N * N);
     expect(Math.max(...g)).toBe(0);
   });
@@ -28,8 +26,8 @@ describe('city glow', () => {
       const x = 20 + i * 25, z = -20 - j * 25;
       f.building.push({ height: 15, minHeight: 0, polygon: rect(x, z, x + 18, z - 18) });
     }
-    for (let k = 0; k < 10; k++) f.transportation.push({ cls: 'minor', subclass: '', brunnel: '', line: Float64Array.from([0, -50 * k, W / 2, -50 * k]) });
-    const g = glowGrid(f, frame, N, noLand);
+    for (let k = 0; k < 10; k++) f.transportation.push({ cls: 'primary', subclass: '', brunnel: '', line: Float64Array.from([0, -50 * k, W / 2, -50 * k]) });
+    const g = glowGrid(f, frame, N);
     for (const v of g) {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
@@ -39,11 +37,17 @@ describe('city glow', () => {
     expect(at(W - 100, -H + 100)).toBe(0);
   });
 
-  it('built-up land use alone gives a faint glow (far tiles have no buildings)', () => {
-    const lc = new Uint8Array(N * N).fill(LC.builtUp);
-    const g = glowGrid(emptyFeatures(), frame, N, lc);
-    expect(g[N * 16 + 16]).toBeGreaterThan(0.1);
-    expect(g[N * 16 + 16]).toBeLessThan(0.5);
+  it('a tile without buildings estimates the cover from land use (far tiles still show their towns)', () => {
+    const f = emptyFeatures();
+    f.landuse.push({ cls: 'residential', subclass: '', polygon: rect(-10, 10, W + 10, -H - 10) });
+    const res = glowGrid(f, frame, N)[N * 16 + 16];
+    f.landuse.push({ cls: 'commercial', subclass: '', polygon: rect(-10, 10, W + 10, -H - 10) });
+    const town = glowGrid(f, frame, N)[N * 16 + 16];
+    expect(res).toBeGreaterThan(0.05);
+    expect(res).toBeLessThan(0.6);
+    expect(town).toBeGreaterThan(res);
+    f.landuse = [{ cls: 'farmland', subclass: '', polygon: rect(-10, 10, W + 10, -H - 10) }];
+    expect(glowGrid(f, frame, N)[N * 16 + 16]).toBe(0);
   });
 
   it('per vertex: sampled from the grid at each vertex position, as bytes', () => {

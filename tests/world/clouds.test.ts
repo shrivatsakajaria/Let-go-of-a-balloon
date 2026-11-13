@@ -110,3 +110,23 @@ describe('Clouds', () => {
     });
   });
 });
+
+describe('Clouds ahead of the view', () => {
+  it('gather in a wedge ahead of where the camera looks, so a narrow phone view sees them', () => {
+    const { clouds } = make({ count: 12 });
+    const focus = new THREE.Vector3(500, 1500, -200);
+    clouds.setFocus(focus, new THREE.Vector3(1, -0.1, 0)); // looking east
+    clouds.update(0.016, { u: 0, v: 0 });
+    const ahead = clouds.list().filter((c) => {
+      const a = Math.atan2(c.z - focus.z, c.x - focus.x);
+      return Math.abs(a) < (40 * Math.PI) / 180;
+    });
+    expect(ahead.length).toBeGreaterThanOrEqual(7);
+    // the camera turns round: the ones now far behind drift out and come back ahead
+    for (let k = 0; k < 200; k++) {
+      clouds.setFocus(focus, new THREE.Vector3(-1, -0.1, 0));
+      clouds.update(0.1, { u: 0, v: 0 });
+    }
+    expect(clouds.list().filter((c) => c.x < focus.x).length).toBeGreaterThanOrEqual(7);
+  });
+});

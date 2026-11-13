@@ -44,7 +44,7 @@ export type CloudOptions = {
   seed?: number;
   /** Ground height (absolute) under a scene point; default sea level. */
   groundAt?: (x: number, z: number) => number;
-  /** Clouds live within this distance of the focus (default 9 km). */
+  /** Clouds live within this distance of the focus (default 14 km: the ride camera sees 2 to 20 km ahead). */
   radiusM?: number;
 };
 
@@ -55,19 +55,25 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** One cumulus: a few faceted blobs along x, flat underneath, fitted to [-1, 1] on each axis. */
+/**
+ * One cumulus: a big middle puff with smaller ones round it and a smaller one on top, faceted, flat
+ * underneath, fitted to [-1, 1] on each axis.
+ */
 export function cloudGeometry(seed = 3): THREE.BufferGeometry {
   let s = seed >>> 0 || 1;
   const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const pos: number[] = [];
-  const blobs = 6;
-  for (let i = 0; i < blobs; i++) {
-    const t = i / (blobs - 1) - 0.5;
-    const r = 0.32 + 0.22 * (1 - Math.abs(t) * 1.6) + 0.08 * rnd();
+  // [x, y, z, radius] of each puff, then a little jitter
+  const puffs = [
+    [0, 0.12, 0, 0.55], [-0.55, 0, 0.1, 0.4], [0.55, 0, -0.08, 0.42], [0.15, 0.42, 0.05, 0.36],
+    [-0.25, 0.05, -0.32, 0.33], [0.3, 0.02, 0.33, 0.32], [-0.95, -0.05, -0.05, 0.25], [0.95, -0.06, 0.06, 0.24],
+  ];
+  for (const [x, y, z, r0] of puffs) {
+    const r = r0 * (0.9 + 0.2 * rnd());
     const g = new THREE.IcosahedronGeometry(r, 1);
-    g.translate(t * 1.25, r * 0.35 + 0.1 * rnd(), (rnd() - 0.5) * 0.35);
+    g.translate(x + (rnd() - 0.5) * 0.08, y + r * 0.2, z + (rnd() - 0.5) * 0.08);
     const p = g.getAttribute('position');
-    for (let k = 0; k < p.count; k++) pos.push(p.getX(k), Math.max(-0.12, p.getY(k)), p.getZ(k));
+    for (let k = 0; k < p.count; k++) pos.push(p.getX(k), Math.max(-0.08, p.getY(k)), p.getZ(k));
     g.dispose();
   }
   const arr = Float32Array.from(pos);
@@ -84,8 +90,12 @@ export function cloudGeometry(seed = 3): THREE.BufferGeometry {
   return geo;
 }
 
+/**
+ * Soft white, lit like the world: a little warm light of its own (so the shade side stays a pale
+ * blue-grey, never lilac), facets toward the silhouette fading out (a soft edge), and the haze.
+ */
 function cloudMaterial(haze: HazeUniforms): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0, flatShading: true, emissive: '#ffffff', emissiveIntensity: 0.06 });
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0, flatShading: true, emissive: '#fff4e6', emissiveIntensity: 0.22, transparent: true });
   m.name = 'contour-clouds';
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, haze);
@@ -101,7 +111,9 @@ function cloudMaterial(haze: HazeUniforms): THREE.MeshStandardMaterial {
         #else
           float far = 0.0;
         #endif
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, hazeCol(normalize(vWP - cameraPosition)), far);`);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, hazeCol(normalize(vWP - cameraPosition)), far);
+        float facing = abs(dot(normal, normalize(vViewPosition)));
+        gl_FragColor.a *= smoothstep(0.05, 0.4, facing);`);
   };
   m.customProgramCacheKey = () => 'contour-clouds';
   return m;
@@ -116,6 +128,11 @@ export class Clouds {
   private readonly focus = new THREE.Vector3();
   private readonly focusVel = new THREE.Vector2();
   private focusSet = false;
+  /** Where the camera looks (xz, unit), when known: most clouds gather in that half. */
+  private readonly look = new THREE.Vector2();
+  private hasLook = false;
+  /** Placed for the first focus and look yet. */
+  private placed = false;
   /** Spheres to keep free: this frame's, and the last frame's for new clouds. */
   private keep: THREE.Vector4[] = [];
   private kept: THREE.Vector4[] = [];
@@ -129,7 +146,7 @@ export class Clouds {
   constructor(scene: THREE.Scene, opts: CloudOptions) {
     this.haze = opts.haze;
     this.groundAt = opts.groundAt ?? (() => 0);
-    this.radiusM = opts.radiusM ?? 9000;
+    this.radiusM = opts.radiusM ?? 14000;
     this.seed = (opts.seed ?? 1) >>> 0 || 1;
     const n = Math.min(CLOUD_MAX, Math.max(CLOUD_MIN, Math.round(opts.count ?? 11)));
     for (let i = 0; i < n; i++) {
@@ -151,11 +168,19 @@ export class Clouds {
     return this.items;
   }
 
-  /** The point the clouds gather around (the balloon), scene metres. */
-  setFocus(p: THREE.Vector3): void {
+  /**
+   * The point the clouds gather around (the balloon), scene metres, and optionally where the
+   * camera looks: then most clouds sit in a wide wedge ahead of it, where a narrow phone view
+   * can see them, and the ones left far behind drift out and return ahead.
+   */
+  setFocus(p: THREE.Vector3, look?: THREE.Vector3): void {
     if (this.focusSet) this.focusVel.set(p.x - this.focus.x, p.z - this.focus.z);
     this.focus.copy(p);
     this.focusSet = true;
+    if (look && Math.hypot(look.x, look.z) > 1e-6) {
+      this.look.set(look.x, look.z).normalize();
+      this.hasLook = true;
+    }
   }
 
   /** Keep a sphere free of cloud (the balloon, the camera): call every frame. */
@@ -187,6 +212,11 @@ export class Clouds {
     const relZ = -wind.v - (dt > 0 ? this.focusVel.y / dt : 0);
     const relLen = Math.hypot(relX, relZ);
     this.focusVel.set(0, 0);
+    if (!this.placed && this.focusSet) {
+      // the first frame with a focus: spread them out around it (and ahead of the look)
+      this.placed = true;
+      for (const c of this.items) this.spawn(c, null);
+    }
     for (const c of this.items) {
       c.x += wind.u * dt;
       c.z -= wind.v * dt;
@@ -198,8 +228,8 @@ export class Clouds {
       if (c.scale < 1) c.scale = Math.min(1, c.scale + dt / GROW_S);
       const dx = c.x - this.focus.x, dz = c.z - this.focus.z;
       const far = Math.hypot(dx, dz) > R * 1.2;
-      // well behind a balloon outrunning the clouds (out of the forward view): shrink slowly away
-      const behind = relLen > 0.5 && (dx * relX + dz * relZ) / relLen > R * 0.35;
+      // well behind the view, or behind a balloon outrunning the clouds: shrink slowly away
+      const behind = this.hasLook ? dx * this.look.x + dz * this.look.y < -R * 0.3 : relLen > 0.5 && (dx * relX + dz * relZ) / relLen > R * 0.35;
       if (far) this.spawn(c, { x: relX, z: relZ });
       else if (this.blocks(c, this.keep, 0)) {
         // something must be kept clear here: a cloud that holds the point itself goes at once
@@ -259,7 +289,10 @@ export class Clouds {
     const relLen = rel ? Math.hypot(rel.x, rel.z) : 0;
     for (let tries = 0; tries < 24; tries++) {
       let ang: number, dist: number;
-      if (!rel) {
+      if (this.hasLook && this.rnd() < 0.8) {
+        ang = Math.atan2(this.look.y, this.look.x) + (this.rnd() - 0.5) * 1.2; // within about 35 deg
+        dist = rel ? R * (0.45 + 0.6 * this.rnd()) : 1500 + (R - 1500) * Math.sqrt(this.rnd());
+      } else if (!rel) {
         ang = this.rnd() * Math.PI * 2;
         dist = R * Math.sqrt(0.02 + 0.98 * this.rnd());
       } else {
@@ -302,7 +335,14 @@ export class Clouds {
     }
     for (let i = this.items.length; i < u.length; i++) u[i].set(0, 0, 0, 0);
     if (this.mesh) this.mesh.instanceMatrix.needsUpdate = true;
-    const strength = 0.3 * smooth(0.07, 0.3, sun.y) * (1 - this.haze.uNight.value);
+    const night = this.haze.uNight.value;
+    const strength = 0.3 * smooth(0.07, 0.3, sun.y) * (1 - night);
+    // their own soft light fades at night: dim blue-grey shapes against the ink sky, not lamps
+    const mat = this.mesh?.material as THREE.MeshStandardMaterial | undefined;
+    if (mat) {
+      mat.emissiveIntensity = 0.22 * (1 - night) + 0.02;
+      mat.color.setScalar(1 - 0.6 * night);
+    }
     this.haze.uCloudSun.value.set(sun.x, Math.max(0.05, sun.y), sun.z, strength);
   }
 }

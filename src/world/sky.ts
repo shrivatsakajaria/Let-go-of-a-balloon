@@ -118,9 +118,9 @@ function starField(count: number): THREE.Points<THREE.BufferGeometry, THREE.Shad
   let s = 12345;
   const rnd = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 4294967296);
   for (let i = 0; i < count; i++) {
-    const y = 0.02 + 0.98 * Math.sqrt(rnd()), a = rnd() * Math.PI * 2, r = Math.sqrt(1 - y * y);
+    const y = 0.01 + 0.99 * rnd(), a = rnd() * Math.PI * 2, r = Math.sqrt(1 - y * y); // even over the sky
     pos.set([Math.cos(a) * r, y, Math.sin(a) * r], i * 3);
-    bright[i] = 0.25 + 0.75 * Math.pow(rnd(), 3);
+    bright[i] = 0.4 + 0.6 * Math.pow(rnd(), 2);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -135,9 +135,9 @@ function starField(count: number): THREE.Points<THREE.BufferGeometry, THREE.Shad
     fog: false,
     vertexShader: `attribute float aBright; uniform float uPx; varying float vB;
       void main(){
-        vB = aBright * smoothstep(0.02, 0.22, position.y);
+        vB = aBright * smoothstep(0.01, 0.1, position.y);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (1.2 + 1.6 * aBright) * uPx;
+        gl_PointSize = (1.6 + 2.2 * aBright) * uPx;
       }`,
     fragmentShader: `uniform float uAlpha; varying float vB;
       void main(){
@@ -230,7 +230,7 @@ export class Sky {
     this.light.sun.intensity = this.key.intensity;
 
     // stars come out in the dark; the discs show above the horizon
-    const starA = smooth(0.45, 1, L.night) * 0.9;
+    const starA = smooth(0.45, 1, L.night);
     this.stars.material.uniforms.uAlpha.value = starA;
     this.stars.visible = starA > 0.002;
     const sunA = smooth(-1.5, 1, sun.elevationDeg);

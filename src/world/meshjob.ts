@@ -179,7 +179,7 @@ export function buildTileMeshes(
   const q = (b: MeshBuffers) => (opts.split ? splitCells(b, frame.widthM, frame.heightM) : b);
   const roadMesh: MeshBuffers = q(roads.build());
   if (detail.glow !== false) {
-    const glow = glowGrid(features, frame, n, landcover.grid.classes);
+    const glow = glowGrid(features, frame, n);
     ground.glow = vertexGlow(ground.position, glow, n, frame.widthM, frame.heightM);
     roadMesh.glow = vertexGlow(roadMesh.position, glow, n, frame.widthM, frame.heightM);
   }
