@@ -83,6 +83,38 @@ export function pickZoom(v: MapView, size: Size): number {
   return MIN_COAST_ZOOM;
 }
 
+/** Where the chrome sits, in CSS px: what freeBand keeps the map's band clear of. */
+export type Chrome = {
+  w: number;
+  h: number;
+  /** Bottom of the clock and stats, and bottom of the top shading. */
+  hudTop: number;
+  shadeTop: number;
+  /** Top and right edge of the bottom stack (fact line to small print). */
+  stackTop: number;
+  stackRight: number;
+  /** The bottom shading covers only the stack's column (wide screens), not the full width. */
+  narrowShade: boolean;
+};
+
+const GAP = 16;
+const MIN_BAND = 160;
+
+/**
+ * Where the route is drawn: clear of the text and of the dark part of the shading, so the balloon is
+ * never dimmed. In portrait, between the top text and the fact line; on a wide landscape screen, the
+ * column beside the stack. Where neither has room (a small landscape phone), the space below the top
+ * shading.
+ */
+export function freeBand(c: Chrome): Band {
+  const top = Math.max(c.hudTop + GAP, c.shadeTop - 24);
+  const above: Band = { left: GAP, right: c.w - GAP, top, bottom: c.stackTop - GAP };
+  if (above.bottom - above.top >= MIN_BAND) return above;
+  const beside: Band = { left: c.stackRight + 24, right: c.w - GAP, top, bottom: c.h - GAP };
+  if (c.narrowShade && beside.right - beside.left >= MIN_BAND && beside.bottom - beside.top >= 120) return beside;
+  return { left: GAP, right: c.w - GAP, top, bottom: Math.max(top + 120, c.h - GAP) };
+}
+
 /** The sea, lakes and national borders of one vector tile, in tile units. An empty tile is all land. */
 export function decodeCoast(bytes: Uint8Array): Coast {
   const out: Coast = { water: [], borders: [] };

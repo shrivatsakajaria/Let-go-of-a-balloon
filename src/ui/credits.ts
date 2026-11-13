@@ -22,6 +22,7 @@ export const MAP_CREDIT: Credit = [OPENFREEMAP, ' ', OPENMAPTILES, ' ', OSM, ' '
 export const CREDITS: Credit[] = [
   ['Map: ', OPENFREEMAP, ' ', OPENMAPTILES, ' ', OSM],
   ['Terrain: ', MAPTERHORN],
+  ['Terrain fallback: ', { text: 'Terrain Tiles', href: 'https://registry.opendata.aws/terrain-tiles/' }, ' by Mapzen, on AWS (', { text: 'sources', href: 'https://github.com/tilezen/joerd/blob/master/docs/attribution.md' }, ')'],
   ['© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.'],
   ['Winds: ', { text: 'NOAA GFS', href: 'https://www.ncei.noaa.gov/products/weather-climate-models/global-forecast' }],
   ['Place search: ', { text: 'Open-Meteo.com', href: 'https://open-meteo.com/' }, ' (', GEONAMES, ', ', { text: 'CC BY 4.0', href: 'https://creativecommons.org/licenses/by/4.0/' }, ')'],

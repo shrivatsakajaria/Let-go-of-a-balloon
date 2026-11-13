@@ -16,7 +16,7 @@ import { COPY } from './ui/copy';
 import { showNotice, type Notice } from './ui/notice';
 import { mountStart, type StartChoice } from './ui/start';
 import type { View } from './app/live';
-import type { Handover, World } from './app/world';
+import { resumeAction, type Handover, type World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
 
 const params = new URLSearchParams(location.search);
@@ -50,8 +50,9 @@ const deps = (contextLosses = 0) => ({ start, sceneEl, hudEl, noticeEl, setView,
 function loadMap(h?: Handover): Promise<World> {
   return import('./fallback/fallback2d').then((m) => {
     const f = m.startFallback(h?.flight ?? undefined, deps(), h?.choice ?? latest ?? start.start);
-    if (h?.state === 'launch' && !h.flight) f.letGo(h.choice);
-    else if (h && !h.flight && html.dataset.view !== 'broken') setView('start');
+    const a = h ? resumeAction(h, Date.now()).kind : 'stay';
+    if (a === 'launch') f.letGo(h!.choice);
+    else if (a === 'start') setView('start');
     live = f;
     return f;
   });

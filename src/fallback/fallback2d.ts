@@ -30,7 +30,7 @@ import { fetchVectorTile, vectorTileTemplate } from '../world/vector';
 import { landedAt, linkRoute, releaseRoute, warm } from '../app/data';
 import type { LiveDeps } from '../app/live';
 import type { Flight, World } from '../app/world';
-import { decodeCoast, fitView, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
+import { decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
 
 const LAND = CONTOUR.land[1];
 const SEA = CONTOUR.waterDeep;
@@ -332,6 +332,7 @@ export class Fallback implements World {
     this.hud.setOver('');
     this.deps.setView('flight');
     this.wrap.classList.add('on');
+    document.documentElement.dataset.map = '2d'; // the bottom shading narrows to the stack on wide screens
     // the map is bright land and sea: the shading behind the text darkens to match (spec 7.1)
     const L = Math.max(luminance(LAND), luminance(SEA));
     this.deps.start.setBackdropLuminance(L, L);
@@ -350,6 +351,7 @@ export class Fallback implements World {
     this.px = null;
     this.state = 'start';
     this.wrap.classList.remove('on', 'coast-in');
+    delete document.documentElement.dataset.map;
     history.replaceState(null, '', '/');
     this.deps.start.refresh();
     this.deps.setView('start');
@@ -379,6 +381,7 @@ export class Fallback implements World {
     window.removeEventListener('resize', this.onResize);
     this.hud.destroy();
     this.wrap.remove();
+    delete document.documentElement.dataset.map;
   }
 
   // ---- internals ----
@@ -417,17 +420,20 @@ export class Fallback implements World {
     });
   }
 
-  /**
-   * Between the clock and stats at the top and the fact line at the bottom, and below the darkest part
-   * of the top shading, so the balloon is never drawn dimmed under it.
-   */
+  /** The part of the screen the chrome and its shading leave clear (map2d.freeBand). */
   private band(w: number, h: number): Band {
-    const top = this.deps.hudEl.querySelector('.hud-top')?.getBoundingClientRect().bottom ?? 0;
-    const shade = document.querySelector('.shade-top')?.getBoundingClientRect().bottom ?? 0;
-    const bottom = this.deps.hudEl.querySelector('.hud-bottom')?.getBoundingClientRect().top ?? h;
-    const b = { left: 16, right: w - 16, top: Math.max(top + 16, shade - 24), bottom: bottom - 16 };
-    // a landscape phone leaves too little: use the whole screen then
-    return b.bottom - b.top < 120 ? { left: 16, right: w - 16, top: 16, bottom: h - 16 } : b;
+    const rect = (el: Element | null | undefined) => el?.getBoundingClientRect();
+    const stack = rect(this.deps.hudEl.querySelector('.hud-bottom'));
+    const shade = rect(this.deps.hudEl.querySelector('.hud-shade'));
+    return freeBand({
+      w,
+      h,
+      hudTop: rect(this.deps.hudEl.querySelector('.hud-top'))?.bottom ?? 0,
+      shadeTop: rect(document.querySelector('.shade-top'))?.bottom ?? 0,
+      stackTop: stack?.top ?? h,
+      stackRight: Math.max(stack?.right ?? w, shade?.right ?? w),
+      narrowShade: !!shade && shade.width > 0 && shade.right < w - 1,
+    });
   }
 
   private drawTop(): void {

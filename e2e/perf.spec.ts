@@ -13,10 +13,10 @@ import { liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
  * slowdowns off, to see what each one costs.
  *
  * Timings on a shared test machine are noisy (another job's load shows up as a slow route or a late
- * first frame), so a timing test gets one more try before it counts as failed.
+ * first frame), so the two timing tests get one more try before they count as failed.
  */
 test.use(SWIFTSHADER);
-test.describe.configure({ mode: 'default', timeout: 150_000, retries: 1 });
+test.describe.configure({ mode: 'default', timeout: 150_000 });
 
 const TRIANGLE_CAP = 600_000;
 const CALL_CAP = 250;
@@ -52,40 +52,44 @@ async function watchFirstFrame(page: Page) {
   });
 }
 
-test('something is on screen within 2 s: the sky and the title, then the 3D world', async ({ context, page }, info) => {
-  await liveWorld(context);
-  await startAtAlbertSquare(context);
-  await watchFirstFrame(page);
-  await midRangePhone(page);
-  await page.goto('/');
-  await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 60_000 });
-  const t = await page.evaluate(() => ({
-    fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? NaN,
-    frame: (window as unknown as { __firstFrameMs?: number }).__firstFrameMs ?? NaN,
-  }));
-  record(info, 'first contentful paint (ms)', Math.round(t.fcp));
-  record(info, '3D first frame (ms)', Math.round(t.frame));
-  expect(t.fcp).toBeLessThan(BUDGET_MS);
-  // the 3D world's first frame: compiled shaders and the first tiles on a software renderer. The budget is
-  // for a phone's GPU; here it is recorded, and held to a loose bound that still catches a regression.
-  expect(t.frame).toBeLessThan(BUDGET_MS * 6);
-});
+test.describe('timings', () => {
+  test.describe.configure({ retries: 1 });
 
-test('the route is ready within 2 s of Let go', async ({ context, page }, info) => {
-  await liveWorld(context);
-  await startAtAlbertSquare(context);
-  await midRangePhone(page);
-  await page.goto('/');
-  await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 60_000 });
-  // the winds and the ground under the start load while the visitor reads (spec 6.1: they load from the
-  // moment the start place is known); on the slowed phone that takes a few seconds
-  await page.waitForTimeout(5000);
-  await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  await expect.poll(async () => (await hook(page))?.routeMs ?? (await hook(page))?.routeError ?? null, { timeout: 30_000 }).not.toBeNull();
-  const h = (await hook(page))!;
-  expect(h.routeError).toBeNull();
-  record(info, 'route ready after Let go (ms)', h.routeMs!);
-  expect(h.routeMs!).toBeLessThan(BUDGET_MS);
+  test('something is on screen within 2 s: the sky and the title, then the 3D world', async ({ context, page }, info) => {
+    await liveWorld(context);
+    await startAtAlbertSquare(context);
+    await watchFirstFrame(page);
+    await midRangePhone(page);
+    await page.goto('/');
+    await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 60_000 });
+    const t = await page.evaluate(() => ({
+      fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? NaN,
+      frame: (window as unknown as { __firstFrameMs?: number }).__firstFrameMs ?? NaN,
+    }));
+    record(info, 'first contentful paint (ms)', Math.round(t.fcp));
+    record(info, '3D first frame (ms)', Math.round(t.frame));
+    expect(t.fcp).toBeLessThan(BUDGET_MS);
+    // the 3D world's first frame: compiled shaders and the first tiles on a software renderer. The budget is
+    // for a phone's GPU; here it is recorded, and held to a loose bound that still catches a regression.
+    expect(t.frame).toBeLessThan(BUDGET_MS * 6);
+  });
+
+  test('the route is ready within 2 s of Let go', async ({ context, page }, info) => {
+    await liveWorld(context);
+    await startAtAlbertSquare(context);
+    await midRangePhone(page);
+    await page.goto('/');
+    await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 60_000 });
+    // the winds and the ground under the start load while the visitor reads (spec 6.1: they load from the
+    // moment the start place is known); on the slowed phone that takes a few seconds
+    await page.waitForTimeout(5000);
+    await page.getByRole('button', { name: 'Let go', exact: true }).click();
+    await expect.poll(async () => (await hook(page))?.routeMs ?? (await hook(page))?.routeError ?? null, { timeout: 30_000 }).not.toBeNull();
+    const h = (await hook(page))!;
+    expect(h.routeError).toBeNull();
+    record(info, 'route ready after Let go (ms)', h.routeMs!);
+    expect(h.routeMs!).toBeLessThan(BUDGET_MS);
+  });
 });
 
 test('the hard caps hold during 20 s of live flight (renderer.info)', async ({ context, page }, info) => {

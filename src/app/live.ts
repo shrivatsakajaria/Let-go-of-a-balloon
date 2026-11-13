@@ -28,7 +28,7 @@ import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
 import { watchContextLoss, type ContextWatch } from './contextloss';
-import type { Handover } from './world';
+import { resumeAction, type Handover } from './world';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -345,19 +345,18 @@ export class Live {
    * yet starts again; anything else goes back to the start screen.
    */
   resume(h: Handover): void {
-    if (h.flight) {
+    const a = resumeAction(h, Date.now());
+    if (a.kind === 'fly' && h.flight) {
       const { route, home, own } = h.flight;
-      const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
       this.state = 'flight';
-      this.scene.fly(route, mode);
+      this.scene.fly(route, a.mode);
       this.hud.setPaused(false);
-      this.hud.setView(mode);
+      this.hud.setView(a.mode);
       this.beginFlight(route, home, own, h.flight.launched ?? false);
       this.deps.setView('flight');
-      return;
-    }
-    if (h.state === 'launch') return this.letGo(h.choice);
-    this.backToStart();
+    } else if (a.kind === 'launch') this.letGo(h.choice);
+    else if (a.kind === 'start') this.backToStart();
+    // 'stay': the start screen as it was (the constructor has already set the start place)
   }
 
   // ---- every frame ----

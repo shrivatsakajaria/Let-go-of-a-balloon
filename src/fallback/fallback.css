@@ -23,6 +23,20 @@
 .map2d .map2d-coast { opacity: 0; transition: opacity 600ms var(--ease); }
 .map2d.coast-in .map2d-coast { opacity: 1; }
 
+/*
+ * Landscape: the bottom stack is one column on the left, and its shading keeps to that column, fading
+ * out sideways, so the band beside it stays clear for the map (the balloon is never dimmed).
+ */
+@media (orientation: landscape) and (min-width: 560px) {
+  :root[data-map='2d'] .hud-bottom { max-width: min(560px, 48vw); }
+  :root[data-map='2d'] .hud-shade {
+    right: auto;
+    width: calc(min(560px, 48vw) + 2 * var(--gutter));
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent);
+  }
+}
+
 /* where the view switch would be: the 2D map has no camera views */
 .hud-note {
   min-height: 44px;

@@ -49,6 +49,48 @@ const orangePixels = (page: Page) =>
     return n;
   });
 
+/** Where the balloon is drawn (the middle of its orange pixels), in CSS px. */
+const balloonAt = (page: Page) =>
+  page.locator('.map2d-route').evaluate((c) => {
+    const cv = c as HTMLCanvasElement;
+    const k = cv.width / cv.clientWidth;
+    const d = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0, sx = 0, sy = 0;
+    for (let i = 0; i < d.length; i += 4)
+      if (d[i] > 230 && d[i + 1] > 70 && d[i + 1] < 110 && d[i + 2] < 50 && d[i + 3] > 200) {
+        n++;
+        sx += (i / 4) % cv.width;
+        sy += Math.floor(i / 4 / cv.width);
+      }
+    return n ? { x: sx / n / k, y: sy / n / k } : null;
+  });
+
+for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 667, height: 375 }]) {
+  test(`at ${size.width}x${size.height} the balloon is drawn clear of the text and the dark shading`, async ({ context, page }) => {
+    await page.setViewportSize(size);
+    await liveWorld(context);
+    await coast(context);
+    await noWebGL(context);
+    await page.goto(await linkTo(eastward(30)));
+    await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
+    await page.waitForTimeout(800); // the HUD has come in and the map is laid out round it
+    await expect.poll(() => balloonAt(page)).not.toBeNull();
+    const b = (await balloonAt(page))!;
+    const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
+    const shadeTop = await box('.shade-top');
+    const shadeBottom = await box('.hud-shade');
+    const stack = await box('.hud-bottom');
+    const top = await box('.hud-top');
+    // below the dark part of the top shading and the clock
+    expect(b.y).toBeGreaterThan(Math.max(top.y + top.height, shadeTop.y + shadeTop.height - 30));
+    // and not under the bottom shading or the stack
+    const underBottom = b.y > shadeBottom.y && b.x < shadeBottom.x + shadeBottom.width - 30;
+    expect(underBottom).toBe(false);
+    expect(b.y < stack.y || b.x > stack.x + stack.width).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`fallback-${size.width}x${size.height}.png`) });
+  });
+}
+
 test.describe('without WebGL', () => {
   test('Let go draws the route on a 2D map with the coastline, under the live HUD and facts', async ({ context, page }) => {
     const { external } = await liveWorld(context);
@@ -191,5 +233,34 @@ test.describe('WebGL context loss', () => {
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
     expect(await page.evaluate(() => '__live' in window)).toBe(false);
     expect(errors).toEqual([]);
+  });
+
+  test('a lost context leaves the broken-link notice where it is', async ({ context, page }) => {
+    await liveWorld(context);
+    await page.goto('/#b=AWkBlv4BCk1hbmNoZXN0ZXIKMjAy');
+    await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 30_000 });
+    const notice = page.getByText('This balloon link is broken.');
+    await expect(notice).toBeVisible();
+    const lose = () =>
+      page.evaluate(() => {
+        const c = document.querySelector('canvas.world') as HTMLCanvasElement;
+        const ext = c.getContext('webgl2')!.getExtension('WEBGL_lose_context')!;
+        c.addEventListener('webglcontextlost', () => setTimeout(() => ext.restoreContext(), 300), { once: true });
+        ext.loseContext();
+      });
+    // rebuilt once
+    const before = await page.locator('canvas.world').elementHandle();
+    await lose();
+    await expect.poll(() => before!.evaluate((c) => c.isConnected), { timeout: 15_000 }).toBe(false);
+    await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 30_000 });
+    await expect(notice).toBeVisible();
+    expect(await view(page)).toBe('broken');
+    // then the map
+    await lose();
+    await expect(page.locator('.map2d')).toHaveCount(1, { timeout: 15_000 });
+    await expect(notice).toBeVisible();
+    expect(await view(page)).toBe('broken');
+    await page.getByRole('button', { name: 'Let go of a new one' }).click();
+    await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   });
 });

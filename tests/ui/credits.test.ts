@@ -23,6 +23,12 @@ test('the credits list every source with the exact text of the plan', () => {
     expect(all).toContain(want);
 });
 
+test('the AWS terrain fallback (Mapzen Terrain Tiles) is credited, with its sources linked', () => {
+  const c = CREDITS.find((x) => creditText(x).startsWith('Terrain fallback: '));
+  expect(c && creditText(c)).toBe('Terrain fallback: Terrain Tiles by Mapzen, on AWS (sources)');
+  expect(creditHtml(c!)).toContain('href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md"');
+});
+
 test('the card credit line is the plan text', () => {
   expect(CARD_CREDIT).toBe('Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Terrain: © Mapterhorn · A Still Signal build');
 });

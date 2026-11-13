@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { decodeCoast, fitView, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type MapView } from '../../src/fallback/map2d';
+import { decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type MapView } from '../../src/fallback/map2d';
 
 const SIZE = { w: 390, h: 844 };
 const BAND = { left: 16, right: 374, top: 140, bottom: 520 };
@@ -96,4 +96,23 @@ test('decodes the sea and lakes of a real z5 tile (Britain and Ireland) in tile 
 
 test('an empty tile (all land) decodes to no water', () => {
   expect(decodeCoast(new Uint8Array(0))).toEqual({ water: [], borders: [] });
+});
+
+test('portrait: the map goes between the top text and the fact line, below the dark part of the top shading', () => {
+  const b = freeBand({ w: 390, h: 844, hudTop: 86, shadeTop: 170, stackTop: 560, stackRight: 374, narrowShade: false });
+  expect(b).toEqual({ left: 16, right: 374, top: 146, bottom: 544 });
+});
+
+test('landscape: the band above the stack is too thin, so the map goes in the clear column beside the stack', () => {
+  const b = freeBand({ w: 844, h: 390, hudTop: 86, shadeTop: 170, stackTop: 120, stackRight: 600, narrowShade: true });
+  expect(b.left).toBeGreaterThanOrEqual(600 + 16);
+  expect(b.right).toBe(828);
+  expect(b.top).toBe(146); // still below the top shading
+  expect(b.bottom).toBe(374);
+});
+
+test('never a band with no room: with nowhere clear, the space below the top shading is used', () => {
+  const b = freeBand({ w: 600, h: 320, hudTop: 86, shadeTop: 170, stackTop: 100, stackRight: 584, narrowShade: false });
+  expect(b.bottom - b.top).toBeGreaterThan(100);
+  expect(b.right - b.left).toBeGreaterThan(100);
 });
