@@ -522,8 +522,13 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
       { maxMs: FAR_WAIT_MS, everyMs: 100, alive: going },
     );
     if (how === 'cancelled') return null;
-    // the picture waits for its moment (the end of the replay), the land drawing meanwhile
-    if (gate) await gate;
+    // the picture waits for its moment (the end of the replay), the land drawing meanwhile; its shaders
+    // are compiled now (in parallel where the GPU can), so the picture at the end is quick
+    if (gate) {
+      stream.update(here, performance.now());
+      await live.renderer.compileAsync(scene, camera).catch(() => {});
+      await gate;
+    }
     if (!going()) return null;
     // twice, a second apart: tiles that came in just now are placed by the first and faded fully in
     // by the second (a tile still fading shows as haze)
