@@ -405,4 +405,56 @@ describe('Director', () => {
     expect(d.mode).toBe('film');
     expect(d.shot).toBe('ride');
   });
+
+  test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
+    const person: LatLon = { lat: 50, lon: 0 };
+    const H = 30;
+    const lh = (H * Math.PI) / 180;
+    const Ld = new THREE.Vector3(Math.sin(lh), 0, -Math.cos(lh));
+    const tower = (y: number) => Ld.clone().multiplyScalar(400).setY(y); // 100 m tall, 400 m away
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    d.setLaunch({ personAt: person, landmarkHeadingDeg: H, startUtcMs: 0 });
+    const w = (50 * Math.PI) / 180; // wind 20 deg off the landmark line
+    const mk = (t: number): RoutePoint => {
+      const fl = Math.max(0, t - 1.2);
+      const ll = fromScene(Math.sin(w) * 2.5 * fl, -Math.cos(w) * 2.5 * fl);
+      return { tSec: t, lat: ll.lat, lon: ll.lon, altM: 2.4 + 1.5 * fl, groundM: 0, speedMs: 2.5, headingDeg: 50 };
+    };
+    run(d, 0, 4.05, 0.05, mk, (t) => {
+      const k = Math.round(t * 100) / 100;
+      if (k < 0.5 || k > 4) return;
+      expect(inFrame(cam, ballPos(mk(t)))).toBe(true);
+      expect(inFrame(cam, tower(50))).toBe(true);
+      if (k === 0.5) {
+        // camera -> person -> landmark roughly in line
+        const toPerson = new THREE.Vector3(-cam.position.x, 0, -cam.position.z).normalize();
+        expect(toPerson.angleTo(Ld)).toBeLessThan((20 * Math.PI) / 180);
+        // the person (a 0.6 x 1.75 m box) does not cover the landmark
+        const box = new THREE.Box2(new THREE.Vector2(Infinity, Infinity), new THREE.Vector2(-Infinity, -Infinity));
+        for (const x of [-0.3, 0.3]) for (const y of [0, 1.75]) for (const z of [-0.3, 0.3]) {
+          const v = new THREE.Vector3(x, y, z).project(cam);
+          box.expandByPoint(new THREE.Vector2(v.x, v.y));
+        }
+        for (const y of [10, 50, 90]) {
+          const v = tower(y).project(cam);
+          expect(box.containsPoint(new THREE.Vector2(v.x, v.y))).toBe(false);
+        }
+      }
+    });
+  });
+
+  test('a non-finite heading (first launch frame, or mid-ride) never poisons the camera', () => {
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 30, startUtcMs: 0 });
+    const mk = (t: number, heading = 50): RoutePoint => ({ ...balloon(0, 2.4 + 1.5 * Math.max(0, t - 1.2), heading), tSec: t, speedMs: 0 });
+    d.update(mk(0, NaN), 0);
+    d.update(mk(0.05, NaN), 0.05);
+    expect(cam.position.toArray().every(Number.isFinite)).toBe(true);
+    run(d, 0.05, 30, 0.05, (t) => mk(t), () => expect(cam.position.toArray().every(Number.isFinite)).toBe(true));
+    expect(inFrame(cam, ballPos(mk(30)))).toBe(true);
+    d.update(mk(30.05, NaN), 0.05);
+    run(d, 30.05, 5, 0.05, (t) => mk(t), () => expect(cam.position.toArray().every(Number.isFinite)).toBe(true));
+  });
 });

@@ -74,18 +74,20 @@ type V3 = { x: number; y: number; z: number };
 const finite3 = (v: V3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 
 /**
- * pos: where the camera wants to be. y0: where the balloon sits in the frame (NDC y, horizontally centred);
+ * pos: where the camera wants to be. y0, x0: where the balloon sits in the frame (NDC; x0 defaults to 0);
  * the camera is aimed from wherever it actually is (after smoothing and clamps), so the framing holds even
  * while the position catches up, which matters a string's length from a 30 cm balloon.
  * anchor: per axis, how much of pos moves with the balloon (1) or stays put in the world (0).
  */
-type Target = { pos: THREE.Vector3; y0: number; fov: number; anchor: V3 };
+type Target = { pos: THREE.Vector3; y0: number; x0?: number; fov: number; anchor: V3 };
 const pitchOf = (v: THREE.Vector3) => Math.atan2(v.y, Math.hypot(v.x, v.z));
 /** The NDC height of the balloon B for a camera at pos looking at `look` (both in one vertical plane). */
 function frameY(pos: THREE.Vector3, look: THREE.Vector3, B: THREE.Vector3, fovDeg: number): number {
   const a = pitchOf(B.clone().sub(pos)) - pitchOf(look.clone().sub(pos));
   return Math.max(-0.9, Math.min(0.9, Math.tan(a) / Math.tan((fovDeg * RAD) / 2)));
 }
+/** landmarkHeadingDeg: bearing from the person to the featured landmark (spec 6.2); omit (or NaN) when there is none. */
+export type LaunchOpts = { personAt: LatLon; landmarkHeadingDeg?: number; startUtcMs: number };
 const BALLOON: V3 = { x: 1, y: 1, z: 1 };
 const WORLD: V3 = { x: 0, y: 0, z: 0 };
 
@@ -103,7 +105,9 @@ export class Director {
   private pending: { kind: DirectorEvent; at: number } | null = null;
   private orbit = 0;
   private launchT = 0;
-  private launchOpts: { personAt: LatLon; landmarkHeadingDeg: number; startUtcMs: number } | null = null;
+  private launchOpts: LaunchOpts | null = null;
+  /** Last finite route heading, for frames whose heading is not finite. */
+  private heading = Number.NaN;
   /** Street camera position for this launch (world), chosen on the first launch frame. */
   private street: THREE.Vector3 | null = null;
   /** Which way the pull-back swings round the balloon (chosen once, so it never flips mid-move). */
@@ -113,6 +117,8 @@ export class Director {
   private prevB = new THREE.Vector3();
   private pos = new THREE.Vector3();
   private y0 = 0.5;
+  private x0 = 0;
+  private x0V = 0;
   private posV = new THREE.Vector3();
   private y0V = 0;
   private fov = 50;
@@ -180,7 +186,7 @@ export class Director {
   }
 
   /** Street-level launch shot; runs 20 s from this call, then hands over to film (whose first shot is ride) (or a view chosen meanwhile). */
-  setLaunch(opts: { personAt: LatLon; landmarkHeadingDeg: number; startUtcMs: number }): void {
+  setLaunch(opts: LaunchOpts): void {
     this.launchOpts = opts;
     this.launchT = 0;
     this.afterLaunch = 'film';
@@ -240,6 +246,8 @@ export class Director {
     if (!this.ready) {
       this.pos.copy(tg.pos);
       this.y0 = tg.y0;
+      this.x0 = tg.x0 ?? 0;
+      this.x0V = 0;
       this.fov = tg.fov;
       this.posV.set(0, 0, 0);
       this.y0V = 0;
@@ -256,6 +264,7 @@ export class Director {
 
     spring3(this.pos, this.posV, tg.pos, this.tau, dtFull);
     [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, this.tau, dtFull);
+    [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this.tau, dtFull);
     [this.fov, this.fovV] = spring1(this.fov, this.fovV, tg.fov, this.tau, dtFull);
     this.apply(b, B, B0);
   }
@@ -265,7 +274,7 @@ export class Director {
     this.clamp(out, b, B, B0);
     this.camera.position.copy(out);
     this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(this.aim(out, B, this.y0, this.fov));
+    this.camera.lookAt(this.aim(out, B, this.y0, this.fov, this.x0));
     if (Math.abs(this.camera.fov - this.fov) > 1e-6) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
@@ -281,12 +290,18 @@ export class Director {
     return Math.min(max, Math.max(min, d));
   }
 
-  /** A point to look at that puts the balloon at NDC (0, y0) for a camera at pos (fov in degrees). */
-  private aim(pos: THREE.Vector3, B: THREE.Vector3, y0: number, fovDeg: number): THREE.Vector3 {
+  /** tan of the horizontal half field of view for a vertical fov in degrees. */
+  private tanH(fovDeg: number): number {
+    const aspect = Number.isFinite(this.camera.aspect) && this.camera.aspect > 0 ? this.camera.aspect : 1;
+    return Math.tan((fovDeg * RAD) / 2) * aspect;
+  }
+
+  /** A point to look at that puts the balloon at NDC (x0, y0) for a camera at pos (fov in degrees). */
+  private aim(pos: THREE.Vector3, B: THREE.Vector3, y0: number, fovDeg: number, x0 = 0): THREE.Vector3 {
     const v = B.clone().sub(pos);
     const dist = v.length();
     if (!(dist > 1e-6)) return B.clone().add(new THREE.Vector3(0, -1, -1));
-    const yaw = Math.atan2(v.x, -v.z);
+    const yaw = Math.atan2(v.x, -v.z) - Math.atan(x0 * this.tanH(fovDeg));
     const pitchB = Math.atan2(v.y, Math.hypot(v.x, v.z));
     // keep off the pole so lookAt's up vector stays defined
     const pitch = Math.min(1.45, Math.max(-1.45, pitchB - Math.atan(y0 * Math.tan((fovDeg * RAD) / 2))));
@@ -295,7 +310,11 @@ export class Director {
   }
 
   private target(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): Target {
-    const h = b.headingDeg * RAD;
+    // a non-finite heading falls back to the last good one, then to the landmark bearing, then north
+    if (Number.isFinite(b.headingDeg)) this.heading = b.headingDeg;
+    const lm = this.launchOpts?.landmarkHeadingDeg;
+    const hd = Number.isFinite(this.heading) ? this.heading : lm !== undefined && Number.isFinite(lm) ? lm : 0;
+    const h = hd * RAD;
     const dir = new THREE.Vector3(Math.sin(h), 0, -Math.cos(h)); // where the wind carries it
     const right = new THREE.Vector3(-dir.z, 0, dir.x);
     switch (this._shot) {
@@ -370,34 +389,70 @@ export class Director {
     return { pos, y0: frameY(pos, look, B, fov), fov, anchor: BALLOON };
   }
 
+  /** Unit bearing from the person to the featured landmark, or null when there is none. */
+  private landmarkDir(): THREE.Vector3 | null {
+    const lm = this.launchOpts?.landmarkHeadingDeg;
+    if (lm === undefined || !Number.isFinite(lm)) return null;
+    return new THREE.Vector3(Math.sin(lm * RAD), 0, -Math.cos(lm * RAD));
+  }
+
   /**
-   * Street camera, chosen once per launch: eye height a few metres upwind of the person and a little to one
-   * side, so the balloon drifts away from it, never over it, and the person stays in the bottom of a narrow
-   * portrait frame while it tilts up. The first spot with no building on it wins.
+   * Street camera, chosen once per launch, at eye height. The first spot with no building on it wins.
+   * With a featured landmark (spec 6.2: in view during the launch) the camera stands beyond the person from
+   * it, camera -> person -> landmark roughly in line, 5-12 m back and 0.7-4 m to the side the balloon drifts
+   * to (so the rising balloon crosses the landmark line and the person, at eye level, stands beside it
+   * rather than over it). That is skipped when the wind would carry the balloon back over the camera within
+   * the tilt even from 12 m (landmark well upwind), or when every such spot is blocked. Otherwise (and with
+   * no landmark): a few metres upwind of the person and a little to one side, so the balloon drifts away
+   * from it, never over it, and the person stays in the bottom of a narrow portrait frame while it tilts up.
+   * The director cannot see occlusion: the app must put the person where the landmark has a sightline.
    */
   private streetPos(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): THREE.Vector3 {
     if (this.street) return this.street;
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const P = new THREE.Vector3(ps.x, 0, ps.z);
-    const offsets: [number, number][] = [[-4.2, 0.9], [-4.2, -0.9], [-4, 2.5], [-4, -2.5], [-1, 2.8], [-1, -2.8], [-2.5, 1.2], [-2.5, -1.2]];
+    const spots: THREE.Vector3[] = [];
+    const Ld = this.landmarkDir();
+    if (Ld) {
+      // Fit the balloon's drift to the landmark line within a narrow portrait frame over 0.5-4 s: further
+      // back for a crosswind, and to the side the balloon drifts to, by just enough that its bearing swings
+      // evenly across the line (as far off it at 0.5 s as at 4 s). Further back still if the landmark is
+      // upwind, so the balloon is still in front of the camera at 8 s; past 12 m that is not possible.
+      const Rd = new THREE.Vector3(-Ld.z, 0, Ld.x);
+      const v = Number.isFinite(b.speedMs) ? Math.max(1.5, b.speedMs) : 2.5;
+      const s4 = v * (4 - LAUNCH.holdS), s8 = v * (LAUNCH.tiltEndS - LAUNCH.holdS);
+      const wL = dir.dot(Ld), wR = dir.dot(Rd);
+      let back = 5 + 6 * Math.abs(wR);
+      if (back + s8 * wL < 3) back = 3 - s8 * wL;
+      if (back <= 12) {
+        const den = 2 * back + s4 * wL;
+        const side = (den > 1 ? Math.min(4, Math.max(0.7, (back * s4 * Math.abs(wR)) / den)) : 0.7) * (wR >= 0 ? 1 : -1);
+        const set: [number, number][] = [[back, side], [back, -side], [back + 2, side], [back * 0.7, side], [back + 2, -side], [back * 0.7, -side]];
+        for (const [bk, sd] of set) spots.push(P.clone().addScaledVector(Ld, -bk).addScaledVector(Rd, sd));
+      }
+    }
+    const upwind: [number, number][] = [[-4.2, 0.9], [-4.2, -0.9], [-4, 2.5], [-4, -2.5], [-1, 2.8], [-1, -2.8], [-2.5, 1.2], [-2.5, -1.2]];
+    for (const [back, side] of upwind) spots.push(P.clone().addScaledVector(dir, back).addScaledVector(right, side));
     let pick: THREE.Vector3 | null = null;
-    for (const [back, side] of offsets) {
-      const c = P.clone().addScaledVector(dir, back).addScaledVector(right, side);
+    for (const c of spots) {
       const ll = this.fromScene(c.x, c.z, b, B0);
       const g = this.deps.groundAt(ll);
+      if (!Number.isFinite(g) || !Number.isFinite(c.x) || !Number.isFinite(c.z)) continue;
       if (this.deps.buildingTopAt && this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) continue;
       pick = c.setY(g + EYE_M);
       break;
     }
     if (!pick) pick = P.clone().addScaledVector(dir, -1.5).setY(this.deps.groundAt(o.personAt) + EYE_M);
+    if (!finite3(pick)) return P.clone().setY(EYE_M); // never cache a non-finite spot; try again next frame
     this.street = pick;
     return pick;
   }
 
   /**
-   * Spec 8 launch. 0-1.2 s: low at street level beside the person, the person and the balloon in the shot.
-   * 1.2-8 s: the camera stays at eye height (rising under a metre) and tilts up with the balloon, past the
+   * Spec 8 launch. 0-1.2 s: low at street level beside the person, the person and the balloon in the shot
+   * (and the featured landmark beyond them, which the view leans toward until 8 s).
+   * 1.2-8 s: the camera stays at eye height (rising under a metre) and tilts up with the balloon (fov 40-44), past the
    * rooftops. 8-20 s: it climbs and catches up, swinging round to a few metres behind the balloon on the
    * landmark line (the crane, a little below it, so the landmark sits under it as the view widens to show
    * the place), and from 14.5 s closes in to the Ride framing, which it reaches at 19 s, so the hand-over
@@ -405,22 +460,30 @@ export class Director {
    * through it. The balloon stays in the frame throughout (the camera is aimed at it every frame).
    */
   private launchTarget(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3): Target {
-    const o = this.launchOpts!;
     const t = this.launchT;
     const S = this.streetPos(b, B0, dir, right);
     const k = inOut(LAUNCH.holdS, LAUNCH.tiltEndS, t);
     const street = S.clone();
     street.y += STREET_RISE_M * k;
-    const fovStreet = 38 + 4 * k;
+    const fovStreet = 40 + 4 * k;
     const yStreet = 0.6 - 0.4 * k; // balloon high in the frame over the person, then nearer the middle
+    const Lm = this.landmarkDir();
+    // With a landmark, swing the view from the balloon toward it: the two share the frame symmetrically, the
+    // balloon kept within 0.6 of the centre (it always wins).
+    let xStreet = 0;
+    if (Lm) {
+      const v = B.clone().sub(street);
+      const d = wrapPi(Math.atan2(v.x, -v.z) - Math.atan2(Lm.x, -Lm.z));
+      const dd = Math.max(-1.2, Math.min(1.2, d));
+      xStreet = Math.max(-0.6, Math.min(0.6, (0.5 * Math.tan(dd)) / this.tanH(fovStreet)));
+    }
     if (t < LAUNCH.tiltEndS) {
-      return { pos: street, y0: yStreet, fov: fovStreet, anchor: WORLD };
+      return { pos: street, y0: yStreet, x0: xStreet, fov: fovStreet, anchor: WORLD };
     }
     const av = inOut(8, 12.5, t); // climb first
     const ah = inOut(8.5, 14, t); // and catch up, swinging round to the landmark side
     const c = inOut(14.5, 19, t); // then close in to ride
-    const lh = o.landmarkHeadingDeg * RAD;
-    const Ld = new THREE.Vector3(Math.sin(lh), 0, -Math.cos(lh));
+    const Ld = Lm ?? dir; // no landmark: the crane sits behind the balloon on the wind line
     const crane = Ld.clone().multiplyScalar(-CRANE_M * Math.cos(CRANE_EL));
     crane.y = -CRANE_M * Math.sin(CRANE_EL);
     const ride = this.ride(B, dir, right);
@@ -430,7 +493,7 @@ export class Director {
     const fov = mix(mix(fovStreet, 50, ah), ride.fov, c);
     const y0 = mix(mix(yStreet, 0.3, ah), 0.52, c);
     const wh = ah + (1 - ah) * c, wv = av + (1 - av) * c;
-    return { pos, y0, fov, anchor: { x: wh, y: wv, z: wh } };
+    return { pos, y0, x0: xStreet * (1 - ah), fov, anchor: { x: wh, y: wv, z: wh } };
   }
 
   /** Blend two balloon-relative offsets by horizontal distance (log), bearing and height. */
