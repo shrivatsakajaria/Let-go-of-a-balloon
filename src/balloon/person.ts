@@ -45,6 +45,12 @@ export type PlayOpts = {
    * wait to the caller (the live scene counts it in real time and calls holdIdle).
    */
   holdS?: number;
+  /**
+   * A real clock (ms, e.g. performance.now): the hold (1.2 s, and holdS) is then counted in real
+   * time, so a phone at a frame or two a second still lets go at 1.2 s once the route is ready. By
+   * default it is counted in frame time (update's dt, at most 0.1 s a frame).
+   */
+  now?: () => number;
 };
 
 type V3 = { x: number; y: number; z: number };
@@ -90,6 +96,8 @@ export class Person {
   private onRelease: (() => void) | null = null;
   private onTimeout: (() => void) | null = null;
   private holdS = MAX_HOLD_S;
+  private realNow: (() => number) | null = null;
+  private startMs = 0;
   private look: V3 | null = null;
   // smoothed joint values
   private j = { headPitch: 0, headYaw: 0, lean: 0, rUpper: HOLD.upper, rElbow: HOLD.elbow, rOut: HOLD.out, open: 0 };
@@ -190,6 +198,8 @@ export class Person {
     this.onRelease = onRelease;
     this.onTimeout = opts.onTimeout ?? null;
     this.holdS = opts.holdS ?? MAX_HOLD_S;
+    this.realNow = opts.now ?? null;
+    this.startMs = this.realNow ? this.realNow() : 0;
     this.failed = false;
     this.ready = !opts.readyAt;
     opts.readyAt?.then(
@@ -222,12 +232,14 @@ export class Person {
     this.clock += dt;
     if (this.state === 'holding') {
       this.t += dt;
-      if (this.t >= this.holdS - 1e-9 || this.failed) {
+      // how long it has held: real time when play() was given a clock, else frame time
+      const held = this.realNow ? (this.realNow() - this.startMs) / 1000 : this.t;
+      if (held >= this.holdS - 1e-9 || this.failed) {
         this.state = 'timedOut';
         const cb = this.onTimeout;
         this.onTimeout = this.onRelease = null;
         cb?.();
-      } else if (this.t >= HOLD_S - 1e-9 && this.ready) {
+      } else if (held >= HOLD_S - 1e-9 && this.ready) {
         this.state = 'released';
         this.releasedAt = this.t;
         const cb = this.onRelease;

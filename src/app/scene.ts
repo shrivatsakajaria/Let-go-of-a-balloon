@@ -283,7 +283,9 @@ export class LiveScene {
         this.balloon.release();
         onRelease(ready!);
       },
-      { readyAt: route, onTimeout: timeout, holdS: Infinity },
+      // the 1.2 s before the hand opens is real time too: a phone at a frame or two a second lets go
+      // once the route is in, not after 1.2 s of its capped frame time (12 frames, so 12 s at 1 fps)
+      { readyAt: route, onTimeout: timeout, holdS: Infinity, now: () => performance.now() },
     );
   }
 
