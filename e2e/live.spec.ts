@@ -295,3 +295,15 @@ test('with the world live, the HUD never takes taps meant for the start screen (
   await ready(page);
   await credits(); // the broken link
 });
+
+test('the winds manifest, the terrain header and the start ground are asked for at page load, before the 3D world arrives', async ({ context, page }) => {
+  const { winds } = await liveWorld(context);
+  await startAtAlbertSquare(context);
+  const terrain: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('mapterhorn.com/planet.pmtiles')) terrain.push(r.url()); });
+  // the world's chunks (and three.js) never arrive: the warm-up must not wait for them
+  await context.route(/\/assets\/(live|sky)-[^/]*\.js$/, (r) => r.abort('failed'));
+  await page.goto('/');
+  await expect.poll(() => winds.includes('/winds/manifest.json'), { timeout: 10_000 }).toBe(true);
+  await expect.poll(() => terrain.length, { timeout: 10_000 }).toBeGreaterThan(0);
+});

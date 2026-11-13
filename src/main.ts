@@ -29,6 +29,15 @@ let liveP: Promise<Live> | null = null;
 let latest: StartChoice | null = null;
 let broken: Notice | null = null;
 
+/**
+ * Start loading what a release from c needs (the winds manifest and tiles round it, the terrain archive's
+ * header and the start's ground) straight away, from a small chunk with no three.js in it, rather than
+ * after the 3D world has arrived.
+ */
+function warmup(c: StartChoice) {
+  import('./app/data').then((d) => d.warm(c)).catch(() => {});
+}
+
 /** The world, loaded once; a failed load (a flaky connection, a new deploy) is tried again next time. */
 function loadLive(): Promise<Live> {
   liveP ??= import('./app/live')
@@ -71,6 +80,7 @@ const start = mountStart(
     onOpenBalloon: open,
     onStartChange(c) {
       latest = c;
+      warmup(c);
       live?.setStart(c);
     },
   },
