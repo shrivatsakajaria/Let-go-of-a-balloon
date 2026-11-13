@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Page, type TestInfo } from '@pl
 import { encodeBalloon, type SavedBalloon } from '../src/flight/codec';
 import { destination, type LatLon } from '../src/geo/coords';
 import { sunPosition } from '../src/geo/sun';
-import { SWIFTSHADER } from './fixtures';
+import { SWIFTSHADER, eastward, linkTo } from './fixtures';
 
 /**
  * The frame budget in the densest launch cities, on the REAL map and terrain (spec 12: under 600,000
@@ -143,6 +143,37 @@ for (const city of CITIES) {
     }
   });
 }
+
+/** A mid-range phone on 4G: CPU 4x slower, DevTools' "Fast 4G" (as e2e/perf.spec.ts). */
+async function midRangePhone(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.PERF_CPU ?? 4) });
+  await cdp.send('Network.enable');
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 165, downloadThroughput: (9e6 * 0.9) / 8, uploadThroughput: (1.5e6 * 0.9) / 8 });
+}
+
+type CardWorld = { tiles: number; settled: number; failed: number; ms: number; readyAt: number; compiledAt: number; gateAt: number; triangles: number; calls: number };
+
+test('the card world on a mid-range phone: made while the replay plays, on the real coarse land', async ({ context, page }, info) => {
+  test.skip(!!process.env.PERF_CITY && !process.env.PERF_CITY.split(',').includes('card'), 'PERF_CITY leaves it out (add card)');
+  await realWorld(context, Date.now());
+  await midRangePhone(page);
+  // a balloon 30 h along, eastward from Manchester over the North Sea: a long route, its own card world
+  await page.goto(await linkTo(eastward(30)));
+  await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 120_000 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 120_000 }).toBe('flight');
+  await page.waitForTimeout(10_000);
+  const t0 = await page.evaluate(() => Date.now());
+  await page.getByRole('button', { name: 'Show me the whole trip' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible({ timeout: 300_000 });
+  const c = await page.evaluate(() => (window as unknown as { __card: { startedAt: number; openedAt: number; world: CardWorld } }).__card);
+  const replayMs = await page.evaluate(() => (window as unknown as { __live: { replayMs: number | null } }).__live.replayMs);
+  const w = c.world;
+  const line = `card world: ${w.tiles} tiles wanted, ${w.settled} in, ${w.failed} failed; its land ${w.readyAt ? 'ready' : 'not ready'} ${w.readyAt && w.gateAt ? `${((w.readyAt - w.gateAt) / 1000).toFixed(1)} s from the replay's end` : ''}; picture ${w.calls} calls ${Math.round(w.triangles / 1000)}k triangles; replay ${replayMs} ms; card asked ${((c.startedAt - t0) / 1000).toFixed(1)} s and up ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap`;
+  info.annotations.push({ type: 'card world', description: line });
+  console.log(`perf-cities: ${line}`);
+  expect(w.tiles).toBeGreaterThan(0);
+});
 
 test.afterAll(() => {
   if (!all.length) return;
