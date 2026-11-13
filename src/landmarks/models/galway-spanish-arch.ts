@@ -12,12 +12,8 @@ import { Kit, LANDMARK_COLOURS as C, type Vec3 } from '../kit';
 import type { LandmarkModel } from '../types';
 import type { Color } from '../../world/palette';
 
-/** Grass on the wall walk: the Contour sage (land[2]). */
-const GRASS: Color = '#a0c078';
 /** Facets in each half-round arch. */
 const SEG = 8;
-/** Weathered grey limestone: the Contour rail grey (palette ROADS.rail), warmer and paler than slate. */
-const LIMESTONE: Color = '#b4aea2';
 
 /** A round arch: centre x, width, springing height; `blind` its depth if it does not go through. */
 type Arch = { x: number; w: number; spring: number; blind?: number };
@@ -80,7 +76,7 @@ export const model: LandmarkModel = {
   build() {
     const k = new Kit();
     // grey limestone rubble with paler dressed stone round the arches and on the coping
-    const wall = LIMESTONE, dressed = C.chalkShade;
+    const wall = C.limestone, dressed = C.chalkShade;
     const Y0 = -3, TOP = 6.6;
     // the bastion block, x 3..18, 6 m thick, with its two arches
     const X0 = 3, X1 = 18, ZF = -3, ZB = 3;
@@ -94,7 +90,7 @@ export const model: LandmarkModel = {
     k.quad('plain', wall, [X1, Y0, ZF], [X1, Y0, ZB], [X1, TOP, ZB], [X1, TOP, ZF], [1, 0, 0]);
     k.quad('plain', wall, [X0, Y0, ZB], [X0, Y0, ZF], [X0, TOP, ZF], [X0, TOP, ZB], [-1, 0, 0]);
     // the walk on top: grass between low parapets, a coping all round
-    k.quad('plain', GRASS, [X0, TOP, ZF], [X1, TOP, ZF], [X1, TOP, ZB], [X0, TOP, ZB], [0, 1, 0]);
+    k.quad('plain', C.grass, [X0, TOP, ZF], [X1, TOP, ZF], [X1, TOP, ZB], [X0, TOP, ZB], [0, 1, 0]);
     k.box('plain', wall, (X0 + X1) / 2, TOP, ZF + 0.3, X1 - X0, 0.9, 0.6, { topColour: dressed });
     k.box('plain', wall, (X0 + X1) / 2, TOP, ZB - 0.3, X1 - X0, 0.9, 0.6, { topColour: dressed });
     k.box('plain', wall, X1 - 0.3, TOP, 0, 0.6, 0.9, ZB - ZF - 1.2, { topColour: dressed });

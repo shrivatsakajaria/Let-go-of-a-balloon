@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS as C } from '../kit';
 import type { LandmarkModel } from '../types';
-import { CONTOUR, type RegionStyle } from '../../world/palette';
+import type { RegionStyle } from '../../world/palette';
 
 /** Everything stands on this (below the street, so slopes never show under it). */
 const B = -4;
@@ -28,7 +28,7 @@ const CS = 6;
 /** The birds stand here, m. */
 const BIRD_Y = 98.2;
 /** Verdigris copper: the Contour pale sea-green. */
-const BIRD = CONTOUR.waterShallow;
+const BIRD = C.copper;
 
 type Hands = { hour: THREE.Object3D[]; minute: THREE.Object3D[]; hourKey: number; offsetMs: number };
 type Wings = { left: THREE.Object3D[]; right: THREE.Object3D[] };
@@ -88,8 +88,8 @@ function birdBody(k: Kit): void {
   k.tri('plain', BIRD, 0.2, 4.1, -0.82, -0.2, 4.1, -0.82, t[0], t[1], t[2], 0, -1, -0.3);
   for (const n of [-1, 1]) {
     const z = -1.2 + n * 0.02;
-    if (n < 0) k.quad('plain', CONTOUR.land[3], [-0.12, 4.1, z], [0.12, 4.1, z], [0.2, 3.1, z], [-0.05, 3.2, z], [0, 0, -1]);
-    else k.quad('plain', CONTOUR.land[3], [0.12, 4.1, z], [-0.12, 4.1, z], [-0.05, 3.2, z], [0.2, 3.1, z], [0, 0, 1]);
+    if (n < 0) k.quad('plain', C.sage, [-0.12, 4.1, z], [0.12, 4.1, z], [0.2, 3.1, z], [-0.05, 3.2, z], [0, 0, -1]);
+    else k.quad('plain', C.sage, [0.12, 4.1, z], [-0.12, 4.1, z], [-0.05, 3.2, z], [0.2, 3.1, z], [0, 0, 1]);
   }
 }
 

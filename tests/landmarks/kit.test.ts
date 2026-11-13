@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Kit, LANDMARK_COLOURS, contourColours, countTriangles, linearColour } from '../../src/landmarks/kit';
-import { DEFAULT_REGION, hslOf, toHex } from '../../src/world/palette';
+import { CONTOUR, DEFAULT_REGION, ROADS, hslOf, regionStyle, toHex } from '../../src/world/palette';
 
 /** Every triangle's stored normal points away from the given centre. */
 function outward(g: THREE.BufferGeometry, cx: number, cy: number, cz: number): boolean {
@@ -68,6 +68,34 @@ test('prisms, spires, gables and discs face outward; push/turn moves and turns w
   expect(tg.boundingBox!.max.x).toBeCloseTo(111, 5);
   expect(tg.boundingBox!.min.x).toBeCloseTo(-1, 5);
   expect(outward(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute((tg.getAttribute('position').array as Float32Array).slice(0, 30 * 3), 3)).setAttribute('normal', new THREE.BufferAttribute((tg.getAttribute('normal').array as Float32Array).slice(0, 30 * 3), 3)), 110, 1, 50)).toBe(true);
+});
+
+test('a prism can be closed below (an overhang, a cornice: no sky through it from under)', () => {
+  const k = new Kit();
+  k.prism('plain', LANDMARK_COLOURS.stone, 0, 5, 0, 3, 2, 8, { bottom: true, r1: 2 });
+  expect(k.triangles).toBe(8 * 2 + 6 + 6);
+  const g = (k.group('p').children[0] as THREE.Mesh).geometry;
+  expect(outward(g, 0, 6, 0)).toBe(true);
+  // the bottom faces down, at y0, as wide as the base
+  const p = g.getAttribute('position'), n = g.getAttribute('normal');
+  let down = 0, maxR = 0;
+  for (let i = 0; i < p.count; i++) {
+    if (n.getY(i) < -0.99) {
+      down++;
+      expect(p.getY(i)).toBeCloseTo(5, 6);
+      maxR = Math.max(maxR, Math.hypot(p.getX(i), p.getZ(i)));
+    }
+  }
+  expect(down).toBe(6 * 3);
+  expect(maxR).toBeCloseTo(3, 6);
+});
+
+test('landmark colours: limestone (the rail grey), copper (the pale sea-green) and a fixed red stone', () => {
+  expect(LANDMARK_COLOURS.limestone).toBe(ROADS.rail);
+  expect(LANDMARK_COLOURS.copper).toBe(CONTOUR.waterShallow);
+  // the UK and Ireland's muted brick, whatever the region a model stands in
+  expect(LANDMARK_COLOURS.redStone).toBe(regionStyle({ lat: 51.9033, lon: -8.4762 }).walls[0]);
+  expect(contourColours(DEFAULT_REGION)).toContain(LANDMARK_COLOURS.redStone);
 });
 
 test('colours are stored linear, and every Contour colour is calm (the balloon stays the only saturated thing)', () => {

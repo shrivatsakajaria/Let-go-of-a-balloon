@@ -12,8 +12,6 @@ import { Kit, LANDMARK_COLOURS as C } from '../kit';
 import type { LandmarkModel } from '../types';
 import type { Color } from '../../world/palette';
 
-/** Copper gone green: the Contour pale water tone, the nearest calm verdigris in the palette. */
-const COPPER: Color = '#8fd3cf';
 /** The great dome's axis (over the north range), model frame. */
 const DOME_Z = -17;
 
@@ -57,9 +55,9 @@ function cornerTower(k: Kit, x: number, z: number): void {
     k.pop();
   }
   k.prism('plain', C.chalkShade, x, 26, z, 4.3, 0.7, 8, { rot: 22.5 });
-  dome(k, COPPER, x, 26.7, z, 3.9, 5.6, 8, 3);
+  dome(k, C.copper, x, 26.7, z, 3.9, 5.6, 8, 3);
   k.prism('plain', C.chalk, x, 31.6, z, 0.9, 2.0, 6);
-  k.spire('plain', COPPER, x, 33.6, z, 1.1, 1.4, 6);
+  k.spire('plain', C.copper, x, 33.6, z, 1.1, 1.4, 6);
   k.prism('plain', C.gilt, x, 35, z, 0.12, 1.2, 4);
 }
 
@@ -92,7 +90,7 @@ export const model: LandmarkModel = {
     k.box('plain', C.chalk, 0, 15.9, -42.1, 14, 1.6, 1.6);
     for (const x of [-8.6, 8.6]) {
       k.prism('plain', C.chalk, x, 18.3, -40.4, 1.5, 3.4, 8, { rot: 22.5 });
-      dome(k, COPPER, x, 21.7, -40.4, 1.5, 2.2, 8, 2);
+      dome(k, C.copper, x, 21.7, -40.4, 1.5, 2.2, 8, 2);
       k.prism('plain', C.gilt, x, 23.9, -40.4, 0.1, 0.9, 4);
     }
 
@@ -108,7 +106,7 @@ export const model: LandmarkModel = {
     }
     k.prism('plain', C.chalkShade, 0, 30.8, DOME_Z, 9.1, 1.0, 16);
     k.prism('plain', C.chalk, 0, 31.8, DOME_Z, 7.8, 1.6, 16, { top: false });
-    dome(k, COPPER, 0, 33.4, DOME_Z, 7.6, 10.2, 16, 5);
+    dome(k, C.copper, 0, 33.4, DOME_Z, 7.6, 10.2, 16, 5);
     // the lantern: a colonnaded drum (lit from dusk), its own copper cap, the finial
     k.prism('plain', C.chalkShade, 0, 42.6, DOME_Z, 2.3, 0.6, 8, { rot: 22.5 });
     k.prism('glow', C.chalk, 0, 43.2, DOME_Z, 1.75, 3.6, 8, { rot: 22.5, top: false });
@@ -117,7 +115,7 @@ export const model: LandmarkModel = {
       k.prism('plain', C.chalk, Math.sin(a) * 1.95, 43.2, DOME_Z - Math.cos(a) * 1.95, 0.25, 3.6, 4);
     }
     k.prism('plain', C.chalkShade, 0, 46.8, DOME_Z, 2.3, 0.5, 8, { rot: 22.5 });
-    dome(k, COPPER, 0, 47.3, DOME_Z, 2.1, 2.6, 8, 2);
+    dome(k, C.copper, 0, 47.3, DOME_Z, 2.1, 2.6, 8, 2);
     k.prism('plain', C.gilt, 0, 49.9, DOME_Z, 0.35, 0.5, 6, { r1: 0.35 });
     k.spire('plain', C.gilt, 0, 50.4, DOME_Z, 0.3, 2.6, 4);
     return k.group('belfast-city-hall');

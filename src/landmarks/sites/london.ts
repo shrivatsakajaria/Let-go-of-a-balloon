@@ -24,7 +24,9 @@ export const sites: LandmarkSite[] = [
     // the middle of the axis between the two towers; the river front is about 65 m to the east
     at: { lat: 51.499515, lon: -0.124965 },
     headingDeg: WESTMINSTER_AXIS_DEG,
-    footprintRadiusM: 160,
+    // the model's farthest corner (the river front by the Victoria Tower) is 168.7 m out; the
+    // radius bounds the model only (loading and the checks): the circles below do the hiding
+    footprintRadiusM: 170,
     // the palace is 290 m long and up to 145 m wide: eight circles over it take every OSM part of it
     // (checked on the 2026-11 tile) and nothing across the road (the Abbey, the Jewel Tower,
     // Portcullis House)

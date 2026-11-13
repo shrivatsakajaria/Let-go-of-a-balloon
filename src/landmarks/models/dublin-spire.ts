@@ -16,8 +16,6 @@ const H = 121.2;
 const R0 = 1.5;
 const R1 = 0.075;
 const SIDES = 24;
-/** Steel: the Contour rail grey (palette ROADS.rail), the palest metal grey the palette has. */
-const STEEL = '#b4aea2';
 const r = (y: number) => R0 + ((R1 - R0) * y) / H;
 
 export const model: LandmarkModel = {
@@ -29,7 +27,7 @@ export const model: LandmarkModel = {
     // the cone in stages: the darker shot-peened foot, the polished shaft, the lit crown, the tip
     const stages: [number, number, string, 'plain' | 'glow'][] = [
       [-0.2, 10, C.slate, 'plain'],
-      [10, 109, STEEL, 'plain'],
+      [10, 109, C.limestone, 'plain'], // stainless steel: the palette's limestone grey
       [109, 120.4, C.chalk, 'glow'],
       [120.4, H, C.slate, 'plain'],
     ];

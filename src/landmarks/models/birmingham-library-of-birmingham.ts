@@ -11,7 +11,7 @@
  */
 import { Kit, LANDMARK_COLOURS as C } from '../kit';
 import type { LandmarkModel } from '../types';
-import { CONTOUR, type Color, type RegionStyle } from '../../world/palette';
+import type { Color, RegionStyle } from '../../world/palette';
 
 /** Everything stands on this (below the square, so slopes never show under it). */
 const B = -4;
@@ -60,7 +60,7 @@ function clad(k: Kit, body: Color, ring: Color, cx: number, y0: number, cz: numb
 /** Planting on a terrace: low beds in the Contour sages. */
 function beds(k: Kit, y: number, x0: number, x1: number, z0: number, z1: number): void {
   for (let x = x0 + 3; x < x1 - 2; x += 7) {
-    k.box('plain', CONTOUR.land[3], x, y, (z0 + z1) / 2, 3, 0.9, z1 - z0 - 3);
+    k.box('plain', C.sage, x, y, (z0 + z1) / 2, 3, 0.9, z1 - z0 - 3);
   }
 }
 

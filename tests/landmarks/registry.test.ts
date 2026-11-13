@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import * as THREE from 'three';
 import cities from '../../data/cities.json';
@@ -65,12 +65,50 @@ test('OSM buildings inside the footprint are hidden', () => {
   expect(latLonToModel(palace, tower.at).z).toBeLessThan(-120);
 });
 
+/** The farthest any vertex under o reaches from the model origin, in plan (hypot of x and z). */
+function planReach(o: THREE.Object3D): number {
+  let r = 0;
+  const v = new THREE.Vector3();
+  o.updateMatrixWorld(true);
+  o.traverse((c) => {
+    const m = c as THREE.Mesh;
+    if (!m.isMesh) return;
+    const p = m.geometry.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld);
+      r = Math.max(r, Math.hypot(v.x, v.z));
+    }
+  });
+  return r;
+}
+
+const MODEL_DIR = new URL('../../src/landmarks/models/', import.meta.url);
+
 describe('every model', () => {
   test('every site has a model module, and ids are unique', () => {
     const ids = SITES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(MODELS[id], id).toBeDefined();
     for (const s of SITES) expect(s.id.startsWith(`${s.cityId}-`), s.id).toBe(true);
+  });
+
+  test('every model module has a site (helpers live outside models/)', () => {
+    const files = readdirSync(MODEL_DIR).filter((f) => f.endsWith('.ts'));
+    expect(files.length).toBe(Object.keys(MODELS).length);
+    for (const f of files) expect(siteById(f.replace(/\.ts$/, '')), f).toBeDefined();
+  });
+
+  test('model modules import only the kit, the types, the clock helper, three and palette types, and name no colour of their own', () => {
+    const allowed = [/^import \* as THREE from 'three';$/, /^import \{[^}]*\} from '\.\.\/(kit|clock)';$/, /^import type \{[^}]*\} from '(\.\.\/types|\.\.\/\.\.\/world\/palette|three)';$/];
+    for (const f of readdirSync(MODEL_DIR).filter((n) => n.endsWith('.ts'))) {
+      const src = readFileSync(new URL(f, MODEL_DIR), 'utf8');
+      for (const line of src.split('\n').filter((l) => /^\s*(import|export .* from)\b/.test(l))) {
+        expect(allowed.some((re) => re.test(line.trim())), `${f}: ${line}`).toBe(true);
+      }
+      expect(src, `${f}: dynamic import`).not.toMatch(/import\(/);
+      // colours come from LANDMARK_COLOURS or the region style, by name
+      expect(src.match(/#[0-9a-fA-F]{6}\b/g) ?? [], f).toEqual([]);
+    }
   });
 
   test('every model is under 4,000 triangles, Contour colours only, and its module under 30 KB gzipped', async () => {
@@ -100,9 +138,9 @@ describe('every model', () => {
         g.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) expect(['walls', 'plain', 'glow']).toContain(o.userData.bucket);
         });
-        // it fits its footprint radius and stands on the ground
+        // it fits its footprint radius (every vertex, measured in plan from the origin) and stands on the ground
         const box = new THREE.Box3().setFromObject(g);
-        expect(Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z), site.id).toBeLessThanOrEqual(site.footprintRadiusM + 1);
+        expect(planReach(g), site.id).toBeLessThanOrEqual(site.footprintRadiusM + 1);
         expect(box.min.y, site.id).toBeLessThanOrEqual(0);
         const src = readFileSync(new URL(`../../src/landmarks/models/${site.id}.ts`, import.meta.url));
         expect(gzipSync(src).length, site.id).toBeLessThan(30 * 1024);

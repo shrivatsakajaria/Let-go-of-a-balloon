@@ -85,9 +85,9 @@ function hand(length: number, width: number): Kit {
 }
 
 export const model: LandmarkModel = {
-  build(style) {
+  build() {
     const k = new Kit();
-    const red = style.walls[0];
+    const red = C.redStone;
     const white = C.chalk;
     // west, north, east, south
     const tower = [red, red, white, white];
