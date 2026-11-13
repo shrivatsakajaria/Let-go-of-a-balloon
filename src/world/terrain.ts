@@ -135,16 +135,43 @@ export function groundGrid(heights: Float32Array, size: number, frame: TileFrame
  * that buildGround emits, so anything placed with this sits exactly on the ground.
  */
 export function groundHeightAt(g: GroundGrid, x: number, z: number): number {
+  const { n, terr, X, Z } = g;
+  const V = n + 1;
+  // columns are even in x; rows are even in Mercator, so find the row from Z (nearly even in z)
+  const fi = Math.max(0, Math.min(n, (x / X[n]) * n));
+  let j = Math.max(0, Math.min(n - 1, Math.floor((z / Z[n]) * n)));
+  while (j > 0 && z > Z[j]) j--;
+  while (j < n - 1 && z < Z[j + 1]) j++;
+  const i = Math.min(n - 1, Math.floor(fi));
+  const s = fi - i;
+  const t = Math.max(0, Math.min(1, (Z[j] - z) / (Z[j] - Z[j + 1])));
+  const a = terr[j * V + i], b = terr[j * V + i + 1], c = terr[(j + 1) * V + i], d = terr[(j + 1) * V + i + 1];
+  // triangles (a, b, c) and (b, d, c), split along the b-c diagonal; planar in local metres
+  return s + t <= 1 ? a + s * (b - a) + t * (c - a) : d + (1 - s) * (c - d) + (1 - t) * (b - d);
+}
+
+/**
+ * Lower the drawn ground under flat water (sea, lakes) so the water surface shows: a vertex whose
+ * every neighbouring cell has a water level (finite in `cellLevel`, n x n, row 0 = south) drops to
+ * `depth` metres below the lowest of them. Shore vertices keep their height. Mutates `g.terr`.
+ */
+export function carveGround(g: GroundGrid, cellLevel: Float32Array, depth = 1): void {
   const { n, terr } = g;
   const V = n + 1;
-  const f = g.frame.localToFrac(x, z);
-  const fi = Math.max(0, Math.min(n, f.fx * n));
-  const fj = Math.max(0, Math.min(n, (1 - f.fy) * n));
-  const i = Math.min(n - 1, Math.floor(fi)), j = Math.min(n - 1, Math.floor(fj));
-  const s = fi - i, t = fj - j;
-  const a = terr[j * V + i], b = terr[j * V + i + 1], c = terr[(j + 1) * V + i], d = terr[(j + 1) * V + i + 1];
-  // triangles (a, b, c) and (b, d, c), split along the b-c diagonal
-  return s + t <= 1 ? a + s * (b - a) + t * (c - a) : d + (1 - s) * (c - d) + (1 - t) * (b - d);
+  for (let j = 0; j < V; j++) {
+    for (let i = 0; i < V; i++) {
+      let lo = Infinity, all = true;
+      for (let dj = -1; dj <= 0 && all; dj++)
+        for (let di = -1; di <= 0; di++) {
+          const ci = i + di, cj = j + dj;
+          if (ci < 0 || cj < 0 || ci >= n || cj >= n) continue;
+          const l = cellLevel[cj * n + ci];
+          if (!Number.isFinite(l)) { all = false; break; }
+          lo = Math.min(lo, l);
+        }
+      if (all && lo < Infinity) terr[j * V + i] = Math.min(terr[j * V + i], lo - depth);
+    }
+  }
 }
 
 const isFrame = (b: Bounds | TileFrame): b is TileFrame => 'toLocal' in b;

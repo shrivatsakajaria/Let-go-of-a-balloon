@@ -39,9 +39,8 @@ const WATERWAY_WIDTH: Record<string, number> = { river: 10, canal: 8, stream: 3 
  * (down to ~1.5 m) wherever the drawn ground bends away from a straight line by more than 8 cm, so
  * flat ground stays cheap and folds in the ground are followed.
  */
-function densify(l: ArrayLike<number>, step: number, g: GroundGrid): number[] {
+function densify(l: ArrayLike<number>, step: number, h: Surface): number[] {
   const out: number[] = [l[0], l[1]];
-  const h = (x: number, z: number) => groundHeightAt(g, x, z);
   const refine = (ax: number, az: number, ha: number, bx: number, bz: number, hb: number, depth: number) => {
     const mx = (ax + bx) / 2, mz = (az + bz) / 2;
     const hm = h(mx, mz);
@@ -64,10 +63,17 @@ function densify(l: ArrayLike<number>, step: number, g: GroundGrid): number[] {
   return out;
 }
 
-/** A flat ribbon of half width `half` along points p, each edge vertex draped on the ground. */
-function ribbon(p: number[], half: number, lift: number, color: RGB, g: GroundGrid, out: MeshBuilder): void {
+/** Height of the surface a ribbon drapes on. */
+type Surface = (x: number, z: number) => number;
+
+/**
+ * A flat ribbon of half width `half` along points p, each edge vertex draped on the surface and
+ * kept inside the tile (W x H), so a road crossing the border meets its neighbour's half exactly.
+ */
+function ribbon(p: number[], half: number, lift: number, color: RGB, surface: Surface, W: number, H: number, out: MeshBuilder): void {
   const n = p.length / 2;
   if (n < 2) return;
+  const cx = (v: number) => (v < 0 ? 0 : v > W ? W : v), cz = (v: number) => (v > 0 ? 0 : v < -H ? -H : v);
   const L: number[] = [], R: number[] = [];
   for (let i = 0; i < n; i++) {
     const x = p[i * 2], z = p[i * 2 + 1];
@@ -87,10 +93,10 @@ function ribbon(p: number[], half: number, lift: number, color: RGB, g: GroundGr
       scale = Math.min(2, 1 / Math.max(0.5, mx * n1x + mz * n1z)); // mitre, limited at sharp turns
     }
     const ox = mx * half * scale, oz = mz * half * scale;
-    L.push(x + ox, z + oz);
-    R.push(x - ox, z - oz);
+    L.push(cx(x + ox), cz(z + oz));
+    R.push(cx(x - ox), cz(z - oz));
   }
-  const y = (x: number, z: number) => groundHeightAt(g, x, z) + lift;
+  const y = (x: number, z: number) => surface(x, z) + lift;
   for (let i = 0; i + 1 < n; i++) {
     const a = i * 2, b = a + 2;
     out.quad(
@@ -112,10 +118,17 @@ export type RoadResult = {
 
 /**
  * Road ribbons, width and pale tone by class; paths, service roads and tracks only above z13.
+ * Roads never dip under flat water: `waterLevel` (NaN where none) lifts them over docks and lakes.
  * Also buckets road segments and street bearings into the n x n land-cover grid.
  */
-export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder): RoadResult {
+export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder, waterLevel?: Surface): RoadResult {
   const n = g.n;
+  const surface: Surface = waterLevel
+    ? (x, zz) => {
+        const h = groundHeightAt(g, x, zz), w = waterLevel(x, zz);
+        return w > h ? w : h; // NaN (no water) compares false
+      }
+    : (x, zz) => groundHeightAt(g, x, zz);
   const frame = g.frame;
   const step = frame.widthM / n;
   const cells = new Map<number, Segment[]>();
@@ -125,8 +138,8 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
     if (l.cls.endsWith('_construction')) continue;
     const st = l.cls === 'path' && l.subclass === 'pedestrian' ? PEDESTRIAN : STYLE[l.cls];
     if (!st || (st.small && z <= 13)) continue;
-    const p = densify(l.line, step, g);
-    ribbon(p, st.half, DRAPE_M + st.rank * 0.008, st.color, g, out);
+    const p = densify(l.line, step, surface);
+    ribbon(p, st.half, DRAPE_M + st.rank * 0.008, st.color, surface, frame.widthM, frame.heightM, out);
     for (let i = 2; i < p.length; i += 2) {
       const ax = p[i - 2], az = p[i - 1], bx = p[i], bz = p[i + 1];
       const f = frame.localToFrac((ax + bx) / 2, (az + bz) / 2);
@@ -165,10 +178,11 @@ export function buildRoads(lines: LineFeature[], g: GroundGrid, z: number, out: 
 /** River, canal and stream ribbons in the water colours (streams only from z13). */
 export function buildWaterways(lines: LineFeature[], g: GroundGrid, z: number, out: MeshBuilder): void {
   const step = g.frame.widthM / g.n;
+  const ground: Surface = (x, zz) => groundHeightAt(g, x, zz);
   for (const l of lines) {
     const w = WATERWAY_WIDTH[l.cls];
     if (!w || (l.cls === 'stream' && z < 13)) continue;
-    ribbon(densify(l.line, step, g), w / 2, DRAPE_M, RIVER, g, out);
+    ribbon(densify(l.line, step, ground), w / 2, DRAPE_M, RIVER, ground, g.frame.widthM, g.frame.heightM, out);
   }
 }
 

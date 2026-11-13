@@ -135,3 +135,14 @@ export function placeTrees(zones: Polygon[], ground: GroundGrid, seed: number, s
   }
   return Float32Array.from(out);
 }
+
+/** Per-cell water level (n x n, row 0 = south; NaN where no flat water), the lowest where bodies overlap. */
+export function rasteriseLevels(polys: Polygon[], levels: number[], frame: TileFrame, n: number): Float32Array {
+  const out = new Float32Array(n * n).fill(NaN);
+  const zc = rowCentres(frame, n);
+  polys.forEach((p, k) => {
+    const l = levels[k];
+    if (Number.isFinite(l)) fillPolygon(p, frame, n, zc, (c) => { if (!(out[c] <= l)) out[c] = l; });
+  });
+  return out;
+}

@@ -244,13 +244,17 @@ test('gap fill: houses in residential land with no buildings, about one per 350 
 });
 
 test('roads and rivers drape 0.3 m above the drawn ground', () => {
-  const g = groundGrid(heights, SIZE, frame, 64);
   for (const b of [m.roads, m.waterways]) {
     expect(b.position.length).toBeGreaterThan(0);
-    for (let i = 0; i < b.position.length; i += 3 * 7) {
+    let near = 0, all = 0;
+    for (let i = 0; i < b.position.length; i += 3 * 31) {
       const x = b.position[i], y = b.position[i + 1], z = b.position[i + 2];
-      expect(Math.abs(y - groundHeightAt(g, x, z) - 0.3)).toBeLessThan(0.05);
+      const above = y - groundMeshHeight(m.ground, x, z);
+      expect(above).toBeGreaterThan(0.25); // never under the ground
+      all++;
+      if (Math.abs(above - 0.3) < 0.05) near++;
     }
+    expect(near / all).toBeGreaterThan(0.95); // only roads over docks and lakes ride higher
   }
   // paths are skipped at z13
   const s = emptyFeatures();
@@ -345,3 +349,92 @@ test('triangle counts per bucket for the fixture tile', () => {
   expect(counts.roofs).toBeGreaterThan(0);
 });
 
+
+test('worker: fetches the tile from the template, builds, and lists every buffer for transfer', async () => {
+  const { handleBuild } = await import('../../src/world/worker');
+  const urls: string[] = [];
+  const fakeFetch = (async (u: string) => {
+    urls.push(u);
+    if (u.includes('/14/8089/5300')) return new Response(buf);
+    if (u.includes('/14/1/1')) return new Response(null, { status: 404 });
+    return new Response('nope', { status: 500 });
+  }) as typeof fetch;
+  const req = {
+    type: 'build' as const, id: 7, z: Z, x: X, y: Y, region: DEFAULT_REGION,
+    vectorUrl: 'https://tiles.example/planet/v1/{z}/{x}/{y}.pbf',
+    terrain: { heights, size: SIZE }, hiddenFootprints: [],
+  };
+  const { reply, transfer } = await handleBuild(req, fakeFetch);
+  expect(urls[0]).toBe('https://tiles.example/planet/v1/14/8089/5300.pbf');
+  expect(reply.type).toBe('built');
+  if (reply.type !== 'built') return;
+  expect(reply.id).toBe(7);
+  expect(reply.meshes.buildings.position.length).toBe(m.buildings.position.length);
+  expect(transfer.length).toBe(6 * 3 + 2);
+  expect(new Set(transfer).size).toBe(transfer.length);
+  // a missing tile (open sea) still gets its ground
+  const sea = await handleBuild({ ...req, x: 1, y: 1 }, fakeFetch);
+  expect(sea.reply.type).toBe('built');
+  if (sea.reply.type === 'built') {
+    expect(sea.reply.meshes.ground.position.length).toBe(64 * 64 * 2 * 9);
+    expect(sea.reply.meshes.buildings.position.length).toBe(0);
+  }
+  // a server error is reported, not thrown
+  const err = await handleBuild({ ...req, x: 2, y: 2 }, fakeFetch);
+  expect(err.reply.type).toBe('error');
+});
+
+test('lakes lie flat at their lowest shore height, and the ground under them is lowered so they show', () => {
+  const s = emptyFeatures();
+  const lake = rect(400, -400, 560, -540);
+  s.water.push({ cls: 'lake', subclass: '', polygon: lake });
+  const t = buildTileMeshes(s, heights, Z, X, Y, DEFAULT_REGION);
+  const g = groundGrid(heights, SIZE, frame, 64); // the ground before lowering
+  const r = lake[0];
+  let shoreMin = Infinity;
+  for (let i = 0; i < r.length; i += 2) shoreMin = Math.min(shoreMin, groundHeightAt(g, r[i], r[i + 1]));
+  const ys = new Set<number>();
+  for (let i = 1; i < t.water.position.length; i += 3) ys.add(Math.round(t.water.position[i] * 100) / 100);
+  expect([...ys].sort()).toEqual([Math.round(shoreMin * 100) / 100, Math.round((shoreMin + 0.05) * 100) / 100].sort());
+  // the middle of the lake: ground below the water
+  expect(groundMeshHeight(t.ground, 480, -470)).toBeLessThan(shoreMin - 0.5);
+  // outside it, the ground is untouched
+  expect(groundMeshHeight(t.ground, 200, -200)).toBeCloseTo(groundHeightAt(g, 200, -200), 3);
+});
+
+test('the sea lies at 0 m over lowered ground', () => {
+  const s = emptyFeatures();
+  s.water.push({ cls: 'ocean', subclass: '', polygon: rect(0, 0, frame.widthM, -frame.heightM / 2) });
+  const zero = new Float32Array(SIZE * SIZE);
+  const t = buildTileMeshes(s, zero, Z, X, Y, DEFAULT_REGION);
+  expect(groundMeshHeight(t.ground, frame.widthM / 2, -frame.heightM / 4)).toBeLessThan(-0.5);
+  for (let i = 1; i < t.water.position.length; i += 3) expect(t.water.position[i]).toBeLessThan(0.06);
+});
+
+test('river polygons follow the ground down the valley, just above it', () => {
+  const s = emptyFeatures();
+  s.water.push({ cls: 'river', subclass: '', polygon: rect(100, -700, 1300, -730) });
+  const t = buildTileMeshes(s, heights, Z, X, Y, DEFAULT_REGION);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < t.water.position.length; i += 3) {
+    const x = t.water.position[i], y = t.water.position[i + 1], z = t.water.position[i + 2];
+    const above = y - groundMeshHeight(t.ground, x, z);
+    expect(above).toBeGreaterThan(0.1);
+    expect(above).toBeLessThan(0.4);
+    lo = Math.min(lo, y); hi = Math.max(hi, y);
+  }
+  expect(hi - lo).toBeGreaterThan(5); // it really descends along the 1.2 km reach
+});
+
+test('roads crossing flat water stay above its surface (bridges over docks and lakes)', () => {
+  const s = emptyFeatures();
+  s.water.push({ cls: 'lake', subclass: '', polygon: rect(400, -400, 700, -700) });
+  s.transportation.push({ cls: 'primary', subclass: '', brunnel: 'bridge', line: Float64Array.from([300, -550, 800, -550]) });
+  const t = buildTileMeshes(s, heights, Z, X, Y, DEFAULT_REGION);
+  let level = Infinity;
+  for (let i = 1; i < t.water.position.length; i += 3) level = Math.min(level, t.water.position[i]);
+  for (let i = 0; i < t.roads.position.length; i += 3) {
+    const x = t.roads.position[i];
+    if (x > 420 && x < 680) expect(t.roads.position[i + 1]).toBeGreaterThan(level + 0.25);
+  }
+});

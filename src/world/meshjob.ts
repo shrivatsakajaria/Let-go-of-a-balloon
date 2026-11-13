@@ -3,15 +3,15 @@
  * and lamp instances, and labels. Pure (no fetch, DOM or three.js) so it runs in a Worker and in
  * Node tests. Everything is in the tile frame's local metres (see frame.ts).
  */
-import { buildGroundMesh, groundGrid, type MeshBuffers } from './terrain';
+import { buildGroundMesh, carveGround, groundGrid, type MeshBuffers } from './terrain';
 import { tileFrame } from './frame';
 import type { RegionStyle } from './palette';
 import { MeshBuilder } from './geom';
 import type { Features } from './vector';
-import { placeTrees, rasteriseLandcover, treeZones } from './landcover';
+import { placeTrees, rasteriseLandcover, rasteriseLevels, treeZones } from './landcover';
 import { buildBuildings, gapFill, type Circle } from './buildings';
 import { buildRoads, buildWaterways, placeLamps } from './lines';
-import { buildWater } from './water';
+import { buildWater, waterLevels } from './water';
 
 /** A circle (from a landmark) whose buildings the map should not draw. */
 export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
@@ -59,18 +59,27 @@ export function buildTileMeshes(
 
   const landcover = rasteriseLandcover(features, frame, n);
   const g = groundGrid(heights, size, frame, n);
+  // flat water (sea, lakes) sits at its level; the ground under it is lowered so it shows
+  const levels = waterLevels(features.water, g);
+  const cellLevel = rasteriseLevels(features.water.map((w) => w.polygon), levels, frame, n);
+  carveGround(g, cellLevel);
+  const waterLevelAt = (px: number, pz: number) => {
+    const f = frame.localToFrac(px, pz);
+    const i = Math.min(n - 1, Math.max(0, Math.floor(f.fx * n))), j = Math.min(n - 1, Math.max(0, Math.floor((1 - f.fy) * n)));
+    return cellLevel[j * n + i];
+  };
   const ground = buildGroundMesh(g, landcover.grid);
 
-  const water = new MeshBuilder(1024);
-  buildWater(features.water, g, water);
+  const water = new MeshBuilder(4096);
+  buildWater(features.water, levels, g, water);
 
-  const roads = new MeshBuilder(4096);
-  const roadInfo = buildRoads(features.transportation, g, z, roads);
+  const roads = new MeshBuilder(16384);
+  const roadInfo = buildRoads(features.transportation, g, z, roads, waterLevelAt);
   const waterways = new MeshBuilder(1024);
   buildWaterways(features.waterway, g, z, waterways);
 
-  const walls = new MeshBuilder(8192);
-  const roofs = new MeshBuilder(2048);
+  const walls = new MeshBuilder(16384);
+  const roofs = new MeshBuilder(4096);
   const hidden: Circle[] = (opts.hiddenFootprints ?? []).map((h) => {
     const p = frame.toLocal(h.lat, h.lon);
     return { x: p.x, z: p.z, r: h.radiusM };
