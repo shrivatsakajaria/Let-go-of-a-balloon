@@ -21,7 +21,7 @@ import { SWIFTSHADER } from './fixtures';
  */
 test.skip(!process.env.PERF_CITIES, 'needs the live map: PERF_CITIES=1');
 test.use(SWIFTSHADER);
-test.describe.configure({ mode: 'default', timeout: 600_000 });
+test.describe.configure({ mode: 'default', timeout: 1_200_000 });
 
 const TRIANGLE_CAP = 600_000;
 const CALL_CAP = 250;

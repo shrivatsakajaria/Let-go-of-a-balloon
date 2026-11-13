@@ -31,7 +31,7 @@ import { createHaze, WIN_PERIOD_M, type HazeUniforms } from './haze';
 import { ContourMaterials } from './materials';
 import { lightFor, type RegionStyle } from './palette';
 import { groundHeightAt, type GroundGrid } from './terrain';
-import { TileView } from './tileview';
+import { TileView, drawTriangles } from './tileview';
 import { MAX_IN_FLIGHT, MAX_TILES, levelFor, tileKey, tilesFor, type LodCamera, type LodLevel, type TileKey } from './lod';
 import type { BuildReply, BuildRequest } from './worker';
 import type { HiddenFootprint, Label } from './meshjob';
@@ -112,6 +112,9 @@ export type StreamStats = {
   arriveMsMax: number;
 };
 
+/** What fitView may leave out of a frame: never the ground or the water. */
+const BENCHABLE = new Set(['buildings', 'roofs', 'roads', 'trees', 'waterways', 'boats']);
+
 /** Triangles of arriving tiles taken into the scene per frame (at least one tile). */
 const ARRIVE_TRIANGLES = 60_000;
 
@@ -163,6 +166,12 @@ export class WorldStream {
   private started = false;
   private readonly shadowFocus = { x: 0, z: 0, r: -1 };
   private scale = 1;
+  /** Meshes fitView left out of this frame (shown again at the next fitView). */
+  private readonly benched: THREE.Mesh[] = [];
+  private readonly fitList: { mesh: THREE.Mesh; tris: number; d2: number }[] = [];
+  private readonly fitFrustum = new THREE.Frustum();
+  private readonly fitMatrix = new THREE.Matrix4();
+  private readonly fitV = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -238,6 +247,49 @@ export class WorldStream {
 
   get detailScale(): number {
     return this.scale;
+  }
+
+  /**
+   * The frame budget, before a frame is drawn: what `camera` will draw of the tiles (the renderer's own
+   * test: visible, layers, box in frustum). Over `budget`, the farthest buildings, roofs, roads and
+   * trees in view are left out of this frame only, until it fits; the ground and water always stay, so
+   * nothing opens. The detail budget (lod.ts DetailBudget) brings the tiles themselves nearer a moment
+   * later. Returns the triangles left. Call once a frame (it shows last frame's left-outs again first).
+   */
+  fitView(camera: THREE.Camera, budget: number): number {
+    for (const m of this.benched) m.visible = true;
+    this.benched.length = 0;
+    camera.updateMatrixWorld();
+    const frustum = this.fitFrustum.setFromProjectionMatrix(this.fitMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const cam = this.fitV.setFromMatrixPosition(camera.matrixWorld);
+    const cx = cam.x, cy = cam.y, cz = cam.z;
+    const list = this.fitList;
+    list.length = 0;
+    let total = 0;
+    for (const e of this.entries.values()) {
+      const view = e.view;
+      if (!view || !view.group.visible) continue;
+      for (const { mesh, bucket } of view.parts) {
+        if (!mesh.visible || !mesh.layers.test(camera.layers)) continue;
+        if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+        const tris = drawTriangles(mesh);
+        total += tris;
+        if (tris === 0 || !BENCHABLE.has(bucket)) continue;
+        const g = mesh.geometry;
+        const c = g.boundingBox ? g.boundingBox.getCenter(this.fitV) : g.boundingSphere ? this.fitV.copy(g.boundingSphere.center) : this.fitV.set(0, 0, 0);
+        c.applyMatrix4(mesh.matrixWorld);
+        list.push({ mesh, tris, d2: (c.x - cx) ** 2 + (c.y - cy) ** 2 + (c.z - cz) ** 2 });
+      }
+    }
+    if (total <= budget) return total;
+    list.sort((a, b) => b.d2 - a.d2);
+    for (const it of list) {
+      if (total <= budget) break;
+      it.mesh.visible = false;
+      this.benched.push(it.mesh);
+      total -= it.tris;
+    }
+    return total;
   }
 
   // ---- queries ----

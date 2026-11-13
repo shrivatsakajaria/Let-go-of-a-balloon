@@ -479,6 +479,53 @@ describe('WorldStream: review carries', () => {
     expect(live()).toBe(3);
   });
 
+  it('fitView: over budget, the farthest buildings in view are left out of this frame only; ground never', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER, 90, 300));
+    // every tile with a building mesh of 1,000 triangles spread over the tile
+    let t = 100;
+    for (let k = 0; k < 40 && pool.open().length; k++) {
+      for (const j of pool.open()) {
+        const real = j.resolve;
+        j.resolve = (r: BuildReply) => {
+          if (r.type === 'built') {
+            const f = tileFrame(r.z, r.x, r.y);
+            const n = 1000;
+            const position = new Float32Array(n * 9);
+            for (let i = 0; i < n; i++) position.set([(i / n) * f.widthM, 20, -f.heightM / 2, (i / n) * f.widthM + 1, 20, -f.heightM / 2, (i / n) * f.widthM, 25, -f.heightM / 2], i * 9);
+            r.meshes.buildings = { position, normal: new Float32Array(n * 9).fill(0.5), color: new Float32Array(n * 9).fill(0.5) };
+          }
+          real(r);
+        };
+        pool.answer(j);
+      }
+      await tick();
+      for (let i = 0; i < 6; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+    }
+    const camera = new THREE.PerspectiveCamera(60, 0.5, 1, 60000);
+    camera.position.set(0, 300, 0);
+    camera.lookAt(1000, 0, 0);
+    camera.updateMatrixWorld();
+    const full = stream.fitView(camera, Infinity);
+    expect(full).toBeGreaterThan(3000);
+    const meshes = () => stream.tiles().flatMap((x) => (stream.groupOf(x.key)?.children ?? []) as THREE.Mesh[]);
+    const hidden = () => meshes().filter((m) => !m.visible);
+    expect(hidden()).toHaveLength(0);
+    const budget = full - 2500;
+    const fitted = stream.fitView(camera, budget);
+    expect(fitted).toBeLessThanOrEqual(budget);
+    expect(hidden().length).toBeGreaterThan(0);
+    expect(hidden().every((m) => (m.material as THREE.Material).name.includes('buildings'))).toBe(true);
+    // the ones left out are the farthest from the camera
+    const dist = (m: THREE.Mesh) => m.geometry.boundingBox!.getCenter(new THREE.Vector3()).applyMatrix4(m.matrixWorld).distanceTo(camera.position);
+    const kept = meshes().filter((m) => m.visible && (m.material as THREE.Material).name.includes('buildings') && m.layers.isEnabled(0));
+    const nearestHidden = Math.min(...hidden().map(dist));
+    expect(kept.some((m) => dist(m) > nearestHidden + 1 && m.intersectsFrustum(new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))))).toBe(false);
+    // the next frame starts whole again
+    expect(stream.fitView(camera, Infinity)).toBe(full);
+    expect(hidden()).toHaveLength(0);
+  });
+
   it('stats are read without building a new object each frame, and agree with the tiles', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER));

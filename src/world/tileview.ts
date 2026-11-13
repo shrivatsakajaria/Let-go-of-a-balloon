@@ -29,6 +29,15 @@ export type TileBuffers = {
   boats?: Float32Array;
 };
 
+/** Triangles one draw of `o` makes (renderer.info counts the same way): its draw range, times its instances. */
+export function drawTriangles(o: THREE.Mesh): number {
+  const g = o.geometry;
+  const n = g.index ? g.index.count : g.getAttribute('position')?.count ?? 0;
+  const count = Math.max(0, Math.min(g.drawRange.count, n - g.drawRange.start));
+  const per = Math.floor(count / 3);
+  return (o as THREE.InstancedMesh).isInstancedMesh ? per * (o as THREE.InstancedMesh).count : per;
+}
+
 /** Mesh buckets in draw order, and whether they cast shadows (when the tile casts at all). */
 const MESH_BUCKETS: [Exclude<Bucket, 'trees' | 'boats'>, boolean][] = [
   ['ground', false],
@@ -283,6 +292,11 @@ export class TileView {
     // trees stand up to ~15 m tall and ~5 m wide round their point
     mesh.boundingSphere!.center.set(lx, k ? (y0 + y1) / 2 : 0, lz);
     mesh.boundingSphere!.radius = Math.max(rx, r) + (k ? (y1 - y0) / 2 : 0) + 20;
+  }
+
+  /** The tile's meshes with their buckets (the frame budget walks them; stream.ts fitView). */
+  get parts(): readonly { readonly mesh: THREE.Mesh; readonly bucket: Bucket }[] {
+    return this.meshes;
   }
 
   /** Switch between the clip and the solid material variants. */

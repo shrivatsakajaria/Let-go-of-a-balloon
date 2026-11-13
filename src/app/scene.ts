@@ -28,7 +28,7 @@ import { DetailBudget, hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
-import { shadowBudget, TREE_SHADOW_M, type PassCount } from '../world/sunlight';
+import { shadowBudget, TREE_SHADOW_M, VIEW_CAP, type PassCount } from '../world/sunlight';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
 import { WorkerPool } from '../world/workerpool';
@@ -120,6 +120,10 @@ export class LiveScene {
   /** What the last shadow redraw's pass drew (SunLight.fit counts it before the redraw). */
   private readonly shadowPass: PassCount = { triangles: 0, calls: 0 };
   private readonly detail = new DetailBudget();
+  /** This frame's view: the tiles' part (stream.fitView), the rest of the scene (as last frame), and the two together. */
+  private viewTiles = 0;
+  private other = 0;
+  private readonly viewEst: PassCount = { triangles: 0, calls: 0 };
   /** Frame times count toward the detail budget (not on a software renderer, where they mean nothing). */
   private readonly frameTimes: boolean;
   /** The last frame drawn redrew the shadow map (for the performance checks). */
@@ -554,6 +558,12 @@ export class LiveScene {
       this.stream.materials.setGroundTint(L.groundTint);
     }
 
+    // the frame budget: what the view will draw of the tiles, the farthest buildings left out of this
+    // frame if that is over (the rest of the scene counted as it was last frame)
+    this.viewTiles = this.stream.fitView(this.camera, rp ? Infinity : VIEW_CAP - this.other);
+    this.viewEst.triangles = this.viewTiles + this.other;
+    this.viewEst.calls = this.plain.calls;
+
     // live shadows round the balloon, a little ahead of it
     // over a landmark's terrace where it is higher than the drawn ground (in the hand on Corcovado:
     // 1.5 m, not 183 m); not by changing groundS, which sceneAltitude reads with the lifted route
@@ -578,7 +588,7 @@ export class LiveScene {
       // the shadow pass's budget: trees cast near the balloon only, and a dense city gets a smaller disc
       if (!rp) {
         this.stream.setShadowFocus(this.focus.x, this.focus.z, TREE_SHADOW_M);
-        const fit = this.sky.light.fit(this.scene, shadowBudget(this.plain));
+        const fit = this.sky.light.fit(this.scene, shadowBudget(this.viewEst));
         this.shadowPass.triangles = fit.triangles;
         this.shadowPass.calls = fit.calls;
       }
@@ -601,6 +611,7 @@ export class LiveScene {
       const info = this.renderer.info.render;
       this.plain.triangles = info.triangles - (this.shadowDrawn ? this.shadowPass.triangles : 0);
       this.plain.calls = info.calls - (this.shadowDrawn ? this.shadowPass.calls : 0);
+      this.other = Math.max(0, this.plain.triangles - this.viewTiles);
       // over budget in a dense city: the buildings levels come nearer (the replay streams its own way)
       this.stream.detailScale = this.detail.update(this.plain.triangles, t, this.frameTimes ? dt * 1000 : undefined);
     }

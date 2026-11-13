@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { stageLight, type Light } from './palette';
-import { SHADOW_LAYER } from './tileview';
+import { SHADOW_LAYER, drawTriangles } from './tileview';
 
 export { SUN_GAIN, SKY_LIGHT } from './palette';
 
@@ -41,20 +41,16 @@ export function sunDirection(elevationDeg: number, azimuthDeg: number, out = new
 /** What a shadow pass draws. */
 export type PassCount = { triangles: number; calls: number };
 
-/** Triangles one draw of `o` makes (renderer.info counts the same way). */
-function trianglesOf(o: THREE.Mesh): number {
-  const g = o.geometry;
-  const n = g.index ? g.index.count : g.getAttribute('position')?.count ?? 0;
-  const count = Math.max(0, Math.min(g.drawRange.count, n - g.drawRange.start));
-  const per = Math.floor(count / 3);
-  return (o as THREE.InstancedMesh).isInstancedMesh ? per * (o as THREE.InstancedMesh).count : per;
-}
-
 /**
  * What a whole frame may draw, the view and the shadow pass together: under spec 12's hard caps
  * (600,000 triangles, 250 draw calls) with room for the view changing between frames.
  */
 export const FRAME_BUDGET: PassCount = { triangles: 540_000, calls: 220 };
+/**
+ * The most the view may draw in a frame (stream.ts fitView leaves the farthest buildings out of the
+ * frame past it), so the view and the smallest shadow pass stay inside FRAME_BUDGET.
+ */
+export const VIEW_CAP = 490_000;
 /** Trees cast shadows only this close to the shadow focus (a tile's trees are tens of thousands of triangles). */
 export const TREE_SHADOW_M = 300;
 
@@ -183,7 +179,7 @@ export class SunLight {
     const layers = this.sun.shadow.camera.layers;
     const walk = (o: THREE.Object3D) => {
       if (!o.visible) return;
-      if ((o as THREE.Mesh).isMesh && o.castShadow && o.layers.test(layers)) list.push({ o: o as THREE.Mesh, tris: trianglesOf(o as THREE.Mesh) });
+      if ((o as THREE.Mesh).isMesh && o.castShadow && o.layers.test(layers)) list.push({ o: o as THREE.Mesh, tris: drawTriangles(o as THREE.Mesh) });
       for (const c of o.children) walk(c);
     };
     walk(scene);

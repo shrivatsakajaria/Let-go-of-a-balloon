@@ -38,7 +38,7 @@ import { Sky } from '../world/sky';
 import { Clouds } from '../world/clouds';
 import { WorldStream } from '../world/stream';
 import { DetailBudget, hazeFarM } from '../world/lod';
-import { shadowBudget, TREE_SHADOW_M } from '../world/sunlight';
+import { shadowBudget, TREE_SHADOW_M, VIEW_CAP } from '../world/sunlight';
 import { StatsOverlay } from './overlay';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -130,6 +130,7 @@ const detail = new DetailBudget();
 /** What the view alone drew last frame, and the last shadow pass (every frame redraws on a slow machine). */
 const view = { triangles: 0, calls: 0 };
 let shadowPass = { triangles: 0, calls: 0 };
+let viewOther = 0;
 let shadowAsked = 0;
 stream.onChange = () => {
   shadowAsked = performance.now();
@@ -300,6 +301,7 @@ function frame(now: number) {
   focus.set(pos.x + Math.sin(h) * ahead, groundS, pos.z - Math.cos(h) * ahead);
   // aiming at something: the shadows go round it (halfway there, if it is far)
   if (AIM) focus.set(pos.x + (aimAt.x - pos.x) * 0.6, groundS, pos.z + (aimAt.z - pos.z) * 0.6);
+  const viewTiles = stream.fitView(camera, params.get('budget') !== '0' ? VIEW_CAP - viewOther : Infinity);
   let redraw = sky.place(focus);
   // tiles arrived or settled: redraw the shadows, at most four times a second
   if (shadowAsked > shadowDrawnAt && now - shadowDrawnAt > 250) redraw = true;
@@ -312,7 +314,7 @@ function frame(now: number) {
     shadowDrawnAt = now;
     // the live scene's shadow budget (scene.ts): trees near the focus, a smaller disc in a dense city
     stream.setShadowFocus(focus.x, focus.z, TREE_SHADOW_M);
-    shadowPass = params.get('budget') !== '0' ? sky.light.fit(scene, shadowBudget(view)) : sky.light.casters(scene);
+    shadowPass = params.get('budget') !== '0' ? sky.light.fit(scene, shadowBudget({ triangles: viewTiles + viewOther, calls: view.calls })) : sky.light.casters(scene);
   }
 
   for (const t of stream.tiles()) {
@@ -326,6 +328,7 @@ function frame(now: number) {
   const info = renderer.info.render;
   view.triangles = info.triangles - (redraw ? shadowPass.triangles : 0);
   view.calls = info.calls - (redraw ? shadowPass.calls : 0);
+  viewOther = Math.max(0, view.triangles - viewTiles);
   hook.view = { ...view };
   hook.peak.triangles = Math.max(hook.peak.triangles, info.triangles);
   hook.peak.calls = Math.max(hook.peak.calls, info.calls);
