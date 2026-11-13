@@ -370,3 +370,20 @@ test('the page keeps no test hook unless a test asks for one', async ({ context,
   await ready(page);
   expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
 });
+
+test('disposing the live flight stops drawing and frees the scene, the HUD and the listeners', async ({ context, page }) => {
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await expect.poll(async () => (await hook(page))!.frames, { timeout: 10_000 }).toBeGreaterThan(5);
+  const left = await page.evaluate(() => (window as unknown as { __liveDispose: () => number }).__liveDispose());
+  expect(left).toBe(0); // nothing left in the 3D scene
+  const f0 = (await hook(page))!.frames;
+  await page.waitForTimeout(1500);
+  expect((await hook(page))!.frames).toBe(f0);
+  expect(await page.locator('canvas.world').count()).toBe(0);
+  expect(await page.locator('#hud').evaluate((e) => e.childElementCount)).toBe(0);
+  await page.setViewportSize({ width: 400, height: 700 }); // a resize after dispose throws nothing
+  await page.waitForTimeout(300);
+});

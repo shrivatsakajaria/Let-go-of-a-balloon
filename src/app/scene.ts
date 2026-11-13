@@ -265,12 +265,23 @@ export class LiveScene {
     return this.stream.labelsNear(p, km);
   }
 
+  /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.holdUntil = null;
+    this.onFrame = this.onLuminance = this.onFirstFrame = null;
+    this.person?.dispose();
+    this.person = null;
+    this.balloon.dispose();
+    this.clouds.dispose();
+    this.sky.dispose();
     this.stream.dispose();
     this.pool.terminate();
+    this.scene.clear();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   // ---- internals ----

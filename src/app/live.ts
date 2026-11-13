@@ -88,6 +88,7 @@ export class Live {
   private opening = 0;
   private readonly canvas: HTMLCanvasElement;
   /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
+  private unwatch: () => void = () => {};
   private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
   private readonly hookRoute = { altM: 0, groundM: 0, tSec: 0 };
   private readonly subject: [number, number] = [0, 0];
@@ -120,7 +121,16 @@ export class Live {
       },
       { reducedMotion: reduced },
     );
-    if (this.testing) (window as unknown as { __live: LiveHook }).__live = this.hook;
+    if (this.testing) {
+      (window as unknown as { __live: LiveHook }).__live = this.hook;
+      // for the browser test of dispose: how many objects are left in the 3D scene afterwards
+      (window as unknown as { __liveDispose: () => number }).__liveDispose = () => {
+        const hook = this.hook;
+        this.dispose();
+        (window as unknown as { __live: LiveHook }).__live = hook;
+        return this.scene.scene.children.length;
+      };
+    }
     this.watchBand();
     this.setStart(choice);
   }
@@ -161,6 +171,23 @@ export class Live {
     ro?.observe(top);
     ro?.observe(bottom);
     window.addEventListener('resize', fit);
+    this.unwatch = () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+  }
+
+  /** Take the live flight down: the scene and its GL context, the HUD and its timer, the listeners. */
+  dispose(): void {
+    this.opening++;
+    this.windAsk++;
+    this.unwatch();
+    this.clearNotice();
+    this.hud.destroy();
+    this.scene.dispose();
+    this.canvas.remove();
+    delete this.deps.sceneEl.dataset.live;
+    if (this.testing) delete (window as unknown as { __live?: LiveHook }).__live;
   }
 
   // ---- Let go ----
