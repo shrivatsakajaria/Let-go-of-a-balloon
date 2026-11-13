@@ -21,7 +21,7 @@ export function balloonId(b: SavedBalloon): string {
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 const point = (p: unknown): boolean => {
   const q = p as { lat?: unknown; lon?: unknown } | null;
-  return !!q && typeof q === 'object' && finite(q.lat) && finite(q.lon);
+  return !!q && typeof q === 'object' && finite(q.lat) && Math.abs(q.lat) <= 90 && finite(q.lon);
 };
 
 function valid(x: unknown): x is SavedBalloon {

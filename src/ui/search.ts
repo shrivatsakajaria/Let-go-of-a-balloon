@@ -110,7 +110,8 @@ export function createSearcher(
 
 export type SearchUi = {
   el: HTMLElement;
-  open(): void;
+  /** Open the search; `message` (e.g. "Location is off") is shown and announced in its status line. */
+  open(message?: string): void;
   close(): void;
   readonly isOpen: boolean;
 };
@@ -133,12 +134,12 @@ export function mountSearch(
     <div class="search-bar">
       <label class="sr" for="${id}-input">${COPY.searchPlaceholder}</label>
       <input id="${id}-input" class="search-input" type="text" role="combobox" aria-autocomplete="list"
-        aria-expanded="false" aria-controls="${id}-list" autocomplete="off" autocapitalize="words"
+        aria-expanded="false" aria-controls="${id}-list" aria-describedby="${id}-status" autocomplete="off" autocapitalize="words"
         autocorrect="off" spellcheck="false" enterkeyhint="search" placeholder="${COPY.searchPlaceholder}">
       <button type="button" class="link cancel">${COPY.cancel}</button>
     </div>
     <ul id="${id}-list" class="search-list" role="listbox" aria-label="${COPY.searchPlaceholder}"></ul>
-    <p class="search-status" role="status"></p>`;
+    <p id="${id}-status" class="search-status" role="status"></p>`;
   host.append(el);
 
   const input = el.querySelector('input')!;
@@ -212,8 +213,20 @@ export function mountSearch(
   };
 
   input.addEventListener('input', () => searcher.input(input.value));
-  input.addEventListener('keydown', (e) => {
+  // on the whole layer, so Escape also works from Cancel; arrows and Enter belong to the input
+  el.addEventListener('keydown', (e) => {
     const n = places.length;
+    const inInput = e.target === input;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (inInput && !list.hidden) setExpanded(false);
+      else {
+        ui.close();
+        opts.onCancel();
+      }
+      return;
+    }
+    if (!inInput) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!n) return;
       e.preventDefault();
@@ -223,13 +236,6 @@ export function mountSearch(
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (n && !list.hidden) pick(active >= 0 ? active : 0);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      if (!list.hidden) setExpanded(false);
-      else {
-        ui.close();
-        opts.onCancel();
-      }
     }
   });
   // keep focus in the input while choosing with a pointer
@@ -245,7 +251,7 @@ export function mountSearch(
 
   const ui: SearchUi = {
     el,
-    open() {
+    open(message?: string) {
       if (!el.hidden) return;
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.hidden = false;
@@ -254,6 +260,12 @@ export function mountSearch(
       input.value = '';
       render({ kind: 'idle' });
       input.focus({ preventScroll: true });
+      // set the text a frame after the region is shown and focus has moved, so it is announced
+      if (message) {
+        requestAnimationFrame(() => {
+          if (!el.hidden && el.dataset.state === 'idle' && !input.value) say(message);
+        });
+      }
     },
     close() {
       if (el.hidden) return;

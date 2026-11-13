@@ -69,10 +69,18 @@ describe('store', () => {
       { ...good, hourly: [...good.hourly, good.hourly[0]] },
       { ...good, hourly: good.hourly.map((p, i) => (i === 40 ? { lat: p.lat, lon: null } : p)) },
       { ...good, hourly: good.hourly.map((p, i) => (i === 40 ? null : p)) },
+      { ...good, start: { lat: 90.5, lon: 1 } },
+      { ...good, hourly: good.hourly.map((p, i) => (i === 7 ? { lat: -91, lon: p.lon } : p)) },
     ];
     // JSON turns NaN and Infinity into null, so write them as they would arrive
     localStorage.setItem('lgoab.balloons.v1', JSON.stringify([...bad, good]));
     expect(store.list().map((b) => b.name)).toEqual(['B1']);
+  });
+
+  test('every stored balloon can be turned back into a link', async () => {
+    const good = bal(1);
+    localStorage.setItem('lgoab.balloons.v1', JSON.stringify([{ ...good, name: 'x', start: { lat: 95, lon: 0 } }, good]));
+    for (const b of store.list()) await expect(encodeBalloon(b)).resolves.toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
   test('a balloon saved here and the same balloon opened from its link share an id', async () => {

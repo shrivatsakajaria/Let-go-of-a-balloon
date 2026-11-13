@@ -166,11 +166,10 @@ a.link, .small a { color: var(--paper); }
   align-self: flex-start;
   margin-left: -8px;
   font-size: 15px;
-  font-weight: 450;
+  font-weight: 600;
   text-decoration: none;
 }
 .from .place {
-  font-weight: 650;
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
@@ -226,13 +225,12 @@ a.link, .small a { color: var(--paper); }
 .cities li:first-child .city { margin-left: -8px; }
 .city {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   text-decoration-color: transparent;
   white-space: nowrap;
 }
 .city:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
 .city[aria-pressed='true'] {
-  font-weight: 650;
   text-decoration-color: currentColor;
   text-decoration-thickness: 2px;
 }
@@ -251,9 +249,9 @@ a.link, .small a { color: var(--paper); }
 }
 .mine::-webkit-scrollbar { display: none; }
 .mine-label { flex: none; font-size: 13px; font-weight: 500; margin-right: 4px; }
-.mine .link { font-size: 15px; font-weight: 500; white-space: nowrap; text-decoration-color: transparent; }
+.mine .link { font-size: 15px; font-weight: 600; white-space: nowrap; text-decoration-color: transparent; }
 .mine .link:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
-.mine .status { font-weight: 450; font-variant-numeric: tabular-nums; }
+.mine .status { font-variant-numeric: tabular-nums; }
 
 .small {
   margin: 12px 0 0;
@@ -320,7 +318,6 @@ a.link, .small a { color: var(--paper); }
   font-variation-settings: 'wdth' 87;
 }
 .search-input::placeholder { color: rgba(247, 243, 236, 0.72); font-weight: 450; }
-.search-input:focus-visible { box-shadow: none; }
 .search-bar:focus-within { border-bottom-color: var(--paper); }
 .cancel { margin-right: -8px; font-size: 15px; font-weight: 600; }
 
@@ -333,12 +330,12 @@ a.link, .small a { color: var(--paper); }
 }
 .search-list[hidden] { display: none; }
 .search-list [role='option'] {
+  /* block, not flex: flex items would put a space into the accessible name ("Windermere , England") */
+  display: block;
   min-height: 48px;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  align-content: center;
-  padding: 8px 0;
+  box-sizing: border-box;
+  padding: 12px 0;
+  line-height: 1.5;
   border-bottom: 1px solid rgba(247, 243, 236, 0.14);
   cursor: pointer;
   font-size: 16px;

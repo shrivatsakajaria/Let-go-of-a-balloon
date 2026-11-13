@@ -245,7 +245,10 @@ export function mountStart(
       setStart({ name: p.name, lat: p.lat, lon: p.lon, kind: 'search' });
       const picked = start;
       // move the start out of any building while the visitor reaches for Let go
-      openSpace = import('../flight/startspot').then((m) => m.openSpaceFor({ lat: p.lat, lon: p.lon }));
+      // the chunk can fail to load (a flaky connection, a new deploy): then the start stays put
+      openSpace = import('../flight/startspot')
+        .then((m) => m.openSpaceFor({ lat: p.lat, lon: p.lon }))
+        .catch(() => ({ lat: p.lat, lon: p.lon }));
       openSpace.then((q) => {
         if (start === picked) start = { ...picked, lat: q.lat, lon: q.lon };
       });
@@ -256,14 +259,7 @@ export function mountStart(
       root.inert = open; // the start screen sits under the search veil
     },
   });
-  const openSearch = (message?: string) => {
-    search.open();
-    if (message) {
-      const st = search.el.querySelector('.search-status') as HTMLElement;
-      st.textContent = message;
-      st.hidden = false;
-    }
-  };
+  const openSearch = (message?: string) => search.open(message);
 
   fromBtn.addEventListener('click', () => openSearch());
 
@@ -273,9 +269,14 @@ export function mountStart(
     let choice = start;
     if (choice.kind === 'search' && openSpace) {
       letGoBtn.setAttribute('aria-busy', 'true');
-      const moved = await Promise.race([openSpace, new Promise<null>((r) => setTimeout(() => r(null), SEARCH_WAIT_MS))]);
-      letGoBtn.removeAttribute('aria-busy');
-      if (moved && start.kind === 'search') choice = { ...start, lat: moved.lat, lon: moved.lon };
+      try {
+        const moved = await Promise.race([openSpace, new Promise<null>((r) => setTimeout(() => r(null), SEARCH_WAIT_MS))]);
+        if (moved && start.kind === 'search') choice = { ...start, lat: moved.lat, lon: moved.lon };
+      } catch {
+        /* keep the searched point */
+      } finally {
+        letGoBtn.removeAttribute('aria-busy');
+      }
     }
     writeLastPlace(choice);
     window.dispatchEvent(new CustomEvent('lgoab:letgo', { detail: choice }));

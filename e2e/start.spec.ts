@@ -99,6 +99,14 @@ test.describe('layout on a phone inside an in-app browser (390 x 660)', () => {
     expect(letGo.width).toBeGreaterThan(150);
   });
 
+  test('interactive text is 15 px at weight 600 (spec 7.1 buttons)', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    const styles = await page.locator('.from, .from .place, .locate, .city').evaluateAll((els) =>
+      els.map((el) => { const s = getComputedStyle(el); return `${s.fontSize} ${s.fontWeight}`; }));
+    expect(new Set(styles)).toEqual(new Set(['15px 600']));
+  });
+
   test('orange appears only on Let go', async ({ page }) => {
     await offline(page);
     await page.goto('/');
@@ -214,6 +222,41 @@ test.describe('town search', () => {
     await expect(page.getByText("We can't search right now. Try again in a moment.")).toBeVisible();
   });
 
+  test('Let go still works when the open-space code cannot load', async ({ page }) => {
+    await offline(page);
+    await page.route('**/assets/startspot-*.js', (r) => r.abort('failed'));
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('combobox').fill('Windermere');
+    await page.getByRole('option', { name: 'Windermere, England, United Kingdom' }).click();
+    const first = await letGo(page);
+    expect(first).toEqual({ name: 'Windermere', lat: 54.38086, lon: -2.90709, kind: 'search' });
+    await expect(page.locator('.letgo')).not.toHaveAttribute('aria-busy');
+    // and again: the button is not left dead
+    expect((await letGo(page)).name).toBe('Windermere');
+    expect(errors).toEqual([]);
+  });
+
+  test('Escape from the Cancel button closes the search', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('button', { name: 'Cancel' }).focus();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('combobox')).toBeHidden();
+    await expect(fromButton(page)).toBeFocused();
+  });
+
+  test('the search input shows the focus ring', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    const ring = await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(ring).toBe('rgb(247, 243, 236) 0px 0px 0px 2px, rgb(10, 14, 28) 0px 0px 0px 4px');
+  });
+
   test('Cancel and Escape return to the start screen unchanged', async ({ page }) => {
     await offline(page);
     await page.goto('/');
@@ -269,6 +312,9 @@ test.describe('my location', () => {
     const box = page.getByRole('combobox', { name: 'Search for a town' });
     await expect(box).toBeFocused();
     await expect(page.getByText('Location is off. Search for your town instead.')).toBeVisible();
+    // tied to the input so it is read out with it, and in a live region
+    await expect(box).toHaveAccessibleDescription('Location is off. Search for your town instead.');
+    await expect(page.getByRole('status').filter({ hasText: 'Location is off' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Use my location' }).click();
     await expect(box).toBeVisible();
