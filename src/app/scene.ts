@@ -28,7 +28,7 @@ import { DetailBudget, hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
 import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
-import { shadowBudget, TREE_SHADOW_M, VIEW_CAP, type PassCount } from '../world/sunlight';
+import { FRAME_BUDGET, shadowBudget, TREE_SHADOW_M, VIEW_CAP, type PassCount } from '../world/sunlight';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
 import { WorkerPool } from '../world/workerpool';
@@ -597,6 +597,10 @@ export class LiveScene {
         const fit = this.sky.light.fit(this.scene, shadowBudget(this.viewEst));
         this.shadowPass.triangles = fit.triangles;
         this.shadowPass.calls = fit.calls;
+        // the smallest disc can still be over its share (a dense centre under a low sun): the view
+        // gives up the difference this frame
+        const over = this.viewEst.triangles + fit.triangles - FRAME_BUDGET.triangles;
+        if (over > 0) this.viewTiles = this.stream.fitView(this.camera, this.viewTiles - over);
       }
     }
 

@@ -38,7 +38,7 @@ import { Sky } from '../world/sky';
 import { Clouds } from '../world/clouds';
 import { WorldStream } from '../world/stream';
 import { DetailBudget, hazeFarM } from '../world/lod';
-import { shadowBudget, TREE_SHADOW_M, VIEW_CAP } from '../world/sunlight';
+import { FRAME_BUDGET, shadowBudget, TREE_SHADOW_M, VIEW_CAP } from '../world/sunlight';
 import { StatsOverlay } from './overlay';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -301,7 +301,7 @@ function frame(now: number) {
   focus.set(pos.x + Math.sin(h) * ahead, groundS, pos.z - Math.cos(h) * ahead);
   // aiming at something: the shadows go round it (halfway there, if it is far)
   if (AIM) focus.set(pos.x + (aimAt.x - pos.x) * 0.6, groundS, pos.z + (aimAt.z - pos.z) * 0.6);
-  const viewTiles = stream.fitView(camera, params.get('budget') !== '0' ? VIEW_CAP - viewOther : Infinity);
+  let viewTiles = stream.fitView(camera, params.get('budget') !== '0' ? VIEW_CAP - viewOther : Infinity);
   let redraw = sky.place(focus);
   // tiles arrived or settled: redraw the shadows, at most four times a second
   if (shadowAsked > shadowDrawnAt && now - shadowDrawnAt > 250) redraw = true;
@@ -315,6 +315,8 @@ function frame(now: number) {
     // the live scene's shadow budget (scene.ts): trees near the focus, a smaller disc in a dense city
     stream.setShadowFocus(focus.x, focus.z, TREE_SHADOW_M);
     shadowPass = params.get('budget') !== '0' ? sky.light.fit(scene, shadowBudget({ triangles: viewTiles + viewOther, calls: view.calls })) : sky.light.casters(scene);
+    const over = viewTiles + viewOther + shadowPass.triangles - FRAME_BUDGET.triangles;
+    if (over > 0 && params.get('budget') !== '0') viewTiles = stream.fitView(camera, viewTiles - over);
   }
 
   for (const t of stream.tiles()) {
