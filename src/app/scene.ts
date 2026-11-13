@@ -75,6 +75,8 @@ export class LiveScene {
   onFrame: ((f: SceneFrame) => void) | null = null;
   /** About once a second: how bright the scene is behind the top and bottom text (0..1). */
   onLuminance: ((top: number, bottom: number) => void) | null = null;
+  /** Skip measuring the brightness behind the text (the launch: only the clock shows). */
+  measurePaused = false;
   /** The first frame has been drawn. */
   onFirstFrame: (() => void) | null = null;
 
@@ -373,7 +375,9 @@ export class LiveScene {
 
     this.renderer.render(this.scene, this.camera);
     if (this.frames++ === 0) this.onFirstFrame?.();
-    if (now - this.lumAt > 1000 && this.onLuminance) {
+    // reading pixels back stalls the pipeline: only when text sits over the scene and nothing is being
+    // worked out (not during the launch, when only the clock shows)
+    if (now - this.lumAt > 1000 && this.onLuminance && !this.measurePaused) {
       this.lumAt = now;
       this.measure();
     }

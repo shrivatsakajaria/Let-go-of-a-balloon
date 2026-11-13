@@ -58,6 +58,9 @@ export type LiveHook = {
   route: { altM: number; groundM: number; tSec?: number } | null;
   /** While waiting: where the person's feet and the top of the held balloon are on screen (CSS px from the top). */
   subjectPx: [number, number] | null;
+  /** The last release: how long its route took (ms), or why it failed. */
+  routeMs: number | null;
+  routeError: string | null;
   groundM: number;
   feetM: number;
 };
@@ -81,7 +84,7 @@ export class Live {
   private sunUp: boolean | null = null;
   private windAsk = 0;
   private readonly canvas: HTMLCanvasElement;
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -166,6 +169,11 @@ export class Live {
     this.scene.setPaused(false);
     const t0 = Date.now();
     const route = releaseRoute(c, t0 + HOLD_MS);
+    this.hook.routeMs = this.hook.routeError = null;
+    route.then(
+      () => (this.hook.routeMs = Date.now() - t0),
+      (e) => (this.hook.routeError = `${(e as Error)?.name}: ${(e as Error)?.message}`),
+    );
     // a failure known at once still lets the chrome fade and the hand reach its moment first
     const ready = route.catch(async (e) => {
       await new Promise((r) => setTimeout(r, Math.max(0, t0 + HOLD_MS - Date.now())));
@@ -281,6 +289,7 @@ export class Live {
     } else h.subjectPx = null;
     h.feetM = f.feetM;
 
+    this.scene.measurePaused = this.state === 'launch';
     if (this.state === 'launch' && f.released && f.settled) {
       this.state = 'flight';
       this.deps.setView('flight');

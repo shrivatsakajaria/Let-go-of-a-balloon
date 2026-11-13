@@ -79,7 +79,7 @@ test('route not ready at 1.2 s: the person holds on, then the winds error after 
   await expect(msg).toBeVisible({ timeout: 20_000 });
   expect(Date.now() - t0).toBeGreaterThan(5500);
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
-  expect((await hook(page))!.person).toBe('timedOut');
+  expect((await hook(page))!.person).toBe('idle'); // holding the balloon again, ready for another go
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   await expect(msg).toBeHidden();
