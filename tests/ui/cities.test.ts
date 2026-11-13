@@ -85,7 +85,10 @@ describe('cities.json', () => {
     }
   });
 
-  /** Rough city centres (OpenStreetMap / Nominatim) and how far from them a launch spot may be. */
+  /**
+   * Rough city centres (Nominatim, or the city core where the boundary's centre lies far out, as in
+   * Mumbai, Tokyo and Dubai) and how far from them a launch spot may be.
+   */
   const CENTRES: Record<string, [lat: number, lon: number, km: number]> = {
     'new-york': [40.71273, -74.00602, 8], mumbai: [18.94, 72.835, 8], 'rio-de-janeiro': [-22.91101, -43.20937, 10],
     london: [51.50745, -0.12777, 5], manchester: [53.4808, -2.2426, 3], edinburgh: [55.95335, -3.18837, 3],
