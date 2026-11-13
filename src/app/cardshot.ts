@@ -239,14 +239,16 @@ export function isFarRoute(route: Route): boolean {
 }
 
 /**
- * Step until `ready` has said yes twice running, the time is up, or `alive` says the visitor has
- * moved on (checked before every step, so a cancelled card world stops within one step).
+ * Step until `ready` has said yes twice running, the time is up, `stop` says the moment has come (the
+ * replay's end: the picture is taken with what is in, the sea-and-land plain under any gap), or `alive`
+ * says the visitor has moved on (checked before every step, so a cancelled card world stops at once).
  */
-export async function pumpUntil(ready: () => boolean, o: { maxMs: number; everyMs: number; alive: () => boolean }): Promise<'ready' | 'timeout' | 'cancelled'> {
+export async function pumpUntil(ready: () => boolean, o: { maxMs: number; everyMs: number; alive: () => boolean; stop?: () => boolean }): Promise<'ready' | 'timeout' | 'cancelled' | 'stopped'> {
   const t0 = performance.now();
   let calm = 0;
   for (;;) {
     if (!o.alive()) return 'cancelled';
+    if (o.stop?.()) return 'stopped';
     calm = ready() ? calm + 1 : 0;
     if (calm >= 2) return 'ready';
     if (performance.now() - t0 >= o.maxMs) return 'timeout';
@@ -294,6 +296,8 @@ export function cardScene(live: LiveScene): CardScene {
 
 /** Render `scene` from `camera` into a w x h picture (right way up, warm slopes calmed). */
 function picture(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, w: number, h: number): HTMLCanvasElement | null {
+  // a lost context draws nothing: no picture (a later "Show the card" tries again), never a blank one
+  if (renderer.getContext().isContextLost()) return null;
   const target = renderer.getRenderTarget();
   const rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, depthBuffer: true, colorSpace: THREE.SRGBColorSpace });
   (rt as unknown as { isXRRenderTarget: boolean }).isXRRenderTarget = true;
@@ -473,7 +477,7 @@ async function seaPlain(route: Route, shot: FarShot, y: number, camera: THREE.Ca
 }
 
 /** The last card world: how many tiles it wanted, how many were drawn, and how long it took (for checks). */
-export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0 };
+export const farStats = { tiles: 0, settled: 0, failed: 0, ms: 0, readyAt: 0, compiledAt: 0, gateAt: 0 };
 
 /** Far: a card world of its own, drawn once and disposed. */
 export async function farFrame(live: LiveScene, route: Route, w: number, h: number, alive: () => boolean = () => true, gate?: Promise<void>): Promise<CardFrame | null> {
@@ -513,20 +517,29 @@ export async function farFrame(live: LiveScene, route: Route, w: number, h: numb
     // the stream is told it stands at the landing, so its origin (and the shot's frame) stays there
     const here = { lat: shot.landing.lat, lon: shot.landing.lon, altM: camera.position.y, headingDeg: shot.viewDeg };
     const t0 = performance.now();
-    // the visitor moving on stops it: its builds are cancelled as the stream is disposed (finally)
+    Object.assign(farStats, { readyAt: 0, compiledAt: 0, gateAt: 0 });
+    let opened = false;
+    void gate?.then(() => {
+      opened = true;
+      farStats.gateAt = Date.now();
+    });
+    // the visitor moving on stops it: its builds are cancelled as the stream is disposed (finally); the
+    // replay's end ends the wait (the picture takes what is in; the plain covers the rest)
     const how = await pumpUntil(
       () => {
         stream.update(here, performance.now());
         return stream.stats().ready;
       },
-      { maxMs: FAR_WAIT_MS, everyMs: 100, alive: going },
+      { maxMs: FAR_WAIT_MS, everyMs: 100, alive: going, stop: () => opened },
     );
     if (how === 'cancelled') return null;
+    farStats.readyAt = Date.now();
     // the picture waits for its moment (the end of the replay), the land drawing meanwhile; its shaders
     // are compiled now (in parallel where the GPU can), so the picture at the end is quick
     if (gate) {
       stream.update(here, performance.now());
       await live.renderer.compileAsync(scene, camera).catch(() => {});
+      farStats.compiledAt = Date.now();
       await gate;
     }
     if (!going()) return null;

@@ -46,5 +46,7 @@ export async function showMapCard(f: Fallback, route: Route): Promise<void> {
     own: fl.own,
     landing: landingPlace(route).catch(() => null),
     isCurrent: () => t === ticket && f.shown?.route === route,
+    // the card goes on being made while this balloon is on the map ("Show the card" meanwhile shares it)
+    alive: () => f.shown?.route === route,
   });
 }

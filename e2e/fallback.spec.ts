@@ -162,6 +162,22 @@ test.describe('without WebGL', () => {
     await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   });
 
+  test('"Show the card" on the map while the card is being made shows that card (one render)', async ({ context, page }) => {
+    await liveWorld(context);
+    await coast(context);
+    await noWebGL(context);
+    // the coastline comes slowly, so the card's map picture is still being made when the visitor taps
+    await context.route(/^https:\/\/tiles\.openfreemap\.org\/fixture\/[0-5]\//, async (route) => {
+      await new Promise((r) => setTimeout(r, 4000));
+      await route.fallback();
+    });
+    await page.goto(await linkTo(eastward(80)));
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __card?: { state: string } }).__card?.state), { timeout: 20_000 }).toBe('waiting');
+    await page.getByRole('button', { name: 'Show the card' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 20_000 });
+    expect(await page.evaluate(() => (window as unknown as { __card: { renders: number; state: string } }).__card.renders)).toBe(1);
+  });
+
   test('the landing card shows on the map: a 1080x1350 postcard with the map as its picture, and no 3D world loaded', async ({ context, page }) => {
     await liveWorld(context);
     await coast(context);

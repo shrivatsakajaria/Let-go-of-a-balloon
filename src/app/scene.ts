@@ -345,12 +345,12 @@ export class LiveScene {
     return this.replay !== null;
   }
 
-  /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */
   /** Disposed: nothing may be drawn with it any more (the landing card checks before it renders). */
   get gone(): boolean {
     return this.disposed;
   }
 
+  /** Stop drawing and free everything: the world, sky, clouds, person, balloon, workers and the GL context. */
   dispose(): void {
     if (this.disposed) return;
     this.stopReplay();

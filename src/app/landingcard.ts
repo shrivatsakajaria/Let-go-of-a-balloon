@@ -56,25 +56,38 @@ export async function homeFor(saved: SavedBalloon, own: boolean, near: (p: LatLo
   return startName(saved.start, await near(saved.start).catch(() => null));
 }
 
+/** A result being made (or made) and whether its maker is still there to finish it. */
+export type Once<V> = { p: Promise<V | null>; alive: () => boolean; done: boolean };
+
 /**
- * One result per key: a request while one is being made waits on it; a result that is null (not
- * made: cancelled or failed) or that `keep` turns down is not kept, so the next request tries again.
+ * One result per key: a request while one is being made waits on it, unless its maker has gone (a
+ * disposed 3D flight), when it starts afresh; a result that is null (not made: cancelled or failed) or
+ * that `keep` turns down is not kept, so the next request tries again.
  */
-export function onceFor<K extends object, V>(cache: WeakMap<K, Promise<V | null>>, key: K, make: () => Promise<V | null>, keep: (v: V) => boolean): Promise<V | null> {
+export function onceFor<K extends object, V>(cache: WeakMap<K, Once<V>>, key: K, make: () => Promise<V | null>, keep: (v: V) => boolean, alive: () => boolean): Promise<V | null> {
   const had = cache.get(key);
-  if (had) return had;
-  const p = make().then(
+  if (had && (had.done || had.alive())) return had.p;
+  const entry: Once<V> = { p: Promise.resolve(null), alive, done: false };
+  entry.p = make().then(
     (v) => {
-      if (v === null || !keep(v)) cache.delete(key);
+      if (cache.get(key) === entry) {
+        if (v === null || !keep(v)) cache.delete(key);
+        else entry.done = true;
+      }
       return v;
     },
     (e) => {
-      cache.delete(key);
+      if (cache.get(key) === entry) cache.delete(key);
       throw e;
     },
   );
-  cache.set(key, p);
-  return p;
+  cache.set(key, entry);
+  return entry.p;
+}
+
+/** Whether a card for `route` is a "Landed" one: by the time, unless the request says (a replay keeps the state it began with). */
+export function landedFor(route: Route, now: number, given?: boolean): boolean {
+  return given ?? now >= landedAt(route);
 }
 
 export type PresentOpts = {
@@ -92,6 +105,8 @@ export type PresentOpts = {
   alive?(): boolean;
   /** Hold the picture back until this resolves (the replay makes its card while it plays, and takes the picture at its end). */
   gate?: Promise<void>;
+  /** Make the "Landed" card (true) or the "Expected to" one (false), whatever the time (default: by the time). */
+  landed?: boolean;
   closeLabel?: string;
   onClose?(): void;
 };
@@ -101,15 +116,17 @@ let latest = 0;
 /** A card made for a route: kept, so "Show the card" opens it again at once. */
 type Made = { blob: Blob; words: CardWords; link: string; layout: CardLayout; frame: 'scene' | 'sketch' };
 /** Cards being made or made, by route: one set for "Expected to" cards and one for "Landed" ones. */
-const made = { air: new WeakMap<Route, Promise<Made | null>>(), down: new WeakMap<Route, Promise<Made | null>>() };
+const made = { air: new WeakMap<Route, Once<Made>>(), down: new WeakMap<Route, Once<Made>>() };
 
-async function makeCard(o: PresentOpts): Promise<Made | null> {
+async function makeCard(o: PresentOpts, landed: boolean): Promise<Made | null> {
   const alive = o.alive ?? o.isCurrent;
   const [home, place] = await Promise.all([homeName(o.saved), o.landing.catch(() => null)]);
   const landing: Landing | null = place ? { name: place.name, kind: place.kind } : null;
   cardHook.waitedMs = o.settle ? await o.settle() : 0;
   if (!alive()) return null;
-  const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: Date.now() }));
+  // the words for the state asked for ("Expected to" stays so for a replay that began before the landing)
+  const at = landed ? Math.max(Date.now(), landedAt(o.route)) : Math.min(Date.now(), landedAt(o.route) - 1);
+  const words = cardWords(cardFacts(o.route, { home, landing, own: o.own, now: at }));
   const drawn = await drawCard(o.route, o.scene, words, alive, o.gate);
   if (!alive()) return null;
   cardHook.renders++;
@@ -120,8 +137,13 @@ async function makeCard(o: PresentOpts): Promise<Made | null> {
 
 /** Start making the card for a route without showing it (a later presentCard for the route waits on it). */
 export function prepareCard(o: PresentOpts): Promise<unknown> {
-  const landed = Date.now() >= landedAt(o.route);
-  return onceFor(landed ? made.down : made.air, o.route, () => makeCard(o), (c) => c.frame !== 'sketch').catch(() => null);
+  return getCard(o).catch(() => null);
+}
+
+/** The card for a request: being made already (by a maker still there), made, or made now. */
+function getCard(o: PresentOpts): Promise<Made | null> {
+  const landed = landedFor(o.route, Date.now(), o.landed);
+  return onceFor(landed ? made.down : made.air, o.route, () => makeCard(o, landed), (c) => c.frame !== 'sketch', o.alive ?? o.isCurrent);
 }
 
 export async function presentCard(o: PresentOpts): Promise<CardView | null> {
@@ -136,8 +158,7 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
   try {
     // a card made before the balloon was down says "Expected to"; once landed it is made again. A
     // plain sketch (the picture could not be made) is not kept: "Show the card" tries again.
-    const landed = Date.now() >= landedAt(o.route);
-    const card = await onceFor(landed ? made.down : made.air, o.route, () => makeCard(o), (c) => c.frame !== 'sketch');
+    const card = await getCard(o);
     if (!card || !o.isCurrent()) return abort();
     const { blob, words, link } = card;
     const ua = navigator.userAgent;

@@ -720,9 +720,9 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 
 /* the landed HUD's way back to the card: a quiet text action beside "Let go of …" (one main action) */
 .actions .show-card { margin-left: -8px; font-size: 15px; font-weight: 600; }
-.actions .show-card[hidden] { display: none; }
+.actions .show-card[hidden] { display: none; } /* .link sets display, which would undo [hidden] */
 /* the whole trip, the card and "Let go of ..." together (a landed balloon): the row wraps rather than overflows */
-.hud .actions { flex-wrap: wrap; row-gap: 0; } /* .link sets display, which would undo [hidden] */
+.hud .actions { flex-wrap: wrap; row-gap: 0; }
 .actions .show-card:not([hidden]) + .again { margin-left: 0; }
 
 /* a link that could not be copied: said plainly, and shown to copy by hand */

@@ -141,10 +141,14 @@ test('the replay ends on the landing card ("Expected to land near ..." over the 
   // is taken then: on a GPU that is a frame; on this software renderer, drawing the card's 1,180 km of
   // coarse land at 1080 x 1000 takes 10-20 s on a busy machine, so the opening has its own allowance
   await expect(card).toBeVisible({ timeout: 60_000 });
-  const c = await page.evaluate(() => (window as unknown as { __card: { kicker: string; startedAt: number; openedAt: number } }).__card);
+  const c = await page.evaluate(() => (window as unknown as { __card: { kicker: string; startedAt: number; openedAt: number; world: { readyAt: number; gateAt: number } } }).__card);
   const ms = (await hook(page)).replayMs!;
   expect(ms).toBeLessThan(22_000);
   expect(c.startedAt - t0).toBeLessThan(22_000);
+  // the card's own preparation (its land) was done by the replay's end: the end never waits for tiles
+  expect(c.world.gateAt).toBeGreaterThan(0);
+  expect(c.world.readyAt).toBeGreaterThan(0);
+  expect(c.world.readyAt).toBeLessThanOrEqual(c.world.gateAt + 1000);
   console.log(`the card opened ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap (software renderer)`);
   expect(c.openedAt - c.startedAt).toBeLessThan(30_000);
   expect(c.kicker).toMatch(/^Expected to (land near|land in|come down in)$/);
@@ -167,6 +171,20 @@ test('the replay ends on the landing card ("Expected to land near ..." over the 
   await expect(trip).toBeVisible();
   // one filled main action at a time: the whole trip (the card's way back is a quiet link once landed)
   expect(await page.locator('.hud .actions .main-action:not([hidden])').count()).toBe(1);
+});
+
+test('Escape between the replay\'s end and the card coming up still goes back to live, and the card then never opens', async ({ context, page }) => {
+  await liveWorld(context);
+  await openFlight(page, 30);
+  await page.getByRole('button', { name: 'Show me the whole trip' }).click();
+  // the end: the replay holds on the landing while the card's picture is taken (seconds on this renderer)
+  await expect.poll(async () => (await hook(page)).replayMs, { timeout: 60_000, intervals: [100] }).not.toBe(null);
+  expect(await page.getByRole('dialog').count()).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await hook(page)).replay, { timeout: 30_000, intervals: [250] }).toBe(false);
+  await page.waitForTimeout(15_000);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
 });
 
 test('Back to live during the replay returns to the live view at now, and the trail is gone; Escape does the same', async ({ context, page }) => {
