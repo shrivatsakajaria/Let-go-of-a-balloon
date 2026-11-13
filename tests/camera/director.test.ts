@@ -406,6 +406,48 @@ describe('Director', () => {
     expect(d.shot).toBe('ride');
   });
 
+  test('waiting at the start screen: the person and the held balloon sit in the free band, nothing blocks them; go() starts the launch', () => {
+    const person: LatLon = { lat: 50, lon: 0 };
+    const ground = 20;
+    // a 12 m building 8-14 m upwind of the person (west, the wind blows east): the wide spot must come in front of it
+    const inBlock = (x: number, z: number, r: number) => x + r > -14 && x - r < -8 && Math.abs(z) - r < 30;
+    const buildingTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return inBlock(s.x, s.z, r) ? ground + 12 : ground;
+    };
+    for (const aspect of [390 / 660, 390 / 844, 16 / 9]) {
+      const cam = new THREE.PerspectiveCamera(50, aspect, 0.05, 100000);
+      const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt }));
+      const band = { centerY: 0.2, spanY: 0.8 };
+      d.setLaunch({ personAt: person, startUtcMs: 0, waiting: band });
+      const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: ground + 2.4, groundM: ground, speedMs: 3, headingDeg: 90 });
+      run(d, 0, 30, 0.1, held);
+      expect(d.shot).toBe('launch'); // waiting never hands over
+      expect(d.waiting).toBe(true);
+      const p0 = toScene(person);
+      const feet = new THREE.Vector3(p0.x, ground, p0.z);
+      const top = new THREE.Vector3(p0.x, ground + 2.6, p0.z);
+      cam.updateMatrixWorld(true);
+      const f = feet.clone().project(cam), tp = top.clone().project(cam);
+      expect(inFrame(cam, feet) && inFrame(cam, top)).toBe(true);
+      expect(f.y).toBeGreaterThan(band.centerY - band.spanY / 2 - 0.02);
+      expect(tp.y).toBeLessThan(band.centerY + band.spanY / 2 + 0.02);
+      expect(tp.y - f.y).toBeGreaterThan(0.25); // big enough to read
+      expect(Math.abs((f.y + tp.y) / 2 - band.centerY)).toBeLessThan(0.08);
+      // never in the building, and the building is not between the camera and the person
+      expect(inBlock(cam.position.x, cam.position.z, 0)).toBe(false);
+      expect(cam.position.x).toBeGreaterThan(-8);
+      expect(cam.position.y).toBeLessThan(ground + 2);
+      // Let go: the launch runs from 0 and hands over to ride 20 s later
+      d.go();
+      expect(d.waiting).toBe(false);
+      run(d, 30, 19.5, 0.1, held);
+      expect(d.shot).toBe('launch');
+      run(d, 49.5, 1, 0.1, held);
+      expect(d.shot).toBe('ride');
+    }
+  });
+
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     const H = 30;
