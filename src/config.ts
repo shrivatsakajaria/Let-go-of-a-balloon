@@ -33,3 +33,9 @@ export const TERRAIN_AWS_MAX_ZOOM = 15;
  * 4644 m) and valleys higher, which can change the cruise level over high ground.
  */
 export const ROUTE_GROUND_ZOOM = 5;
+
+/**
+ * OpenFreeMap vector tiles (OpenMapTiles schema). The TileJSON is versioned: read its `tiles[0]`
+ * template once at boot rather than hard-coding a planet version.
+ */
+export const OPENFREEMAP_TILEJSON = 'https://tiles.openfreemap.org/planet';

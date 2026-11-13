@@ -73,3 +73,20 @@ export const CONTOUR = {
   building: ['#f4efe5', '#ebe3d4'] as Color[],
   roof: ['#d9bfa4', '#c9ad92', '#9fa6aa'] as Color[],
 };
+
+/** Contour roads (pale chalk and stone, by class) and rail. Calm, never saturated. */
+export const ROADS = {
+  major: '#f1ece0' as Color, // motorway, trunk
+  main: '#ece5d6' as Color, // primary, secondary
+  minor: '#e3dac8' as Color, // tertiary, minor
+  small: '#d6cdb9' as Color, // service, track, path
+  rail: '#b4aea2' as Color,
+};
+
+/**
+ * Regional building character: wall and roof colours, and roof pitch in degrees. Task 19 adds
+ * regional lookups; DEFAULT_REGION is Contour chalk with clay and slate roofs.
+ */
+export type RegionStyle = { walls: Color[]; roofs: Color[]; roofPitch: number };
+
+export const DEFAULT_REGION: RegionStyle = { walls: CONTOUR.building, roofs: CONTOUR.roof, roofPitch: 32 };
