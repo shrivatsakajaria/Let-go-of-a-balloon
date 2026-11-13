@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { headersFor, parseHeaders } from '../scripts/pages-headers';
-import { liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
+import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
 
 /**
  * The Content-Security-Policy in public/_headers, enforced on the built site. `vite preview` does not
@@ -92,6 +92,26 @@ test('the 2D map runs under the policy too', async ({ context, page }) => {
   await expect(page.locator('.fps')).toHaveText(/fps/, { timeout: 15_000 });
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
   await expect(page.locator('.map2d')).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(3000);
+  expect(seen).toEqual([]);
+});
+
+test('the whole-trip replay runs under the policy too, and its still route view (reduced motion)', async ({ context, page }) => {
+  await liveWorld(context);
+  const seen = await pagesHeaders(page);
+  await page.goto(await linkTo(eastward(30)));
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 30_000 }).toBe('flight');
+  await page.getByRole('button', { name: 'Show me the whole trip' }).click();
+  await expect(page.locator('.hud .over')).toHaveText('Forecast route, 72 hours in 20 seconds');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __live: { trail: boolean } }).__live.trail), { timeout: 30_000 }).toBe(true);
+  await page.waitForTimeout(6000);
+  await page.getByRole('button', { name: 'Back to live' }).click();
+  // the still route view writes an SVG with a style attribute
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 30_000 }).toBe('flight');
+  await page.getByRole('button', { name: 'Show me the whole trip' }).click();
+  await expect(page.locator('.replay-map svg')).toBeVisible();
   await page.waitForTimeout(3000);
   expect(seen).toEqual([]);
 });
