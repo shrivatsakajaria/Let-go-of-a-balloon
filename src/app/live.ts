@@ -10,6 +10,7 @@
  * The page's view (start, launch, flight, error) is set on <html data-view>, and the chrome's fades
  * follow it in CSS (spec 8: chrome fades out over 300 ms on Let go, the HUD in over 600 ms at 20 s).
  */
+import { Vector3 } from 'three';
 import type { DirectorEvent, DirectorMode } from '../camera/director';
 import { encodeBalloon, linkFor, type SavedBalloon } from '../flight/codec';
 import { positionAt, type Route } from '../flight/route';
@@ -55,6 +56,8 @@ export type LiveHook = {
   over: string;
   frames: number;
   route: { altM: number; groundM: number; tSec?: number } | null;
+  /** While waiting: where the person's feet and the top of the held balloon are on screen (CSS px from the top). */
+  subjectPx: [number, number] | null;
   groundM: number;
   feetM: number;
 };
@@ -78,7 +81,7 @@ export class Live {
   private sunUp: boolean | null = null;
   private windAsk = 0;
   private readonly canvas: HTMLCanvasElement;
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -268,6 +271,14 @@ export class Live {
     h.over = this.over;
     h.route = f.released ? { altM: f.point.altM, groundM: f.point.groundM, tSec: f.point.tSec } as LiveHook["route"] : null;
     h.groundM = f.groundM;
+    const person = this.scene.person;
+    if (f.waiting && person?.root.visible) {
+      const cam = this.scene.camera;
+      const px = (v: Vector3) => ((1 - v.project(cam).y) / 2) * window.innerHeight;
+      const top = this.scene.balloon.mesh.getWorldPosition(new Vector3());
+      top.y += 0.2;
+      h.subjectPx = [px(top), px(person.root.getWorldPosition(new Vector3()))];
+    } else h.subjectPx = null;
     h.feetM = f.feetM;
 
     if (this.state === 'launch' && f.released && f.settled) {

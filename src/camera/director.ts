@@ -126,6 +126,8 @@ export class Director {
   private wait: WaitFrame | null = null;
   /** The establishing shot's camera position (world), chosen once per launch. */
   private wide: THREE.Vector3 | null = null;
+  /** The waiting shot's camera height last frame. */
+  private waitY = Number.NaN;
   /** Frames counted while waiting, to check the cached spots against newly arrived buildings now and then. */
   private recheck = 0;
   /** Which way the pull-back swings round the balloon (chosen once, so it never flips mid-move). */
@@ -321,6 +323,10 @@ export class Director {
     }
     this.prevB.copy(B);
 
+    // While waiting the camera stands still in the street: the ground streaming in under it (coarse land,
+    // then finer) moves it straight up or down with the ground, not in a slow glide.
+    if (this.wait && Number.isFinite(this.waitY)) this.pos.y += tg.pos.y - this.waitY;
+    this.waitY = this.wait ? tg.pos.y : Number.NaN;
     spring3(this.pos, this.posV, tg.pos, this.tau, dtFull);
     [this.y0, this.y0V] = spring1(this.y0, this.y0V, tg.y0, this.tau, dtFull);
     [this.x0, this.x0V] = spring1(this.x0, this.x0V, tg.x0 ?? 0, this.tau, dtFull);

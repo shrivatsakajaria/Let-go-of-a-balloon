@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import { Balloon, displayScale } from '../balloon/balloon';
-import { Person } from '../balloon/person';
+import { MAX_HOLD_S, Person } from '../balloon/person';
 import { Director, type DirectorMode, type WaitFrame } from '../camera/director';
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
@@ -87,6 +87,7 @@ export class LiveScene {
   private wind = { speedMs: 2, headingDeg: 90 };
   private wait: WaitFrame = { centerY: 0.15, spanY: 0.7 };
   private groundS = Number.NaN;
+  private placedAt = 0;
   private feetS = Number.NaN;
   private last = performance.now();
   private frames = 0;
@@ -180,14 +181,30 @@ export class LiveScene {
     this.director.go();
     let ready: Route | null = null;
     route.then((r) => (ready = r), () => {});
+    let done = false;
+    const timeout = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(deadline);
+      onTimeout();
+    };
+    // the person counts the 6 s in frame time; a slow frame rate must not stretch the wait in real time
+    const deadline = window.setTimeout(() => {
+      if (person.state !== 'holding') return;
+      person.holdIdle();
+      timeout();
+    }, MAX_HOLD_S * 1000 + 100);
     person.play(
       () => {
+        done = true;
+        clearTimeout(deadline);
         this.route = ready;
         this.released = true;
+        this.balloon.root.visible = true;
         this.balloon.release();
         onRelease(ready!);
       },
-      { readyAt: route, onTimeout },
+      { readyAt: route, onTimeout: timeout },
     );
   }
 
@@ -208,6 +225,7 @@ export class LiveScene {
     this.person?.dispose();
     this.person = null;
     this.newBalloon();
+    this.balloon.root.visible = true;
     this.balloon.release();
     this.director.cut(mode);
   }
@@ -244,6 +262,7 @@ export class LiveScene {
     this.person?.dispose();
     // facing back toward the street camera, which stands upwind, a little turned
     this.person = new Person(this.scene, this.start, (this.wind.headingDeg + 160) % 360);
+    this.placedAt = performance.now();
     this.feetS = Number.NaN;
     this.updatePerson(0);
     this.balloon.hold(this.person.hand);
@@ -253,7 +272,13 @@ export class LiveScene {
     const person = this.person;
     if (!person) return;
     const g = this.stream.groundAt(this.start);
-    this.feetS = Number.isNaN(this.feetS) || Math.abs(g - this.feetS) > 200 ? g : this.feetS + (g - this.feetS) * (1 - Math.exp(-dt / 0.6));
+    // until the street's own tile is in, the ground there is a guess: the person waits out of sight
+    // rather than sinking into the street as finer land arrives
+    const fine = this.stream.zoomAt(this.start) >= 13 || performance.now() - this.placedAt > 6000;
+    if (fine && !person.root.visible) this.feetS = Number.NaN;
+    person.root.visible = fine;
+    if (!this.released) this.balloon.root.visible = fine;
+    this.feetS = Number.isNaN(this.feetS) || !fine || Math.abs(g - this.feetS) > 200 ? g : this.feetS + (g - this.feetS) * (1 - Math.exp(-dt / 0.6));
     const s = this.stream.toScene(this.start, this.tmp);
     person.place({ x: s.x, y: this.feetS, z: s.z });
     person.update(dt);

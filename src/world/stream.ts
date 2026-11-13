@@ -228,6 +228,11 @@ export class WorldStream {
     return f !== undefined && Number.isFinite(f) ? f : 0;
   }
 
+  /** Zoom of the finest tile with ground at p, or -1 when none is loaded there. */
+  zoomAt(p: LatLon): number {
+    return this.finestAt(p)?.t.z ?? -1;
+  }
+
   /** Highest building top (absolute, like groundAt) within radiusM of p; the ground where there is none. */
   buildingTopAt(p: LatLon, radiusM: number): number {
     let best = this.groundAt(p);

@@ -35,7 +35,7 @@ test.describe('start screen', () => {
     await offline(page);
     await page.goto('/');
     await expect(page.getByText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.')).toBeInViewport();
-    const credit = page.locator('.map-credit');
+    const credit = page.locator('.start .map-credit');
     await expect(credit).toHaveText('OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn');
     await expect(credit).toBeInViewport();
     await expect(credit.getByRole('link')).toHaveCount(4);
@@ -45,12 +45,12 @@ test.describe('start screen', () => {
     await offline(page);
     await page.goto('/');
     await page.evaluate(() => document.fonts.ready);
-    const n = (await page.locator('.notice').boundingBox())!;
-    const c = (await page.locator('.map-credit').boundingBox())!;
+    const n = (await page.locator('.start .notice').boundingBox())!;
+    const c = (await page.locator('.start .map-credit').boundingBox())!;
     expect(n.x + n.width).toBeLessThanOrEqual(c.x);
     expect(Math.min(n.y + n.height, c.y + c.height)).toBeGreaterThan(Math.max(n.y, c.y));
     expect(Math.abs(n.y + n.height - (c.y + c.height))).toBeLessThan(2);
-    for (const sel of ['.notice', '.map-credit']) {
+    for (const sel of ['.start .notice', '.start .map-credit']) {
       const px = await page.locator(sel).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
       expect(px).toBeLessThanOrEqual(11);
       expect(px).toBeGreaterThanOrEqual(10);
@@ -62,8 +62,8 @@ test.describe('start screen', () => {
     await offline(page);
     await page.goto('/');
     await page.evaluate(() => document.fonts.ready);
-    const n = (await page.locator('.notice').boundingBox())!;
-    const c = (await page.locator('.map-credit').boundingBox())!;
+    const n = (await page.locator('.start .notice').boundingBox())!;
+    const c = (await page.locator('.start .map-credit').boundingBox())!;
     expect(n.x + n.width).toBeLessThanOrEqual(c.x);
     expect(Math.min(n.y + n.height, c.y + c.height)).toBeGreaterThan(Math.max(n.y, c.y));
     expect(Math.abs(n.y + n.height - (c.y + c.height))).toBeLessThan(2);
@@ -75,17 +75,17 @@ test.describe('start screen', () => {
     await page.goto('/');
     await page.evaluate(() => document.fonts.ready);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    for (const sel of ['.notice', '.map-credit']) {
+    for (const sel of ['.start .notice', '.start .map-credit']) {
       const b = (await page.locator(sel).boundingBox())!;
       expect(b.x).toBeGreaterThanOrEqual(0);
       expect(b.x + b.width).toBeLessThanOrEqual(320);
     }
-    for (const a of await page.locator('.map-credit a').all()) {
+    for (const a of await page.locator('.start .map-credit a').all()) {
       const b = (await a.boundingBox())!;
       expect(b.x + b.width).toBeLessThanOrEqual(320 - 16 + 1);
     }
-    const n = (await page.locator('.notice').boundingBox())!;
-    const c = (await page.locator('.map-credit').boundingBox())!;
+    const n = (await page.locator('.start .notice').boundingBox())!;
+    const c = (await page.locator('.start .map-credit').boundingBox())!;
     expect(n.x + n.width).toBeLessThanOrEqual(c.x);
   });
 
@@ -282,7 +282,8 @@ test.describe('town search', () => {
     const first = await letGo(page);
     expect(first).toEqual({ name: 'Windermere', lat: 54.38086, lon: -2.90709, kind: 'search' });
     await expect(page.locator('.letgo')).not.toHaveAttribute('aria-busy');
-    // and again: the button is not left dead
+    // and again: the button is not left dead (offline, the winds cannot load: Cancel goes back to the start)
+    await page.getByRole('button', { name: 'Cancel' }).click();
     expect((await letGo(page)).name).toBe('Windermere');
     expect(errors).toEqual([]);
   });
@@ -368,6 +369,24 @@ test.describe('my location', () => {
     await expect(box).toBeVisible();
     await expect(page.getByText('Location is off. Search for your town instead.')).toBeHidden();
     expect(await page.evaluate(() => (window as unknown as { geoCalls: number }).geoCalls)).toBe(1);
+  });
+
+  test('a location timeout says so differently, and the next tap asks again', async ({ page }) => {
+    await offline(page);
+    await page.addInitScript(() => {
+      (window as unknown as { geoCalls: number }).geoCalls = 0;
+      navigator.geolocation.getCurrentPosition = (_ok, fail) => {
+        (window as unknown as { geoCalls: number }).geoCalls++;
+        setTimeout(() => fail?.({ code: 3, message: 'timeout', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError), 50);
+      };
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    await expect(page.getByText("We couldn't find you. Try again, or search for your town.")).toBeVisible();
+    await expect(page.getByText('Location is off. Search for your town instead.')).toBeHidden();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Use my location' }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { geoCalls: number }).geoCalls)).toBe(2);
   });
 });
 
