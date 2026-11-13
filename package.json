@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "cities": "vite-node scripts/cities.ts",
+    "gazetteer": "vite-node scripts/gazetteer.ts",
     "e2e": "playwright test",
     "start": "vite preview"
   },

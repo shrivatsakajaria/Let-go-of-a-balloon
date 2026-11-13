@@ -14,3 +14,4 @@ public/winds/
 .env
 .env.*
 !.env.example
+.cache/

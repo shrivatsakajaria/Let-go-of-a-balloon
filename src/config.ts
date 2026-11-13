@@ -43,3 +43,16 @@ export const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 /** Where the wind pipeline's tiles and manifest are served from (same origin as the site). */
 export const WINDS_BASE = '/winds';
 export const OPENFREEMAP_TILEJSON = 'https://tiles.openfreemap.org/planet';
+
+/**
+ * Gazetteer: place names for the balloon's route, as small static files shipped with the site
+ * (scripts/gazetteer.ts writes them to public/gazetteer/<z>_<x>_<y>.json).
+ */
+export const GAZETTEER_BASE = '/gazetteer';
+export const GAZETTEER_ZOOM = 5;
+/** Cells per tile side in each tile's sea/region lookup grid. */
+export const GAZETTEER_GRID = 128;
+/** A town further than this from the balloon is not "near" it. */
+export const NEAREST_TOWN_KM = 60;
+/** The live fact line moves on to the next fact this often. */
+export const FACT_ROTATE_MS = 6000;
