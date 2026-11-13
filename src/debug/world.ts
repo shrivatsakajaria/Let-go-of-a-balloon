@@ -20,7 +20,8 @@
  *   wind=u,v       wind at cruise for the clouds, m/s east and north (default 4,2)
  *   clouds=0       no clouds
  *
- * window.__world reports progress and renderer numbers for screenshots.
+ * window.__world reports progress and renderer numbers for screenshots, the sun elevation and
+ * night factor, and the clouds, boats and street lamps alive (with nearby clouds and boats, for checks).
  */
 import * as THREE from 'three';
 import { destination, type LatLon } from '../geo/coords';
