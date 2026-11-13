@@ -217,6 +217,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - The fact line is `aria-live="off"`. A separate polite status area announces only the launch, a change of country, and the landing.
 - The 3D canvas has `role="img"` and a label that updates during the flight, for example "Your balloon is over the North Sea, 412 km from Manchester".
 - Reduced motion:
+  - The launch has no crane: a still wide frame of the person and the rising balloon, then a cut to the settled view.
   - Ride with fixed framing and half the wobble.
   - The replay becomes the route drawing in place over 2 s.
 
@@ -263,7 +264,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 
 Fully directed, like a film. People can choose a view with buttons, but cannot drag or spin.
 
-- **Launch:** low at street level beside the person, tilting up as the balloon rises past rooftops, then pulling back.
+- **Launch:** low at street level beside the person, the landmark behind them; at the release a crane shot pulls back and rises as the balloon climbs out of the street, then pushes back in to Ride once it has cleared the rooftops.
 - **Ride:** as if a camera were tied to the balloon's string: just below and behind the balloon, which sits large at the top of the frame, looking forward and down at the land ahead. This is the core "camera on my balloon" view.
 - **Circling:** slow orbit from above and to one side, looking down at the balloon and the land.
 - **Side-on:** level with the balloon, land or sea passing below, horizon in view.
@@ -273,9 +274,9 @@ Fully directed, like a film. People can choose a view with buttons, but cannot d
 - Launch timing:
   - On tap, the button scales to 0.97 and all chrome except the clock fades out over 300 ms, giving a clean frame for recordings.
   - At 1.2 s the hand opens and the balloon squashes for 120 ms.
-  - From 1.2 to 8 s the camera tilts up past the rooftops.
-  - From 8 to 20 s it pulls back to show the landmark.
-  - At 20 s Ride settles and the HUD fades in over 600 ms.
+  - Then the crane shot (ruling R51): in one eased move with no cuts the camera dollies back from the person and cranes up, keeping the balloon at about the upper third, so the person shrinks and the balloon rises out of the street between the buildings, the rooftops dropping below it, the landmark kept in frame where possible.
+  - Once the balloon has cleared the rooftops round it (with a margin), not at a fixed time, the camera pushes back in and Ride settles on the balloon; the HUD fades in over 600 ms when Ride settles, no sooner than about 12 s and no later than about 40 s.
+  - Film's rotation starts after that. While the balloon is below the rooftops (a link opened in the first minutes), Film circles instead of riding.
 - Replay timing:
   - 2 s climb to the wide view.
   - 15 s of travel with eased speed.
