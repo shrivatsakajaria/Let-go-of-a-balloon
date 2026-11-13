@@ -437,7 +437,7 @@ a.link, .small a { color: var(--paper); }
 }
 .scene .world.on { opacity: 1; }
 
-/* ---- views: which chrome shows (spec 8: out over 300 ms on Let go, the HUD in over 600 ms at 20 s) ---- */
+/* ---- views: which chrome shows (spec 8: out over 300 ms on Let go, the HUD in over 600 ms when the launch's crane shot settles) ---- */
 
 .start .top, .start .bottom, .shade, .hud-top .where .clock, .hud-top .where .over, .hud .stats, .hud-bottom, .hud-shade, .notice-layer {
   transition: opacity 300ms var(--ease), visibility 0s linear 0s;

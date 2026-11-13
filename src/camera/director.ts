@@ -677,7 +677,7 @@ export class Director {
    * it, camera -> person -> landmark roughly in line, 5-12 m back and 0.7-4 m to the side the balloon drifts
    * to (so the rising balloon crosses the landmark line and the person, at eye level, stands beside it
    * rather than over it), for any wind (R36): with the landmark upwind the balloon may drift back toward the
-   * camera, and the crane backs away from it after the release. Only when every such spot is blocked (and with
+   * camera, and the crane swings round to upwind after the release. Only when every such spot is blocked (and with
    * no landmark): a few metres upwind of the person and a little to one side, so the balloon drifts away
    * from it, never over it, and the person stays in the bottom of a narrow portrait frame while it tilts up.
    * The director cannot see occlusion: the app must put the person where the landmark has a sightline.
@@ -1140,9 +1140,9 @@ export class Director {
    * Applied after smoothing. Outside the balloon and its string; then never inside terrain or buildings:
    * ground + 8 m, building tops within 30 m + 3 m, and always at least 1 m over any building within 1.5 m
    * (never inside one; the same radius the street camera's spot is checked with). During the launch the
-   * street phase is exempt from the 8 m and 30 m rules (the camera stands on the street beside the person):
-   * the 8 m rule fades in over 8-12.5 s while the camera climbs, and the 30 m rule over 8-20 s, so a camera
-   * catching up with a balloon still below the rooftops is not lifted over it to look down on it.
+   * street shot and the crane are exempt from the 8 m and 30 m rules (the camera stands in the street beside
+   * the person, then cranes up between the buildings, rising over them itself where it must: overBuildings);
+   * both rules come in with the push back in to the balloon, which ends above the rooftops.
    */
   private clamp(p: THREE.Vector3, b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
     // balloon: a sphere a little bigger than it, and a narrow column below it where the string hangs
