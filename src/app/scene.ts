@@ -20,6 +20,8 @@ import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
 import { brightLuminance, sceneAltitude } from '../ui/hudmath';
+import { LandmarkLayer } from '../landmarks/layer';
+import { hiddenFootprints } from '../landmarks/registry';
 import { Clouds } from '../world/clouds';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
@@ -65,6 +67,8 @@ export class LiveScene {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.08, 60000);
   readonly stream: WorldStream;
+  /** Landmark models near the camera, in place of their map buildings. */
+  readonly landmarks: LandmarkLayer;
   readonly sky: Sky;
   readonly clouds: Clouds;
   readonly director: Director;
@@ -132,16 +136,18 @@ export class LiveScene {
       groundTint: this.sky.current.groundTint,
       origin: start,
       fallbackGround: (p) => routeGround.peek(p),
+      hidden: hiddenFootprints(),
     });
+    this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
     this.stream.onRecentre = (e) => this.clouds.shift(e.dx, e.dz);
-    this.stream.onChange = () => {
+    this.stream.onChange = this.landmarks.onChange = () => {
       this.shadowAsked = performance.now();
     };
     this.director = new Director(this.camera, {
       toScene: (p) => this.stream.toScene(p),
       groundAt: (p) => this.stream.groundAt(p),
-      buildingTopAt: (p, r) => this.stream.buildingTopAt(p, r),
+      buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
     });
@@ -277,6 +283,7 @@ export class LiveScene {
     this.balloon.dispose();
     this.clouds.dispose();
     this.sky.dispose();
+    this.landmarks.dispose();
     this.stream.dispose();
     this.pool.terminate();
     this.scene.clear();
@@ -391,6 +398,7 @@ export class LiveScene {
     const cll = this.stream.fromScene(this.camera.position.x, this.camera.position.z);
     const heading = (Math.atan2(this.look.x, -this.look.z) / D2R + 360) % 360;
     this.stream.update({ lat: cll.lat, lon: cll.lon, altM: this.camera.position.y, headingDeg: heading }, t);
+    this.landmarks.update(cll, now, this.sky.current);
 
     // clouds drift with the wind at cruise, and never take in the balloon or the camera
     const h = pt.headingDeg * D2R;
