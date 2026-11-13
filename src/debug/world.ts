@@ -19,9 +19,13 @@
  *                  time); default the tile proof's fixed golden hour
  *   wind=u,v       wind at cruise for the clouds, m/s east and north (default 4,2)
  *   clouds=0       no clouds
+ *   landmarks=0    no landmark models (default: shown near the camera, their map buildings hidden)
+ *   at=lat,lon,h   aim the camera at this point, h metres above the ground there (overrides
+ *                  heading and pitch; the flight still follows heading)
  *
  * window.__world reports progress and renderer numbers for screenshots, the sun elevation and
- * night factor, and the clouds, boats and street lamps alive (with nearby clouds and boats, for checks).
+ * night factor, the clouds, boats and street lamps alive (with nearby clouds and boats, for checks),
+ * and the landmarks shown.
  */
 import * as THREE from 'three';
 import { destination, type LatLon } from '../geo/coords';
@@ -34,6 +38,9 @@ import { Clouds } from '../world/clouds';
 import { WorldStream } from '../world/stream';
 import { hazeFarM } from '../world/lod';
 import { StatsOverlay } from './overlay';
+import { LandmarkLayer } from '../landmarks/layer';
+import { hiddenFootprints } from '../landmarks/registry';
+import { countTriangles } from '../landmarks/kit';
 
 // ---- parameters ----
 
@@ -67,6 +74,11 @@ const WIND = (() => {
   return { u: Number.isFinite(u) ? u : 4, v: Number.isFinite(v) ? v : 2 };
 })();
 const CLOUDS = params.get('clouds') !== '0';
+const LANDMARKS = params.get('landmarks') !== '0';
+const AIM = (() => {
+  const [lat, lon, h] = (params.get('at') ?? '').split(',').map(Number);
+  return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon, h: Number.isFinite(h) ? h : 0 } : null;
+})();
 
 // ---- the look: a real time's sky, or the tile proof's golden hour ----
 
@@ -101,8 +113,11 @@ const pool = new WorkerPool<BuildRequest, BuildReply>(
   Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 2) - 1)),
   { timeoutMs: 20000 },
 );
-const stream = new WorldStream(scene, pool, regionStyle, { haze, groundTint: L.groundTint, origin: FROM });
+const stream = new WorldStream(scene, pool, regionStyle, { haze, groundTint: L.groundTint, origin: FROM, hidden: LANDMARKS ? hiddenFootprints() : [] });
 stream.setNight(L.night);
+const landmarks = LANDMARKS
+  ? new LandmarkLayer({ scene, toScene: (p, out) => stream.toScene(p, out), groundAt: (p) => stream.groundAt(p), zoomAt: (p) => stream.zoomAt(p), materials: stream.materials })
+  : null;
 
 const clouds = CLOUDS
   ? new Clouds(scene, { haze, seed: 11, groundAt: (x, z) => stream.groundAt(stream.fromScene(x, z)) })
@@ -113,6 +128,7 @@ let shadowAsked = 0;
 stream.onChange = () => {
   shadowAsked = performance.now();
 };
+if (landmarks) landmarks.onChange = stream.onChange;
 
 // ---- flight ----
 
@@ -123,6 +139,8 @@ const hook = {
   alive: 0, loading: 0, settled: 0, wanted: 0, built: 0, failed: 0, cancelled: 0, recentres: 0, ready: false, stopped: false,
   sunEl: 0, night: 0, clouds: 0, boats: 0, lamps: 0, cloudsNear: [] as number[][], boatsNear: [] as number[][],
   tileTriangles: 0, arriveMsMax: 0, byZoom: {} as Record<number, number>,
+  /** Landmarks in the scene, with their triangles, and whether each is in sight (faded in). */
+  landmarks: [] as { id: string; triangles: number; visible: boolean }[],
   /** Set to redraw the shadow map on the next frame (to read the shadow pass's numbers). */
   redrawShadows: false,
   /** Triangles in view by zoom and bucket (frustum test on each mesh's bounds, like the renderer's). */
@@ -142,6 +160,7 @@ let shadowDrawnAt = -Infinity;
 const pos = { x: 0, z: 0 };
 const look = new THREE.Vector3();
 const focus = new THREE.Vector3();
+const aimAt = { x: 0, z: 0 };
 const D2R = Math.PI / 180;
 
 function resize() {
@@ -203,16 +222,23 @@ function frame(now: number) {
 
   // Height: above the ground under the camera, and above any roof right there, eased so a tile
   // arriving with better ground does not jolt the camera.
-  const ground = Math.max(stream.groundAt(p), stream.buildingTopAt(p, 12) - ALT + 4);
+  const ground = Math.max(stream.groundAt(p), stream.buildingTopAt(p, 12) - ALT + 4, (landmarks?.topAt(p, 12) ?? -Infinity) - ALT + 4);
   groundS = Number.isNaN(groundS) ? ground : groundS + (ground - groundS) * (1 - Math.exp(-dt / 0.8));
   const y = groundS + ALT;
 
   stream.update({ lat: p.lat, lon: p.lon, altM: y, headingDeg: HEADING }, now);
+  landmarks?.update(p, UTC !== null ? UTC + (now - t0) : Date.now(), L);
 
   stream.toScene(p, pos);
   camera.position.set(pos.x, y, pos.z);
-  const h = HEADING * D2R, pt = PITCH * D2R;
-  look.set(Math.sin(h) * Math.cos(pt), Math.sin(pt), -Math.cos(h) * Math.cos(pt)).add(camera.position);
+  const h = HEADING * D2R;
+  if (AIM) {
+    stream.toScene(AIM, aimAt);
+    look.set(aimAt.x, stream.groundAt(AIM) + AIM.h, aimAt.z);
+  } else {
+    const pt = PITCH * D2R;
+    look.set(Math.sin(h) * Math.cos(pt), Math.sin(pt), -Math.cos(h) * Math.cos(pt)).add(camera.position);
+  }
   camera.lookAt(look);
 
   // The sky of the moment (the clock runs on from ?utc= in real time), here.
@@ -242,6 +268,8 @@ function frame(now: number) {
   // Live shadows just ahead of the camera (where the balloon's shadow falls in the product).
   const ahead = Math.min(900, ALT * 0.6);
   focus.set(pos.x + Math.sin(h) * ahead, groundS, pos.z - Math.cos(h) * ahead);
+  // aiming at something: the shadows go round it (halfway there, if it is far)
+  if (AIM) focus.set(pos.x + (aimAt.x - pos.x) * 0.6, groundS, pos.z + (aimAt.z - pos.z) * 0.6);
   let redraw = sky.place(focus);
   // tiles arrived or settled: redraw the shadows, at most four times a second
   if (shadowAsked > shadowDrawnAt && now - shadowDrawnAt > 250) redraw = true;
@@ -315,6 +343,10 @@ function frame(now: number) {
     hook.boats = boats;
     hook.boatsNear = boatsNear;
     hook.lamps = lamps;
+    hook.landmarks = (landmarks?.shown() ?? []).map((id) => {
+      const g = landmarks!.groupOf(id)!;
+      return { id, triangles: countTriangles(g), visible: g.visible };
+    });
   }
   if (s.built === 0 && s.failed >= 6) showStatus('The map did not load. Check the connection and reload the page.');
   else if (s.built > 0) showStatus('');
