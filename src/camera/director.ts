@@ -56,7 +56,7 @@ const STREET_FIT_S = 8;
  * none). It has cleared them CLEAR_M above that, and is below them again under LOW_M (Ride's own building
  * clearance), so Film never flips between shots on the edge.
  */
-const CLEAR_R_M = 40;
+const CLEAR_R_M = 30;
 const CLEAR_M = 6;
 const LOW_M = 3;
 const OPEN_M = 5;
@@ -73,10 +73,11 @@ const OPEN_M = 5;
 const CRANE_EASE_S = 2;
 const CRANE_SWING_S = 4;
 const CRANE_BACK = 1.4;
-const CRANE_MAX_M = 24;
-const CRANE_UP = 0.45;
+const CRANE_MAX_M = 20;
+const CRANE_UP = 0.5;
 const CRANE_Y0 = 0.33;
-const CRANE_FOV = 52;
+const CRANE_FOV = 54;
+const CRANE_ZOOM_S = 1.5;
 const CRANE_FOLLOW: [number, number] = [3, 12];
 /** The person and the balloon within this angle of each other (radians) from the crane: they share the frame. */
 const CRANE_PAIR_RAD = 0.13;
@@ -918,7 +919,8 @@ export class Director {
     }
     p.y = y;
     tg.y0 = mix(0.6, CRANE_Y0, r);
-    tg.fov = mix(40, CRANE_FOV, r);
+    // the zoom out comes first and quickly, so the person and the balloon drifting off them stay in the frame
+    tg.fov = mix(40, CRANE_FOV, inOut(rel, rel + CRANE_ZOOM_S, t));
     // the balloon shares the frame with the person while they are near, then with the landmark (if any)
     const at = this.ready ? this.pos : p; // from where the camera is (it trails its target)
     tg.x0 = mix(this.shareX(at, B, tg.fov, Math.atan2(ps.x - at.x, -(ps.z - at.z))), this.shareX(at, B, tg.fov, this.lmBearing()), w);
