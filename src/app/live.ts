@@ -226,7 +226,13 @@ export class Live {
     this.deps.setView('link');
     const own = store.list().some((x) => x.id === balloonId(b));
     const ticket = ++this.opening;
-    const route = await linkRoute(b);
+    let route: Route;
+    try {
+      route = await linkRoute(b);
+    } catch (e) {
+      if (ticket === this.opening) this.state = 'start';
+      throw e;
+    }
     if (ticket !== this.opening || this.state !== 'flight') return; // the visitor moved on meanwhile
     const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
     // a landed balloon is seen from the side, in its field or on its sea, not from straight above

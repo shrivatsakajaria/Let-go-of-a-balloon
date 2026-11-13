@@ -307,3 +307,30 @@ test('the winds manifest, the terrain header and the start ground are asked for 
   await expect.poll(() => winds.includes('/winds/manifest.json'), { timeout: 10_000 }).toBe(true);
   await expect.poll(() => terrain.length, { timeout: 10_000 }).toBeGreaterThan(0);
 });
+
+test('with no WebGL the page says the 3D world cannot show here (not that the winds failed); Cancel clears the link', async ({ context, page }) => {
+  await liveWorld(context);
+  await context.addInitScript(() => {
+    const get = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, id: string, ...rest: unknown[]) {
+      return /webgl/.test(id) ? null : (get as (...a: unknown[]) => unknown).call(this, id, ...rest);
+    } as typeof get;
+  });
+  await page.goto(await linkTo(eastward(10)));
+  await expect(page.getByText("Your browser can't show the 3D world, so the balloon can't fly here.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeHidden();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  expect(new URL(page.url()).hash).toBe('');
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+});
+
+test('if the world cannot be fetched, Let go says so and offers Try again', async ({ context, page }) => {
+  await liveWorld(context);
+  await context.route(/\/assets\/live-[^/]*\.js$/, (r) => r.abort('failed'));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Let go', exact: true }).click();
+  await expect(page.getByText("The balloon didn't load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
+});
