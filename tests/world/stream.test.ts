@@ -30,7 +30,7 @@ class FakePool implements BuildPool {
     return this.jobs.filter((j) => !j.signal?.aborted && !(j as { done?: boolean }).done);
   }
   /** Reply to a job with a flat tile at `height` and one 30 m building at its centre. */
-  answer(job: Job, height = (z: number) => 10 + z) {
+  answer(job: Job, height = (z: number) => 10 + z, labels: { name: string; kind: string; lat: number; lon: number; x: number; z: number }[] = []) {
     (job as { done?: boolean }).done = true;
     const { z, x, y } = job.msg;
     const n = job.msg.lcSize!;
@@ -46,7 +46,7 @@ class FakePool implements BuildPool {
       type: 'built', z, x, y,
       meshes: {
         ground: quad(h), water: empty(), buildings: empty(), roofs: empty(), roads: empty(), waterways: empty(),
-        trees: new Float32Array(0), lamps: new Float32Array(0), boats: new Float32Array(0), labels: [],
+        trees: new Float32Array(0), lamps: new Float32Array(0), boats: new Float32Array(0), labels,
         grid: new Float32Array((n + 1) * (n + 1)).fill(h),
         tops: new Float32Array([f.widthM / 2, -f.heightM / 2, 10, h + 30]),
         stats: { buildings: 1, gapHouses: 0, trees: 0, lamps: 0, boats: 0 },
@@ -103,6 +103,20 @@ describe('WorldStream scene frame', () => {
 });
 
 describe('WorldStream', () => {
+  it('lists the map labels of live tiles near a point (for "Over ..."), and forgets them when the tile goes', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER, 90));
+    const job = pool.open()[0];
+    const near = { name: 'Salford', kind: 'town', lat: MANCHESTER.lat, lon: MANCHESTER.lon + 0.01, x: 0, z: 0 };
+    const far = { name: 'Far Away', kind: 'town', lat: MANCHESTER.lat + 1, lon: MANCHESTER.lon, x: 0, z: 0 };
+    pool.answer(job, undefined, [near, far]);
+    await tick();
+    stream.update(cam(MANCHESTER, 90), 100);
+    expect(stream.labelsNear(MANCHESTER, 20).map((l) => l.name)).toEqual(['Salford']);
+    stream.dispose();
+    expect(stream.labelsNear(MANCHESTER, 20)).toEqual([]);
+  });
+
   it('asks for the area ahead first and keeps to 6 builds in flight', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER, 90));

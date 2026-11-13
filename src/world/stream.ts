@@ -33,7 +33,7 @@ import { groundHeightAt, type GroundGrid } from './terrain';
 import { TileView } from './tileview';
 import { MAX_IN_FLIGHT, MAX_TILES, levelFor, tileKey, tilesFor, type LodCamera, type LodLevel, type TileKey } from './lod';
 import type { BuildReply, BuildRequest } from './worker';
-import type { HiddenFootprint } from './meshjob';
+import type { HiddenFootprint, Label } from './meshjob';
 import { vectorTileTemplate } from './vector';
 
 /** The parts of WorkerPool the stream uses. */
@@ -87,6 +87,7 @@ type Entry = {
   wanted: boolean;
   ground: Ground | null;
   tops: Float32Array | null;
+  labels: Label[];
 };
 
 export type StreamStats = {
@@ -244,6 +245,24 @@ export class WorldStream {
       }
     }
     return best;
+  }
+
+  /** Map labels (places, water names) of the live tiles within km of p, nearest first, each name once. */
+  labelsNear(p: LatLon, km: number): Label[] {
+    const out: { l: Label; d: number }[] = [];
+    const seen = new Set<string>();
+    const cos = Math.cos(p.lat * D2R);
+    for (const e of this.entries.values()) {
+      if (e.state !== 'live') continue;
+      for (const l of e.labels) {
+        const dN = (l.lat - p.lat) * M_PER_DEG, dE = lonDelta(p.lon, l.lon) * M_PER_DEG * cos;
+        const d = Math.hypot(dN, dE) / 1000;
+        if (d > km || seen.has(`${l.kind}:${l.name}`)) continue;
+        seen.add(`${l.kind}:${l.name}`);
+        out.push({ l, d });
+      }
+    }
+    return out.sort((a, b) => a.d - b.d).map((o) => o.l);
   }
 
   /** The stream's numbers. The same object is filled in on every call (no garbage per frame). */
@@ -445,7 +464,7 @@ export class WorldStream {
     const b = tileBounds(t.z, t.x, t.y);
     const centre = { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
     const ac = new AbortController();
-    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null };
+    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null, labels: [] };
     this.entries.set(key, e);
     this.pool
       .request(
@@ -517,6 +536,7 @@ export class WorldStream {
     e.fade = 0;
     e.view.setFade(0);
     e.tops = m.tops;
+    e.labels = m.labels ?? [];
     const f = tileFrame(e.t.z, e.t.x, e.t.y);
     const n = e.level.lcSize;
     if (m.grid.length === (n + 1) * (n + 1)) {

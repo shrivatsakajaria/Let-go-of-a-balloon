@@ -15,7 +15,6 @@ import {
 } from '../../src/ui/hudmath';
 
 const H = 3600e3;
-const STEP = 600e3;
 
 /** A route sitting still at p (or drifting east by dLonPerStep), 433 points at 10 minutes. */
 function routeAt(release: number, p: { lat: number; lon: number }, dLonPerStep = 0): Route {
