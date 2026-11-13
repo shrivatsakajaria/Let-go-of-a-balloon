@@ -40,9 +40,18 @@ async function record(page: Page) {
     w.__dash = 1;
     w.__marks = 0;
     const slot = document.querySelector('.hud .replay-slot')!;
-    new MutationObserver(() => {
-      const t = [...slot.querySelectorAll('p')].map((p) => p.textContent ?? '').join('|');
-      if (t.replace(/\|/g, '') && w.__names[w.__names.length - 1] !== t) w.__names.push(t);
+    // read from the records' own elements: at the end the slot is emptied in the same task that wrote it
+    const cur = { name: '', when: '' };
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const p = (r.target.nodeType === 1 ? r.target : r.target.parentNode) as Element | null;
+        if (!p || p === slot) continue;
+        if (p.classList.contains('replay-name')) cur.name = p.textContent ?? '';
+        else if (p.classList.contains('replay-when')) cur.when = p.textContent ?? '';
+      }
+      // one entry per batch: a name and its line are written in the same task
+      const t = `${cur.name}|${cur.when}`;
+      if (cur.name && w.__names[w.__names.length - 1] !== t) w.__names.push(t);
     }).observe(slot, { subtree: true, childList: true, characterData: true });
     new MutationObserver((records) => {
       for (const r of records) {
@@ -60,6 +69,8 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   const trip = page.getByRole('button', { name: 'Show me the whole trip' });
   await expect(trip).toBeVisible();
   await record(page);
+  const rc = () => page.evaluate(() => (window as unknown as { __live: { recentres: number } }).__live.recentres);
+  const rc0 = await rc();
   await trip.click();
 
   // labelled as the forecast route, with Back to live as the main action (and keyboard focus on it)
@@ -80,13 +91,6 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   await expect.poll(async () => (await hook(page)).now, SLOW).toBeGreaterThan(b.release + 10 * 3600e3);
   const mid = await hook(page);
   expect(mid.replay).toBe(true);
-  // the floating origin follows the balloon in 30 km steps in the travel: a few re-centres a second at most
-  const r0 = await page.evaluate(() => [(window as unknown as { __live: { recentres: number } }).__live.recentres, performance.now()]);
-  await page.waitForTimeout(2000);
-  const r1 = await page.evaluate(() => [(window as unknown as { __live: { recentres: number } }).__live.recentres, performance.now()]);
-  const perS = (r1[0] - r0[0]) / ((r1[1] - r0[1]) / 1000);
-  console.log(`re-centres during the travel: ${perS.toFixed(1)} a second`);
-  expect(perS).toBeLessThanOrEqual(12);
   expect(mid.now).toBeLessThanOrEqual(b.release + 72 * 3600e3);
   await expect.poll(async () => { const h = await hook(page); return h.camera[1] - h.target[1]; }, SLOW).toBeGreaterThan(20_000);
   expect((await page.locator('.hud .day').textContent()) ?? '').toMatch(/^(Day [123] of 3 · \d+ h aloft|Landed · 72 h aloft)$/);
@@ -94,6 +98,10 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   // the end (by default: back to live) 20 s after the tap
   await expect.poll(async () => (await hook(page)).replay, { timeout: 60_000, intervals: [250] }).toBe(false);
   const ms = (await hook(page)).replayMs!;
+  // the floating origin follows the balloon in 30 km steps in the travel: a few re-centres a second at most
+  const perS = ((await rc()) - rc0) / (ms / 1000);
+  console.log(`re-centres over the replay: ${perS.toFixed(1)} a second`);
+  expect(perS).toBeLessThanOrEqual(12);
   expect(ms).toBeGreaterThan(19_900);
   expect(ms).toBeLessThan(22_000);
 
