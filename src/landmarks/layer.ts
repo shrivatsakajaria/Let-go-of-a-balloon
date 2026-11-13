@@ -366,6 +366,8 @@ export function groundGrid(group: THREE.Group): Tops | null {
  * every triangle in each CELL_M cell its plan bounds touch, -Infinity where there is nothing.
  * Meshes marked `userData.noTops` (thin overhead parts: ropes, chains, hangers) are left out: a
  * long diagonal triangle would otherwise stand its highest point over every cell of its bounds.
+ * So is the landmark's own ground (userData.ground): it is sampled exactly by groundGrid, and the
+ * camera's floor stands on it through the standable ground.
  */
 export function heightGrid(group: THREE.Group): Tops {
   group.updateMatrixWorld(true);
@@ -373,7 +375,7 @@ export function heightGrid(group: THREE.Group): Tops {
   const m = new THREE.Matrix4();
   const box = new THREE.Box3();
   const meshes: THREE.Mesh[] = [];
-  group.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.noTops && meshes.push(o as THREE.Mesh));
+  group.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.noTops && !o.userData.ground && meshes.push(o as THREE.Mesh));
   if (!meshes.length) return { minX: 0, minZ: 0, nx: 1, nz: 1, h: new Float32Array(1).fill(-Infinity), reach: 0 };
   for (const mesh of meshes) box.union(new THREE.Box3().setFromObject(mesh).applyMatrix4(inv));
   const minX = Math.floor(box.min.x), minZ = Math.floor(box.min.z);

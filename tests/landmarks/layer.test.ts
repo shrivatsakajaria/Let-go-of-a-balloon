@@ -217,6 +217,9 @@ test("a landmark's own ground (meshes marked userData.ground: a terrace, a rock)
   // where the statue stands, still the terrace (the statue is a top, not ground)
   expect(layer.groundAt(modelToLatLon(site, 0, 10))).toBeCloseTo(40, 3);
   expect(layer.topAt(modelToLatLon(site, 0, 10), 1)).toBeCloseTo(65, 3);
+  // the ground is not a top (the camera's floor stands on it through groundAt, sampled exactly,
+  // not on the coarse top grid, which would stand each sloping facet's highest point over its bounds)
+  expect(layer.topAt(modelToLatLon(site, 5, -20), 1)).toBe(-Infinity);
   // off the terrace: none
   expect(layer.groundAt(modelToLatLon(site, 40, 0))).toBe(-Infinity);
   // far from any landmark the start is settled at once
