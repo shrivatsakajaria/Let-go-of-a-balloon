@@ -16,7 +16,11 @@
  * metres below y = 0 so a sloping street never shows under them.
  *
  * Budget per model module: under 4,000 triangles and under 30 KB gzipped; Contour colours only
- * (kit.ts LANDMARK_COLOURS and the region style's walls and roofs). animate must not allocate.
+ * (kit.ts LANDMARK_COLOURS and the region style's walls and roofs, by name: no hex of its own).
+ * animate must not allocate. A model module imports only ../kit, ../clock (clock hands on UK and
+ * Irish time), ../types, three and palette types (registry.test.ts checks); shared helpers live
+ * outside models/, where every file is a landmark. Check a model alone with lmview.html?id=<id>
+ * on the dev server.
  */
 import type * as THREE from 'three';
 import type { LatLon } from '../geo/coords';
