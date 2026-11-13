@@ -49,6 +49,10 @@ export type RouteOptions = {
    * summit terrace the elevation data has lost). The climb starts from that height (route ground +
    * lift); the points still record the route's ground, so the drawn height above the ground keeps
    * the lift until the balloon is well up.
+   *
+   * The lift is not in a shared link (only the hourly path is): routeFromHourly re-derives the first
+   * couple of minutes' heights without it. The horizontal path is identical; the scene keeps the
+   * replayed balloon out of the landmark's ground (never under it + 1.5 m) until it has climbed clear.
    */
   startLiftM?: number;
 };

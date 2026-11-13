@@ -137,10 +137,11 @@ export function sceneAltitude(routeAltM: number, routeGroundM: number, drawnGrou
 }
 
 /**
- * A balloon just let go is drawn no lower than where it was let go (releaseY, scene y) plus what it
- * has climbed since (route heights altM - alt0), so it rises from a summit terrace even where the
- * drawn slope below falls away faster than the coarse route ground (sceneAltitude follows the drawn
- * ground low down). The floor fades out from 5 to 15 minutes after release (tSec), leaving the
+ * A balloon just let go from a landmark's terrace (a lifted start: the scene passes releaseY only
+ * then, standable.ts climbFloorFrom) is drawn no lower than where it was let go (releaseY, scene y)
+ * plus what it has climbed since (route heights altM - alt0), so it rises from the summit even where
+ * the drawn slope below falls away faster than the coarse route ground (sceneAltitude follows the
+ * drawn ground low down). The floor fades out from 5 to 15 minutes after release (tSec), leaving the
  * flight itself to sceneAltitude.
  */
 export function climbFloor(y: number, tSec: number, releaseY: number, altM: number, alt0: number): number {

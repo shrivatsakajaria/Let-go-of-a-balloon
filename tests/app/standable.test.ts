@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three';
-import { standableGround, startLiftM, type GroundSources } from '../../src/app/standable';
+import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from '../../src/app/standable';
 import { Director } from '../../src/camera/director';
 import { displayScale } from '../../src/balloon/balloon';
 import type { RoutePoint } from '../../src/flight/route';
@@ -27,6 +27,32 @@ test('the route start is lifted by the terrace over the drawn ground, and not at
   expect(startLiftM(corcovado, { lat: 50, lon: 0 })).toBe(TERRACE - DRAWN);
   expect(startLiftM(corcovado, { lat: 50.01, lon: 0 })).toBe(0);
   expect(startLiftM(plain, { lat: 50, lon: 0 })).toBe(0);
+});
+
+test("the balloon's height over the ground (the HUD, the shadow, the person's leaving) is over the terrace where it is higher", () => {
+  // in the hand on the terrace: 1.5 m, not 183 m over the drawn ground under the rock
+  expect(aglOver(TERRACE + 1.5, DRAWN, TERRACE)).toBeCloseTo(1.5, 6);
+  // off any landmark's ground: over the drawn ground, as before
+  expect(aglOver(DRAWN + 300, DRAWN, -Infinity)).toBe(300);
+  // never negative
+  expect(aglOver(DRAWN - 5, DRAWN, -Infinity)).toBe(0);
+});
+
+test('the climb floor applies only to a launch from a landmark terrace (lifted start)', () => {
+  expect(climbFloorFrom(TERRACE, 172)).toBe(TERRACE + 1.5);
+  expect(climbFloorFrom(DRAWN, 0)).toBeNaN();
+});
+
+test("the person's feet: eased as finer ground arrives, but snapped when a landmark's ground appears or leaves under them", () => {
+  // first placement, and a big change: snap
+  expect(nextFeet(Number.NaN, 10, 0.016, false)).toBe(10);
+  expect(nextFeet(10, 400, 0.016, false)).toBe(400);
+  // a finer tile moving the ground a little: eased
+  const eased = nextFeet(10, 14, 0.016, false);
+  expect(eased).toBeGreaterThan(10);
+  expect(eased).toBeLessThan(11);
+  // the terrace arriving under them (after the 6 s fallback showed them on the drawn ground): snap, not 182 m of easing
+  expect(nextFeet(DRAWN, TERRACE, 0.016, true)).toBe(TERRACE);
 });
 
 test('the street camera on a landmark terrace stands on the terrace, not inside the rock', () => {

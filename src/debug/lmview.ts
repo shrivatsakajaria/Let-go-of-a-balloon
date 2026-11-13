@@ -2,8 +2,8 @@
  * Landmark check (lmview.html): one landmark model alone on flat Contour ground, under a fixed sun
  * (golden hour by default, or dusk with its dials and lights lit), drawn by the real LandmarkLayer
  * with the shared Contour materials. A dev page for the people making models, not the product: the
- * dev server serves it, the production build leaves it out (vite.config.ts lists only the pages it
- * builds).
+ * dev server serves it, and a build includes it only with the other proof pages (preview branches,
+ * DEBUG_PAGES=1; vite.config.ts), never on the live site.
  *
  * Query:
  *   id=<site id>        the landmark (default the first site; an unknown id lists them all)

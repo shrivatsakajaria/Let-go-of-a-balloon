@@ -22,7 +22,7 @@ import type { LatLon } from '../geo/coords';
 import { brightLuminance, climbFloor, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
-import { standableGround, startLiftM, type GroundSources } from './standable';
+import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
@@ -131,6 +131,8 @@ export class LiveScene {
   /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
   private holdUntil: { at: number; expire: () => void } | null = null;
   private feetS = Number.NaN;
+  /** Whether the feet stood on a landmark's own ground last frame (a change snaps them). */
+  private feetOnLandmark = false;
   private last = performance.now();
   private frames = 0;
   private skyAt = -Infinity;
@@ -259,7 +261,8 @@ export class LiveScene {
         this.holdUntil = null;
         this.route = ready;
         this.released = true;
-        this.releaseY = this.feetS + 1.5;
+        // the climb floor: only for a launch from a landmark's terrace (hudmath.climbFloor)
+        this.releaseY = climbFloorFrom(this.feetS, this.startLift());
         this.balloon.root.visible = true;
         this.balloon.release();
         onRelease(ready!);
@@ -401,6 +404,10 @@ export class LiveScene {
     const person = this.person;
     if (!person) return;
     const g = standableGround(this.ground, this.start);
+    // a landmark's ground appearing (or leaving) under the feet moves them at once, not over seconds
+    const onLandmark = g > this.stream.groundAt(this.start);
+    const changed = onLandmark !== this.feetOnLandmark;
+    this.feetOnLandmark = onLandmark;
     // until the street's own tile is in (and any landmark whose ground may be under the spot), the
     // ground there is a guess: the person waits out of sight rather than sinking into the street, or
     // standing inside a summit's rock, as finer land and the landmark arrive
@@ -408,7 +415,7 @@ export class LiveScene {
     if (fine && !person.root.visible) this.feetS = Number.NaN;
     person.root.visible = fine;
     if (!this.released) this.balloon.root.visible = fine;
-    this.feetS = Number.isNaN(this.feetS) || !fine || Math.abs(g - this.feetS) > 200 ? g : this.feetS + (g - this.feetS) * (1 - Math.exp(-dt / 0.6));
+    this.feetS = !fine ? g : nextFeet(this.feetS, g, dt, changed);
     const s = this.stream.toScene(this.start, this.tmp);
     person.place({ x: s.x, y: this.feetS, z: s.z });
     person.update(dt);
@@ -528,7 +535,9 @@ export class LiveScene {
     }
 
     // live shadows round the balloon, a little ahead of it
-    const agl = Math.max(0, y - this.groundS);
+    // over a landmark's terrace where it is higher than the drawn ground (in the hand on Corcovado:
+    // 1.5 m, not 183 m); not by changing groundS, which sceneAltitude reads with the lifted route
+    const agl = aglOver(y, this.groundS, this.landmarks.groundAt(pt));
     let redraw = this.sky.light.setRadius(shadowRadius(agl));
     const ahead = Math.min(400, agl * 0.4);
     this.focus.set(this.target.x + Math.sin(h) * ahead, this.groundS, this.target.z - Math.cos(h) * ahead);

@@ -72,6 +72,11 @@ export const LINK_GROUND_WAIT_MS = 4000;
  * along it are asked for together first (the rebuild then reads them from the cache). A terrain
  * failure counts as sea level, and so does any ground still missing after waitMs (one deadline for
  * the whole rebuild), so a link always opens, and soon.
+ *
+ * A link does not carry a launch's start lift (route.ts RouteOptions.startLiftM: a launch from a
+ * landmark's terrace, Corcovado): its first couple of minutes' heights are re-derived from the route
+ * ground without it. The horizontal path is identical, and the scene keeps the balloon out of the
+ * landmark's ground until it has climbed clear.
  */
 export async function linkRoute(b: SavedBalloon, routeGroundFn: RouteGroundFn = routeGround, waitMs = LINK_GROUND_WAIT_MS): Promise<Route> {
   let timer = 0;
