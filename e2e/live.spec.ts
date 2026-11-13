@@ -30,11 +30,12 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
 
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
   const t0 = Date.now();
-  // all chrome but the clock goes in 300 ms: a clean frame for recordings
-  await page.waitForTimeout(600);
-  expect(await opacity(page, '.start .bottom')).toBe(0);
-  expect(await opacity(page, '.start .top')).toBe(0);
-  expect(await opacity(page, '.hud-top .clock')).toBe(1);
+  // all chrome but the clock goes in 300 ms: a clean frame for recordings (polled: a loaded test machine
+  // can be a frame or two late)
+  expect(await page.locator('.start .bottom').evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0\.3s/);
+  await expect.poll(() => opacity(page, '.start .bottom'), { timeout: 5000 }).toBe(0);
+  await expect.poll(() => opacity(page, '.start .top'), { timeout: 5000 }).toBe(0);
+  await expect.poll(() => opacity(page, '.hud-top .clock'), { timeout: 5000 }).toBe(1);
   expect(await opacity(page, '.hud-bottom')).toBe(0);
   expect(await page.locator('.hud-top .clock').innerText()).toMatch(/\d\d:\d\d/);
 
@@ -57,8 +58,8 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
   // at 20 s Ride settles and the HUD comes in over 600 ms
   await expect.poll(() => view(page), { timeout: 60_000, intervals: [250] }).toBe('flight');
   expect(Date.now() - t0).toBeGreaterThan(19_500);
-  await page.waitForTimeout(800);
-  expect(await opacity(page, '.hud-bottom')).toBe(1);
+  expect(await page.locator('.hud-bottom').evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0\.6s/);
+  await expect.poll(() => opacity(page, '.hud-bottom'), { timeout: 8000 }).toBe(1);
   expect((await hook(page))!.shot).toBe('ride');
   await expect(page.locator('.hud .day')).toHaveText(/^Day 1 of 3 · \d+ min aloft$/);
   await expect(page.getByRole('button', { name: 'Film' })).toHaveAttribute('aria-pressed', 'true');
@@ -204,4 +205,72 @@ test('at 390x660 with "Your balloons", the middle third stays clear for the pers
   expect((top + feet) / 2).toBeGreaterThan(660 / 3);
   expect((top + feet) / 2).toBeLessThan((2 * 660) / 3);
   expect(feet - top).toBeGreaterThan(80);
+});
+
+test('HUD text reaches 4.5:1 over snow, noon and sand with the shading at its brightest-scene strength', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(14)));
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.locator('.hud .fact')).not.toBeEmpty({ timeout: 20_000 });
+  // hold the fact line still (Pause stops its rotation), so no shot lands mid-crossfade
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await expect.poll(() => opacity(page, '.hud .fact')).toBe(1);
+  for (const [name, colour] of [['snow', '#f4f6f8'], ['noon', '#d6e8f0'], ['sand', '#e6d6a2']]) {
+    // the worst case behind the text: a flat bright scene, and the shading darkened as the page does over one
+    await page.addStyleTag({ content: `.scene .world { visibility: hidden !important; } #scene { background: ${colour} !important; } :root { --boost: 0.15 !important; }` });
+    await page.waitForTimeout(200);
+    const targets = await page.evaluate(() => {
+      const out: { what: string; color: string; alpha: number; rects: { x: number; y: number; w: number; h: number }[]; need: number }[] = [];
+      for (const el of [...document.querySelectorAll<HTMLElement>('.hud *')]) {
+        if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
+        let alpha = 1;
+        for (let a: HTMLElement | null = el; a; a = a.parentElement) alpha *= Number(getComputedStyle(a).opacity);
+        const rects: { x: number; y: number; w: number; h: number }[] = [];
+        for (const node of el.childNodes) {
+          if (node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+        }
+        if (!rects.length || el.closest('.sr')) continue;
+        const cs = getComputedStyle(el);
+        const size = parseFloat(cs.fontSize);
+        const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
+        out.push({ what: `${el.className}: ${el.textContent?.trim().slice(0, 24)}`, color: cs.color, alpha, rects, need: large ? 3 : 4.5 });
+      }
+      return out;
+    });
+    expect(targets.length).toBeGreaterThan(10);
+    const style = await page.addStyleTag({ content: '.hud * { color: transparent !important; text-decoration-color: transparent !important; }' });
+    const shot = (await page.screenshot()).toString('base64');
+    await style.evaluate((s) => (s as Element).remove());
+    const results = await page.evaluate(async ({ shot, targets }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${shot}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const lin = (v: number) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+      const lum = (r: number, gg: number, b: number) => 0.2126 * lin(r) + 0.7152 * lin(gg) + 0.0722 * lin(b);
+      return targets.map((t) => {
+        const [r, gg, b, a0 = 1] = t.color.match(/[\d.]+/g)!.map(Number);
+        const a = a0 * t.alpha;
+        let worst = 1e9;
+        for (const rc of t.rects) {
+          const d = g.getImageData(Math.floor(rc.x), Math.floor(rc.y), Math.max(1, Math.ceil(rc.w)), Math.max(1, Math.ceil(rc.h))).data;
+          for (let i = 0; i < d.length; i += 4) {
+            const fg = [r * a + d[i] * (1 - a), gg * a + d[i + 1] * (1 - a), b * a + d[i + 2] * (1 - a)];
+            const L1 = lum(fg[0], fg[1], fg[2]), L2 = lum(d[i], d[i + 1], d[i + 2]);
+            worst = Math.min(worst, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05));
+          }
+        }
+        return { what: t.what, ratio: Math.round(worst * 100) / 100, need: t.need };
+      });
+    }, { shot, targets });
+    console.log(name, JSON.stringify(results.map((r) => `${r.what.slice(0, 18)} ${r.ratio}`)));
+    for (const r of results) expect(r.ratio, `${name}: ${r.what}`).toBeGreaterThanOrEqual(r.need);
+  }
 });

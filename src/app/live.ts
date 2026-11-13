@@ -84,6 +84,8 @@ export class Live {
   private said: AnnounceState | null = null;
   private sunUp: boolean | null = null;
   private windAsk = 0;
+  /** Counts balloons being opened, so a slow one never takes over after the visitor has moved on. */
+  private opening = 0;
   private readonly canvas: HTMLCanvasElement;
   readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null };
 
@@ -223,7 +225,9 @@ export class Live {
     this.state = 'flight';
     this.deps.setView('link');
     const own = store.list().some((x) => x.id === balloonId(b));
+    const ticket = ++this.opening;
     const route = await linkRoute(b);
+    if (ticket !== this.opening || this.state !== 'flight') return; // the visitor moved on meanwhile
     const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
     // a landed balloon is seen from the side, in its field or on its sea, not from straight above
     const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
@@ -249,6 +253,7 @@ export class Live {
   }
 
   backToStart(): void {
+    this.opening++;
     this.clearNotice();
     this.flight = null;
     this.state = 'start';
