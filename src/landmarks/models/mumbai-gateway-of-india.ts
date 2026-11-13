@@ -56,14 +56,14 @@ function opening(k: Kit, colour: string, x: number, y: number, w: number, h: num
 function turret(k: Kit, x: number, z: number, r: number, y0: number, top: number): void {
   k.prism('plain', C.stone, x, y0, z, r, top - y0, 8, { top: false });
   k.prism('plain', C.chalk, x, SPRING - 0.4, z, r + 0.2, 0.6, 8, { top: false });
-  k.prism('plain', C.chalk, x, top - 0.6, z, r + 0.25, 0.6, 8);
+  k.prism('plain', C.chalk, x, top - 0.6, z, r, 0.6, 8, { r1: r + 0.25 });
   // the open kiosk reads dark between its posts
   k.prism('plain', C.stoneDeep, x, top, z, r * 0.85, 1.9, 8, { top: false });
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 8;
     k.box('plain', C.stone, x + Math.sin(a) * r * 0.85, top, z - Math.cos(a) * r * 0.85, 0.35, 1.9, 0.35, { top: false });
   }
-  k.prism('plain', C.chalk, x, top + 1.9, z, r + 0.25, 0.35, 8);
+  k.prism('plain', C.chalk, x, top + 1.9, z, r * 0.85, 0.35, 8, { r1: r + 0.25 });
   // onion: swells, then draws in to a point
   k.prism('plain', C.sand, x, top + 2.25, z, r * 0.9, 0.6, 8, { r1: r * 1.15, top: false });
   k.prism('plain', C.sand, x, top + 2.85, z, r * 1.15, 0.7, 8, { r1: r * 0.8, top: false });
@@ -123,7 +123,7 @@ export const model: LandmarkModel = {
     // the central block: two piers, the mass over the arch, the cornice
     for (const s of [-1, 1]) k.box('plain', C.stone, s * (AW + (B - AW) / 2), -1, 0, B - AW, TOP + 1, 2 * B, { top: false });
     k.box('plain', C.stone, 0, APEX, 0, 2 * AW, TOP - APEX, 2 * B, { top: false });
-    k.box('plain', C.chalk, 0, TOP - 0.2, 0, 2 * B + 0.8, 0.6, 2 * B + 0.8, { topColour: C.paving });
+    k.box('plain', C.chalk, 0, TOP - 0.2, 0, 2 * B + 0.8, 0.6, 2 * B + 0.8, { topColour: C.paving, bottom: true });
     // the shallow central dome inside its screen
     k.prism('plain', C.sand, 0, TOP + 0.4, 0, 7.4, 0.9, 12, { r1: 6.4, top: false });
     k.prism('plain', C.sand, 0, TOP + 1.3, 0, 6.4, 0.8, 12, { r1: 4.2, top: false });
@@ -134,7 +134,7 @@ export const model: LandmarkModel = {
     for (const s of [-1, 1]) {
       const cx = s * (B + (WX - B) / 2);
       k.box('plain', C.stone, cx, -1, 0, WX - B, WH + 1, 2 * WZ, { top: false });
-      k.box('plain', C.chalk, cx, WH - 0.3, 0, WX - B + 0.6, 0.5, 2 * WZ + 0.6, { topColour: C.paving });
+      k.box('plain', C.chalk, cx, WH - 0.3, 0, WX - B + 0.6, 0.5, 2 * WZ + 0.6, { topColour: C.paving, bottom: true });
       k.box('plain', C.chalkShade, cx, WH + 0.2, 0, WX - B + 0.2, 1.0, 2 * WZ + 0.2, { top: false });
       k.prism('plain', C.sand, s * 16.3, WH + 0.2, 0, 2.6, 0.9, 10, { r1: 2.3, top: false });
       k.prism('plain', C.sand, s * 16.3, WH + 1.1, 0, 2.3, 0.8, 10, { r1: 1.3, top: false });

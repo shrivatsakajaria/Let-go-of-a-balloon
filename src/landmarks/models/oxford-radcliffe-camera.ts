@@ -85,10 +85,12 @@ export const model: LandmarkModel = {
     // the rusticated base, its bands, and the cornice under the main storey
     k.prism('plain', C.stone, 0, -3, 0, R0, Y0 + 3, N, { top: false });
     for (const y of [2.6, 5.4]) k.prism('plain', C.stoneDeep, 0, y, 0, R0 + 0.12, 0.3, N, { top: false });
-    k.prism('plain', C.chalk, 0, Y0, 0, R0 + 0.3, Y1 - Y0, N, { topColour: C.paving });
+    // (overhangs are flared from below: an open underside would show the sky)
+    k.prism('plain', C.chalk, 0, Y0, 0, R0, Y1 - Y0, N, { r1: R0 + 0.3, topColour: C.paving });
     // the main storey, the entablature, the balustrade (and the roof walk behind it)
     k.prism('plain', C.chalkShade, 0, Y1, 0, R1, Y2 - Y1, N, { top: false });
-    k.prism('plain', C.chalk, 0, Y2, 0, R1 + 0.9, 1.3, N, { topColour: C.paving });
+    k.prism('plain', C.chalk, 0, Y2, 0, R1, 0.5, N, { r1: R1 + 0.9, top: false });
+    k.prism('plain', C.chalk, 0, Y2 + 0.5, 0, R1 + 0.9, 0.8, N, { topColour: C.paving });
     k.prism('plain', C.chalkShade, 0, Y2 + 1.3, 0, R1 + 0.5, Y3 - Y2 - 1.3, N, { top: false });
     k.prism('plain', C.chalk, 0, Y3 - 0.25, 0, R1 + 0.6, 0.25, N, { top: false });
     // the north stair
@@ -100,7 +102,7 @@ export const model: LandmarkModel = {
     }
     // the drum, its windows and buttresses, its cornice
     k.prism('plain', C.stone, 0, Y2, 0, RD, YD - Y2, N, { top: false });
-    k.prism('plain', C.chalk, 0, YD, 0, RD + 0.5, YDOME - YD, N, { topColour: C.slate });
+    k.prism('plain', C.chalk, 0, YD, 0, RD, YDOME - YD, N, { r1: RD + 0.5, topColour: C.slate });
     for (let i = 0; i < N; i += 2) {
       k.push(0, 0, 0, i * STEP);
       opening(k, 'plain', C.iron, 0, 25.0, 1.5, 2.2, -ap(RD) - 0.03);
@@ -132,7 +134,7 @@ export const model: LandmarkModel = {
       opening(k, 'plain', C.iron, 0, yl + 0.8, 0.8, 1.5, -2.0 * Math.cos(Math.PI / 8) - 0.02);
       k.pop();
     }
-    k.prism('plain', C.chalk, 0, yl + 3.3, 0, 2.35, 0.35, 8);
+    k.prism('plain', C.chalk, 0, yl + 3.3, 0, 2.0, 0.35, 8, { r1: 2.35 });
     k.prism('plain', C.slate, 0, yl + 3.65, 0, 2.0, 0.6, 8, { r1: 1.5, top: false });
     k.spire('plain', C.slate, 0, yl + 4.25, 0, 1.5, 1.1, 8);
     k.prism('plain', C.gilt, 0, yl + 5.2, 0, 0.3, 0.5, 6);
