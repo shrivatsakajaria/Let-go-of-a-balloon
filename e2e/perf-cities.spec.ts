@@ -12,7 +12,7 @@ import { SWIFTSHADER, eastward, linkTo } from './fixtures';
  *
  *   PERF_CITIES=1 CI=1 E2E_PORT=47522 npx playwright test e2e/perf-cities.spec.ts --workers=1
  *
- * PERF_CITY=paris (or paris,tokyo) runs only those cities. Winds are the committed fixture run (Europe only), so the launch
+ * PERF_CITY=paris (or paris,tokyo) runs only those cities; PERF_SHOTS=dir saves a picture of each climb view. Winds are the committed fixture run (Europe only), so the launch
  * itself is flown where it covers (London, Manchester, Paris); every city is also seen on its start
  * screen and from links released 2, 5 and 10 minutes before (the climb: about 180 m, 450 m and 900 m
  * up), each in the Film, Ride and Above views. The clock is set to the city's late afternoon with the
@@ -140,6 +140,14 @@ for (const city of CITIES) {
       await expect.poll(async () => (await hook(page))?.state, { timeout: 60_000 }).toBe('flight');
       await page.waitForTimeout(12_000);
       record(`${min} min up`, await sample(page, 24_000, ['film', 'ride', 'above']));
+      // PERF_SHOTS=dir: a picture of each view after the sample (to look for holes by the camera)
+      if (process.env.PERF_SHOTS) {
+        for (const v of ['film', 'ride', 'above']) {
+          await page.locator(`.view[data-view="${v}"]`).click().catch(() => {});
+          await page.waitForTimeout(4000);
+          await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-${min}min-${v}.png`, timeout: 120_000 });
+        }
+      }
     }
   });
 }
