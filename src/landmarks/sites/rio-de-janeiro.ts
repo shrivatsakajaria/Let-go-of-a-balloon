@@ -2,7 +2,11 @@
  * Rio de Janeiro's landmarks. Positions from OpenStreetMap (the cable car's ropes and stations,
  * 2026-11). Sugarloaf and its cable car are one landmark, placed at Station I on Praia Vermelha
  * (on the ground near the sea, so the model stands at a height the map draws reliably), with its
- * front up the line toward the summit; the summit (cities.json's hero point) is 1,304 m ahead.
+ * front up the line toward the summit; the summit is 1,304 m ahead.
+ *
+ * Christ the Redeemer stands on the OSM node of the statue on Corcovado, facing 82 degrees (east
+ * over the city and the bay, along the summit's front platform in OSM). Its model carries the
+ * summit rock and terrace; the launch platform's centre is 30 m in front of the statue.
  */
 import type { LandmarkSite } from '../types';
 
@@ -22,5 +26,16 @@ export const sites: LandmarkSite[] = [
       { x: -250, z: -572, r: 14 },
       { x: -10, z: -1275, r: 60 },
     ],
+  },
+  {
+    id: 'rio-de-janeiro-christ-the-redeemer',
+    cityId: 'rio-de-janeiro',
+    name: 'Christ the Redeemer',
+    at: { lat: -22.951917, lon: -43.210459 },
+    headingDeg: 82,
+    // the summit rock's grid reaches 416 m out (its far corners)
+    footprintRadiusM: 420,
+    // the statue, its pedestal and chapel only (the summit's other buildings lie under the rock)
+    hides: [{ x: 0, z: 0, r: 12 }],
   },
 ];
