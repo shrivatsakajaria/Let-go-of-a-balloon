@@ -17,6 +17,11 @@ test.describe.configure({ mode: 'default', timeout: 150_000 });
 type Hook = { state: string; shot: string; replay: boolean; trail: boolean; now: number; frames: number; camera: number[]; target: number[]; replayMs: number | null };
 const hook = (page: Page) => page.evaluate(() => (window as unknown as { __live: Hook }).__live);
 const LABEL = 'Forecast route, 72 hours in 20 seconds';
+/**
+ * How far the time the scene last drew is from now, read in the page (a starved renderer can go a few
+ * seconds between frames; the replay's time is hours or days away, so 15 s tells the two apart).
+ */
+const offNow = (page: Page) => page.evaluate(() => Math.abs((window as unknown as { __live: { now: number } }).__live.now - Date.now()));
 const SLOW = { timeout: 30_000, intervals: [250] };
 
 async function openFlight(page: Page, hoursAgo = 30) {
@@ -75,6 +80,13 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   await expect.poll(async () => (await hook(page)).now, SLOW).toBeGreaterThan(b.release + 10 * 3600e3);
   const mid = await hook(page);
   expect(mid.replay).toBe(true);
+  // the floating origin follows the balloon in 30 km steps in the travel: a few re-centres a second at most
+  const r0 = await page.evaluate(() => [(window as unknown as { __live: { recentres: number } }).__live.recentres, performance.now()]);
+  await page.waitForTimeout(2000);
+  const r1 = await page.evaluate(() => [(window as unknown as { __live: { recentres: number } }).__live.recentres, performance.now()]);
+  const perS = (r1[0] - r0[0]) / ((r1[1] - r0[1]) / 1000);
+  console.log(`re-centres during the travel: ${perS.toFixed(1)} a second`);
+  expect(perS).toBeLessThanOrEqual(12);
   expect(mid.now).toBeLessThanOrEqual(b.release + 72 * 3600e3);
   await expect.poll(async () => { const h = await hook(page); return h.camera[1] - h.target[1]; }, SLOW).toBeGreaterThan(20_000);
   expect((await page.locator('.hud .day').textContent()) ?? '').toMatch(/^(Day [123] of 3 · \d+ h aloft|Landed · 72 h aloft)$/);
@@ -93,7 +105,8 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
   expect(names.size).toBeLessThanOrEqual(5);
 
   // live again at now: nothing of the replay left, the HUD back as it was
-  await expect.poll(async () => { const h = await hook(page); return h.trail || Math.abs(h.now - Date.now()) > 3000; }, SLOW).toBe(false);
+  // (as "trail frames ms-from-now", so a failure says which part is off)
+  await expect.poll(async () => { const h = await hook(page); return `${h.trail} ${h.frames} ${Math.round(await offNow(page))}`; }, { timeout: 60_000, intervals: [500] }).toMatch(/^false \d+ \d{1,4}$/);
   await expect(page.locator('.hud .day')).toHaveText('Day 2 of 3 · 30 h aloft', SLOW);
   await expect(trip).toBeVisible();
   await expect(back).toBeHidden();
@@ -113,7 +126,7 @@ test('Back to live during the replay returns to the live view at now, and the tr
   await page.getByRole('button', { name: 'Back to live' }).click();
   await expect(page.locator('.hud .over')).not.toHaveText(LABEL);
   await expect(trip).toBeFocused();
-  await expect.poll(async () => { const h = await hook(page); return h.replay || h.trail || Math.abs(h.now - Date.now()) > 3000; }, SLOW).toBe(false);
+  await expect.poll(async () => { const h = await hook(page); return h.replay || h.trail || (await offNow(page)) > 15_000; }, SLOW).toBe(false);
   await expect(page.locator('.hud .day')).toHaveText('Day 2 of 3 · 30 h aloft', SLOW);
   await expect(page.locator('.hud .fact')).toBeVisible();
 

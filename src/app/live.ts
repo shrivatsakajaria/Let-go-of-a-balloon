@@ -71,6 +71,8 @@ export type LiveHook = {
   now: number;
   /** The last replay: ms from the tap to its end (onEnd), or null. */
   replayMs: number | null;
+  /** Floating-origin re-centres so far. */
+  recentres: number;
 };
 
 export class Live {
@@ -110,7 +112,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0, replayMs: null };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -458,6 +460,7 @@ export class Live {
     h.groundM = f.groundM;
     h.feetM = f.feetM;
     h.now = f.now;
+    h.recentres = this.scene.stream.stats().recentres;
     const person = this.scene.person;
     if (f.waiting && person?.root.visible) {
       const cam = this.scene.camera;
