@@ -125,6 +125,9 @@ export class TileView {
   /** Tree instance matrices (tile frame), kept for the shadow-only copy of the trees near the focus. */
   private treeData: Float32Array | null = null;
   private treeShadow: THREE.InstancedMesh | null = null;
+  /** The tile's trees as drawn, and whether the frame budget has left them out (their shadow copy goes too). */
+  private trees: THREE.InstancedMesh | null = null;
+  private treesOut = false;
   private readonly casts: boolean;
   /** A quarter mesh's shadow-only cell meshes (they show and hide with it). */
   private readonly casters = new Map<THREE.Mesh, THREE.Mesh[]>();
@@ -199,6 +202,7 @@ export class TileView {
       tris += count * (sharedTree.getAttribute('position').count / 3);
       this.group.add(trees);
       this.meshes.push({ mesh: trees, bucket: 'trees' });
+      this.trees = trees;
     }
     const boats = b.boats && b.boats.length >= 5 ? b.boats : null;
     if (boats) {
@@ -297,7 +301,7 @@ export class TileView {
       k++;
     }
     mesh.count = k;
-    mesh.visible = k > 0;
+    mesh.visible = k > 0 && !this.treesOut;
     mesh.instanceMatrix.clearUpdateRanges();
     mesh.instanceMatrix.addUpdateRange(0, k * 16);
     mesh.instanceMatrix.needsUpdate = true;
@@ -306,11 +310,18 @@ export class TileView {
     mesh.boundingSphere!.radius = Math.max(rx, r) + (k ? (y1 - y0) / 2 : 0) + 20;
   }
 
-  /** Show or hide one of the tile's meshes for the frame budget (stream.ts fitView), its shadow-only cells with it. */
+  /**
+   * Show or hide one of the tile's meshes for the frame budget (stream.ts fitView), its shadow-only
+   * cells with it (for the trees, the shadow-only copy of the near ones).
+   */
   show(mesh: THREE.Mesh, visible: boolean): void {
     mesh.visible = visible;
     const cells = this.casters.get(mesh);
     if (cells) for (const c of cells) c.visible = visible;
+    if (mesh === this.trees) {
+      this.treesOut = !visible;
+      if (this.treeShadow) this.treeShadow.visible = visible && this.treeShadow.count > 0;
+    }
   }
 
   get gone(): boolean {
