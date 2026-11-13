@@ -30,6 +30,8 @@ export type BuildRequest = {
   lcSize?: number;
   detail?: Partial<Detail>;
   skirtM?: number;
+  /** Sort buildings, roofs and roads by tile quarter (meshjob splitQuarters). */
+  split?: boolean;
   /** Reply with packed buckets (meshjob packBuffers): smaller to send and to upload. */
   pack?: boolean;
 };
@@ -72,6 +74,7 @@ export async function handleBuild(
       lcSize: req.lcSize,
       detail: req.detail,
       skirtM: req.skirtM,
+      split: req.split,
     });
     const meshes = req.pack ? packMeshes(built) : built;
     return { reply: { type: 'built', id, z, x, y, meshes }, transfer: transferables(meshes) };

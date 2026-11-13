@@ -381,6 +381,7 @@ export class WorldStream {
           lcSize: level.lcSize,
           detail: level.detail,
           skirtM: level.skirtM,
+          split: level.split,
           pack: true,
           hiddenFootprints: this.hidden,
         },

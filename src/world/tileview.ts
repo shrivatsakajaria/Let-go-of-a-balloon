@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { MeshBuffers } from './terrain';
-import type { PackedBuffers } from './meshjob';
+import type { PackedBuffers, Quartered } from './meshjob';
 import { freeAfterUpload, toGeometry, treeGeometry } from './geometry';
 import type { Bucket, ContourMaterials } from './materials';
 
@@ -36,6 +36,34 @@ const MESH_BUCKETS: [Exclude<Bucket, 'trees'>, boolean][] = [
 ];
 
 let sharedTree: THREE.BufferGeometry | null = null;
+
+/**
+ * Geometries over vertex ranges [parts[i], parts[i + 1]) of g, sharing its attributes, each with
+ * the bounding sphere of its own range (for culling). Empty ranges are left out; g itself is used
+ * when everything is in one range.
+ */
+function quarters(g: THREE.BufferGeometry, parts: Uint32Array): THREE.BufferGeometry[] {
+  const ranges: [number, number][] = [];
+  for (let i = 0; i + 1 < parts.length; i++) if (parts[i + 1] > parts[i]) ranges.push([parts[i], parts[i + 1] - parts[i]]);
+  if (ranges.length <= 1) return [g];
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  return ranges.map(([start, count]) => {
+    const sub = new THREE.BufferGeometry();
+    for (const name of Object.keys(g.attributes)) sub.setAttribute(name, g.attributes[name]);
+    sub.setDrawRange(start, count);
+    box.makeEmpty();
+    for (let i = start; i < start + count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i));
+    const sphere = new THREE.Sphere();
+    box.getCenter(sphere.center);
+    let r2 = 0;
+    for (let i = start; i < start + count; i++) r2 = Math.max(r2, sphere.center.distanceToSquared(v.fromBufferAttribute(pos, i)));
+    sphere.radius = Math.sqrt(r2);
+    sub.boundingSphere = sphere;
+    return sub;
+  });
+}
 
 export type TileViewOptions = {
   zoom: number;
@@ -70,13 +98,18 @@ export class TileView {
       const g = toGeometry(b[bucket], slot);
       if (!g) continue;
       tris += g.getAttribute('position').count / 3;
+      // a bucket sorted by quarter: one mesh per quarter, sharing the buffers (culled a quarter at a time)
+      const parts = (b[bucket] as Quartered).parts;
+      const geos = parts ? quarters(g, parts) : [g];
       if (o.freeArrays) freeAfterUpload(g);
-      const mesh = new THREE.Mesh(g, set[bucket]);
-      mesh.castShadow = o.castShadow && casts;
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
-      this.meshes.push({ mesh, bucket });
+      for (const geo of geos) {
+        const mesh = new THREE.Mesh(geo, set[bucket]);
+        mesh.castShadow = o.castShadow && casts;
+        mesh.receiveShadow = true;
+        mesh.matrixAutoUpdate = false;
+        this.group.add(mesh);
+        this.meshes.push({ mesh, bucket });
+      }
     }
     const count = b.trees.length / 16;
     if (count > 0) {

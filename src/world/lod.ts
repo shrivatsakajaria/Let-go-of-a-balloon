@@ -37,6 +37,8 @@ export type LodLevel = {
   dropM: number;
   /** Buildings and trees cast shadows (the shadow box is near the focus anyway). */
   castShadow: boolean;
+  /** Buildings, roofs and roads in one mesh per tile quarter, so near tiles are culled finer. */
+  split: boolean;
 };
 
 const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false };
@@ -46,11 +48,11 @@ const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: fals
  * 82k, z13 about 50k, z12 about 20k, z10 and z7 about 11-14k.
  */
 export const LOD_LEVELS: LodLevel[] = [
-  { z: 14, radiusM: 1500, lcSize: 64, detail: { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true }, skirtM: 25, dropM: 0, castShadow: true },
-  { z: 13, radiusM: 5000, lcSize: 48, detail: { buildings: 'lite', roadMinRank: 2, waterways: true, trees: true, lamps: false }, skirtM: 40, dropM: 2, castShadow: false },
-  { z: 12, radiusM: 10000, lcSize: 64, detail: { ...NONE, roadMinRank: 3, waterways: true }, skirtM: 120, dropM: 6, castShadow: false },
-  { z: 10, radiusM: 40000, lcSize: 64, detail: NONE, skirtM: 400, dropM: 25, castShadow: false },
-  { z: 7, radiusM: Infinity, lcSize: 64, detail: NONE, skirtM: 800, dropM: 80, castShadow: false },
+  { z: 14, radiusM: 1500, lcSize: 64, detail: { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true }, skirtM: 25, dropM: 0, castShadow: true, split: true },
+  { z: 13, radiusM: 5000, lcSize: 48, detail: { buildings: 'lite', roadMinRank: 2, waterways: true, trees: false, lamps: false }, skirtM: 40, dropM: 2, castShadow: false, split: true },
+  { z: 12, radiusM: 10000, lcSize: 48, detail: { ...NONE, roadMinRank: 3, waterways: true }, skirtM: 120, dropM: 6, castShadow: false, split: false },
+  { z: 10, radiusM: 40000, lcSize: 32, detail: NONE, skirtM: 400, dropM: 25, castShadow: false, split: false },
+  { z: 7, radiusM: Infinity, lcSize: 64, detail: NONE, skirtM: 800, dropM: 80, castShadow: false, split: false },
 ];
 const COARSEST = LOD_LEVELS[LOD_LEVELS.length - 1].z;
 

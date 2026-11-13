@@ -71,8 +71,14 @@ const haze = createHaze(L, sunDir);
 const sky = new SkyDome(haze);
 scene.add(sky.mesh);
 
-/** Shadows in a box around the ground just ahead of the camera, moved in 100 m steps. */
-const sun = new SunLight(L, sunDir, { radius: 1150, mapSize: 2048, snap: 100 });
+/**
+ * Shadows in a box around the ground just ahead of the camera, moved in 100 m steps: 1,150 m
+ * across near the ground, 800 m at cruise (only full-detail tiles within 1.5 km cast them).
+ */
+function shadowRadius(aboveGroundM: number): number {
+  return Math.round(Math.min(1150, Math.max(800, 1150 - (aboveGroundM - 450) / 3)));
+}
+const sun = new SunLight(L, sunDir, { radius: shadowRadius(ALT), mapSize: 2048, snap: 100, upM: 60, downM: 40 });
 sun.addTo(scene);
 
 const pool = new WorkerPool<BuildRequest, BuildReply>(
@@ -99,6 +105,8 @@ const hook = {
   redrawShadows: false,
   /** Triangles in view by zoom and bucket (frustum test on each mesh's bounds, like the renderer's). */
   drawn: {} as Record<string, number>,
+  /** The same for the shadow pass. */
+  casters: {} as Record<string, number>,
 };
 (window as unknown as { __world: typeof hook }).__world = hook;
 const overlay = params.get('fps') === '1' ? new StatsOverlay() : null;
@@ -123,8 +131,9 @@ function resize() {
 const frustum = new THREE.Frustum();
 const projView = new THREE.Matrix4();
 const BUCKET_NAMES = ['ground', 'water', 'waterways', 'roads', 'buildings', 'roofs', 'trees'];
-function drawnByZoom(): Record<string, number> {
-  projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+function drawnByZoom(cam: THREE.Camera = camera, casters = false): Record<string, number> {
+  cam.updateMatrixWorld();
+  projView.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);
   const out: Record<string, number> = {};
   for (const t of stream.tiles()) {
@@ -132,9 +141,9 @@ function drawnByZoom(): Record<string, number> {
     if (!g || !g.visible) continue;
     const z = t.key.split('/')[0];
     for (const m of g.children as THREE.Mesh[]) {
-      if (!frustum.intersectsObject(m)) continue;
+      if ((casters && !m.castShadow) || !frustum.intersectsObject(m)) continue;
       const name = (Array.isArray(m.material) ? m.material[0] : m.material).name.split('-')[1] ?? '?';
-      const per = m.geometry.getAttribute('position').count / 3;
+      const per = Math.min(m.geometry.drawRange.count, m.geometry.getAttribute('position').count) / 3;
       const n = (m as THREE.InstancedMesh).isInstancedMesh ? per * (m as THREE.InstancedMesh).count : per;
       const k = `z${z}.${BUCKET_NAMES.includes(name) ? name : '?'}`;
       out[k] = (out[k] ?? 0) + Math.round(n);
@@ -173,8 +182,8 @@ function frame(now: number) {
 
   // Haze: the land runs to the horizon and fades into the sky colour (spec 7).
   const far = hazeFarM(y);
-  fog.near = far * 0.1;
-  fog.far = far;
+  fog.near = far * 0.02;
+  fog.far = far * 0.75;
   camera.near = Math.max(0.5, Math.min(20, ALT * 0.02));
   camera.far = far * 1.25;
   camera.updateProjectionMatrix();
@@ -229,6 +238,7 @@ function frame(now: number) {
     }
     hook.byZoom = byZoom;
     hook.drawn = drawnByZoom();
+    hook.casters = drawnByZoom(sun.sun.shadow.camera, true);
   }
   if (s.built === 0 && s.failed >= 6) showStatus('The map did not load. Check the connection and reload the page.');
   else if (s.built > 0) showStatus('');

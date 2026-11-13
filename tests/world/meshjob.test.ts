@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { decodeVectorTile, emptyFeatures, type Polygon } from '../../src/world/vector';
-import { buildTileMeshes, type TileMeshes } from '../../src/world/meshjob';
+import { buildTileMeshes, packMeshes, transferables, type TileMeshes } from '../../src/world/meshjob';
 import { DEFAULT_REGION, CONTOUR, parseHex } from '../../src/world/palette';
 import { tileFrame } from '../../src/world/frame';
 import { groundGrid, groundHeightAt, type MeshBuffers } from '../../src/world/terrain';
@@ -657,4 +657,38 @@ test('simplifyRing drops vertices within the tolerance and keeps the corners', a
   expect(simplifyRing(r, 1)).toEqual([0, 0, 20, 0, 20, 20, 0, 20]);
   expect(simplifyRing(r, 0.2).length).toBe(10); // the bump stays
   expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toEqual([0, 0, 1, 0, 0, 1]); // a triangle is left alone
+});
+
+test('split: buildings, roofs and roads sorted by tile quarter, the same triangles in another order', () => {
+  const s = buildTileMeshes(f, heights, Z, X, Y, DEFAULT_REGION, { split: true });
+  const key = (b: MeshBuffers, t: number) => Array.from(b.position.subarray(t * 9, t * 9 + 9), (v) => v.toFixed(3)).join(',') + Array.from(b.color.subarray(t * 9, t * 9 + 9), (v) => v.toFixed(3)).join(',');
+  for (const k of ['buildings', 'roofs', 'roads'] as const) {
+    const a = m[k], b = s[k] as MeshBuffers & { parts?: Uint32Array };
+    expect(b.parts).toBeDefined();
+    const parts = b.parts!;
+    expect(parts[0]).toBe(0);
+    expect(parts[4]).toBe(b.position.length / 3);
+    const tris = a.position.length / 9;
+    expect(b.position.length).toBe(a.position.length);
+    const want = new Map<string, number>();
+    for (let t = 0; t < tris; t++) want.set(key(a, t), (want.get(key(a, t)) ?? 0) + 1);
+    for (let t = 0; t < tris; t++) {
+      const kk = key(b, t);
+      expect(want.get(kk)).toBeGreaterThan(0);
+      want.set(kk, want.get(kk)! - 1);
+      // each triangle's centre lies in its quarter
+      const v = t * 3;
+      const q = parts.findIndex((p, i) => i < 4 && v >= p && v < parts[i + 1]);
+      const o = t * 9;
+      const cx = (b.position[o] + b.position[o + 3] + b.position[o + 6]) / 3, cz = (b.position[o + 2] + b.position[o + 5] + b.position[o + 8]) / 3;
+      expect(q).toBe((cx > frame.widthM / 2 ? 1 : 0) + (cz < -frame.heightM / 2 ? 2 : 0));
+    }
+    for (let q = 0; q < 4; q++) expect(parts[q + 1] - parts[q]).toBeGreaterThan(0); // the Town Hall tile has buildings everywhere
+  }
+  expect(s.ground.position).toEqual(m.ground.position);
+  expect((s.ground as { parts?: Uint32Array }).parts).toBeUndefined();
+  // packing keeps the quarters, and they travel with the transfer
+  const p = packMeshes(s);
+  expect(p.buildings.parts).toBe((s.buildings as { parts?: Uint32Array }).parts);
+  expect(transferables(p)).toContain(p.buildings.parts!.buffer);
 });

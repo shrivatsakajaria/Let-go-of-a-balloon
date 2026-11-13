@@ -20,6 +20,14 @@ export type ShadowBox = {
   mapSize: number;
   /** The box moves in steps of this many metres. */
   snap: number;
+  /**
+   * Heights the box keeps above and below the ground disc, in metres (default 160 each). Up: the
+   * tallest receivers (roofs) still shadowed at the disc's far edge. Down: terrain below the focus.
+   * Casters toward the sun need no extra room: they sit on the same sun ray as the ground they
+   * shade, so a smaller margin is a shorter box on the ground and fewer casters in the shadow pass.
+   */
+  upM?: number;
+  downM?: number;
 };
 
 /** Unit vector toward the sun from elevation and compass azimuth (degrees), scene axes (x east, z south). */
@@ -32,7 +40,7 @@ export class SunLight {
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
   readonly dir: THREE.Vector3;
-  private readonly box: ShadowBox;
+  private box: ShadowBox;
   private readonly centre = new THREE.Vector3(NaN, NaN, NaN);
   private readonly lastDir = new THREE.Vector3();
 
@@ -84,14 +92,24 @@ export class SunLight {
     return true;
   }
 
+  /** Shadow a disc of this radius around the focus from now on; true when the box changed (redraw). */
+  setRadius(radius: number): boolean {
+    if (Math.abs(radius - this.box.radius) < 1) return false;
+    this.box = { ...this.box, radius };
+    this.fitBox();
+    return true;
+  }
+
   /** A low sun sees the ground disc as wide and short: a tall thin box (about 1 m x 0.3 m per texel). */
   private fitBox(): void {
     const R = this.box.radius;
     const c = this.sun.shadow.camera;
     c.left = -R;
     c.right = R;
-    c.top = R * Math.max(0.05, this.dir.y) + 160;
-    c.bottom = -c.top;
+    const ground = R * Math.max(0.05, this.dir.y);
+    const cos = Math.sqrt(Math.max(0, 1 - this.dir.y * this.dir.y));
+    c.top = ground + (this.box.upM !== undefined ? this.box.upM * cos : 160);
+    c.bottom = -(ground + (this.box.downM !== undefined ? this.box.downM * cos : 160));
     c.near = 2000;
     c.far = 6000;
     c.updateProjectionMatrix();

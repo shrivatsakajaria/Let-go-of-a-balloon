@@ -71,4 +71,22 @@ describe('TileView', () => {
     expect(mats.slots.available).toBe(free);
     expect(matDisposed).toBe(false);
   });
+
+  it('a bucket sorted by quarter becomes one mesh per quarter on shared buffers, each culled by its own bounds', () => {
+    // two triangles in the south-west quarter, one in the north-east of a 100 m tile
+    const tri = (x: number, z: number) => [x, 5, z, x + 1, 5, z, x, 5, z - 1];
+    const position = new Float32Array([...tri(10, -10), ...tri(20, -20), ...tri(90, -90)]);
+    const walls = { position, normal: new Float32Array(27).map((_, i) => (i % 3 === 1 ? 1 : 0)), color: new Float32Array(27).fill(0.5), parts: new Uint32Array([0, 6, 6, 6, 9]) };
+    const v = new TileView({ ...buffers, roads: empty(), trees: new Float32Array(0), buildings: walls }, mats, { zoom: 14, castShadow: true, clip: false });
+    const walled = (v.group.children as THREE.Mesh[]).filter((m) => (m.material as THREE.Material).name === 'contour-buildings-solid');
+    expect(walled).toHaveLength(2);
+    expect(walled[0].geometry.getAttribute('position')).toBe(walled[1].geometry.getAttribute('position'));
+    expect(walled.map((m) => [m.geometry.drawRange.start, m.geometry.drawRange.count])).toEqual([[0, 6], [6, 3]]);
+    expect(walled[0].geometry.boundingSphere!.center.x).toBeCloseTo(15.5, 5);
+    expect(walled[1].geometry.boundingSphere!.center.x).toBeCloseTo(90.5, 5);
+    expect(walled[1].geometry.boundingSphere!.radius).toBeLessThan(1);
+    expect(walled.every((m) => m.castShadow)).toBe(true);
+    expect(v.triangles).toBe(2 + 3);
+    v.dispose();
+  });
 });

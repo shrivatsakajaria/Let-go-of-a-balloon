@@ -59,6 +59,11 @@ export type BuildOptions = {
   detail?: Partial<Detail>;
   /** Skirts this deep on the ground's edges (terrain.ts withSkirts); none by default. */
   skirtM?: number;
+  /**
+   * Sort buildings, roofs and roads into the tile's four quarters (splitQuarters), so a near tile
+   * is culled a quarter at a time, in view and in the shadow pass.
+   */
+  split?: boolean;
 };
 
 /** Ground and land-cover cells per tile side by zoom. */
@@ -155,12 +160,13 @@ export function buildTileMeshes(
     ...(p.rank !== undefined ? { rank: p.rank } : {}),
   }));
 
+  const q = (b: MeshBuffers) => (opts.split ? splitQuarters(b, frame.widthM, frame.heightM) : b);
   return {
     ground,
     water: water.build(),
-    buildings: walls.build(),
-    roofs: roofs.build(),
-    roads: roads.build(),
+    buildings: q(walls.build()),
+    roofs: q(roofs.build()),
+    roads: q(roads.build()),
     waterways: waterways.build(),
     trees,
     lamps,
@@ -171,14 +177,46 @@ export function buildTileMeshes(
   };
 }
 
+/** Buffers sorted by quarter: vertices parts[i] .. parts[i + 1] lie in quarter i (SW, SE, NW, NE). */
+export type Quartered = { parts?: Uint32Array };
+
+/**
+ * Reorder whole triangles by the quarter of the tile their centre falls in (x east of width / 2,
+ * z north of -height / 2), keeping their order within a quarter. Returns new buffers with `parts`.
+ */
+export function splitQuarters(b: MeshBuffers, widthM: number, heightM: number): MeshBuffers & Quartered {
+  const tris = b.position.length / 9;
+  const quarter = new Uint8Array(tris);
+  const count = [0, 0, 0, 0];
+  const p = b.position;
+  for (let t = 0; t < tris; t++) {
+    const o = t * 9;
+    const cx = (p[o] + p[o + 3] + p[o + 6]) / 3, cz = (p[o + 2] + p[o + 5] + p[o + 8]) / 3;
+    const q = (cx > widthM / 2 ? 1 : 0) + (cz < -heightM / 2 ? 2 : 0);
+    quarter[t] = q;
+    count[q]++;
+  }
+  const parts = new Uint32Array(5);
+  for (let q = 0; q < 4; q++) parts[q + 1] = parts[q] + count[q] * 3;
+  const at = [parts[0] / 3, parts[1] / 3, parts[2] / 3, parts[3] / 3];
+  const out = { position: new Float32Array(p.length), normal: new Float32Array(p.length), color: new Float32Array(p.length), parts };
+  for (let t = 0; t < tris; t++) {
+    const d = at[quarter[t]]++ * 9, o = t * 9;
+    out.position.set(p.subarray(o, o + 9), d);
+    out.normal.set(b.normal.subarray(o, o + 9), d);
+    out.color.set(b.color.subarray(o, o + 9), d);
+  }
+  return out;
+}
+
 /**
  * A bucket packed for the GPU and for transfer: positions as they are, normals as signed bytes and
  * colours as linear bytes, both with a fourth padding component (4-byte aligned attributes).
  */
-export type PackedBuffers = { position: Float32Array; normal: Int8Array; color: Uint8Array };
+export type PackedBuffers = { position: Float32Array; normal: Int8Array; color: Uint8Array } & Quartered;
 
 /** Pack a bucket (colours from sRGB to linear). */
-export function packBuffers(b: MeshBuffers): PackedBuffers {
+export function packBuffers(b: MeshBuffers & Quartered): PackedBuffers {
   const n = b.position.length / 3;
   const normal = new Int8Array(n * 4);
   const color = new Uint8Array(n * 4);
@@ -196,7 +234,7 @@ export function packBuffers(b: MeshBuffers): PackedBuffers {
     }
     color[i * 4 + 3] = 255;
   }
-  return { position: b.position, normal, color };
+  return b.parts ? { position: b.position, normal, color, parts: b.parts } : { position: b.position, normal, color };
 }
 
 /** A tile with every bucket packed (packBuffers). */
@@ -216,7 +254,7 @@ export function packMeshes(m: TileMeshes): TileMeshes<PackedBuffers> {
 export function transferables(m: TileMeshes<MeshBuffers | PackedBuffers>): ArrayBuffer[] {
   const set = new Set<ArrayBuffer>();
   for (const b of [m.ground, m.water, m.buildings, m.roofs, m.roads, m.waterways])
-    for (const a of [b.position, b.normal, b.color]) set.add(a.buffer as ArrayBuffer);
+    for (const a of [b.position, b.normal, b.color, (b as Quartered).parts]) if (a) set.add(a.buffer as ArrayBuffer);
   for (const a of [m.trees, m.lamps, m.grid, m.tops]) set.add(a.buffer as ArrayBuffer);
   return [...set];
 }
