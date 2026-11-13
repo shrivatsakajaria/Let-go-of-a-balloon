@@ -229,8 +229,8 @@ async function main(): Promise<void> {
     }
   }
 
-  rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
+  for (const f of readdirSync(OUT)) if (f.endsWith('.json')) rmSync(`${OUT}/${f}`); // keep SOURCES.md
   let total = 0;
   let max = 0;
   for (const [key, t] of tiles) {
