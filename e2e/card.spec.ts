@@ -70,6 +70,34 @@ test('the card shows when a balloon comes down while it is being watched', async
   expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
 });
 
+test('"Show the card" while the card is still being made waits for that one: one card world, one render', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(80)));
+  await expect.poll(async () => (await card(page))?.state, { timeout: 60_000 }).toBe('waiting');
+  await page.getByRole('button', { name: 'Show the card' }).click();
+  const c = await opened(page);
+  expect(c.renders).toBe(1);
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+});
+
+test('leaving while the card is being made stops it: it never opens over the start screen', async ({ context, page }) => {
+  await liveWorld(context);
+  // the card world's coarse (z7) map tiles come slowly, so it is still being made when the visitor leaves
+  await context.route(/^https:\/\/tiles\.openfreemap\.org\/fixture\/7\//, async (route) => {
+    await new Promise((r) => setTimeout(r, 15_000));
+    await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }).catch(() => {});
+  });
+  await page.goto(await linkTo(eastward(80)));
+  await expect.poll(async () => (await card(page))?.state, { timeout: 60_000 }).toBe('waiting');
+  await page.getByRole('button', { name: 'Let go of your own' }).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 10_000 }).toBe('start');
+  // the card world gives up within a step (well inside its 20 s), and nothing opens
+  await expect.poll(async () => (await card(page))?.state, { timeout: 15_000 }).toBe('idle');
+  await page.waitForTimeout(3000);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect((await card(page))!.renders).toBe(0);
+});
+
 test('share falls back to download when canShare is false: Save image is the main action and downloads the PNG', async ({ context, page }) => {
   await liveWorld(context);
   await context.addInitScript(() => {

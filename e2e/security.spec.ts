@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { headersFor, parseHeaders } from '../scripts/pages-headers';
-import { liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
+import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
 
 /**
  * The Content-Security-Policy in public/_headers, enforced on the built site. `vite preview` does not
@@ -94,4 +94,35 @@ test('the 2D map runs under the policy too', async ({ context, page }) => {
   await expect(page.locator('.map2d')).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(3000);
   expect(seen).toEqual([]);
+});
+
+test('the landing card runs under the policy: its picture, the image (blob:) and Save image', async ({ context, page }) => {
+  await liveWorld(context);
+  const seen = await pagesHeaders(page);
+  await page.goto(await linkTo(eastward(80)));
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible({ timeout: 90_000 });
+  const img = dialog.locator('img.card-img');
+  expect(await img.getAttribute('src')).toMatch(/^blob:/);
+  await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1080);
+  const [download] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', { name: 'Save image' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.png$/);
+  await page.waitForTimeout(1000);
+  expect(seen).toEqual([]);
+});
+
+test.describe('in an in-app browser', () => {
+  test.use({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [LinkedInApp]/9.29.8' });
+
+  test('the full-screen card (a data: image) runs under the policy', async ({ context, page }) => {
+    await liveWorld(context);
+    const seen = await pagesHeaders(page);
+    await page.goto(await linkTo(eastward(80)));
+    const img = page.getByRole('dialog').locator('img.card-img');
+    await expect(img).toBeVisible({ timeout: 90_000 });
+    expect(await img.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+    await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1080);
+    await page.waitForTimeout(1000);
+    expect(seen).toEqual([]);
+  });
 });
