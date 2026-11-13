@@ -145,6 +145,8 @@ test.describe('without WebGL', () => {
     await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.locator('.hud .over')).toHaveText(/^(Landed near|Landed in|Came down in) /, { timeout: 20_000 });
     await expect(page.locator('.hud .day')).toHaveText('Landed · 72 h aloft');
+    // the landing card opens over the map (its own test is below); closed, the landed map is there
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeVisible();
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
   });

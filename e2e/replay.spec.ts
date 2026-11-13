@@ -200,8 +200,11 @@ test('reduced motion: no fly-through; the route is drawn in place over 2 s and h
   expect(h.trail).toBe(false); // the 3D scene stays live
   expect(h.shot).not.toBe('replay');
   await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeHidden();
-  // drawn in full, every mark shown, then (by default) back to live
+  // drawn in full, every mark shown, then the landing card; its "Back to live" returns to live
   await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(true);
+  const card = page.getByRole('dialog');
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  await card.getByRole('button', { name: 'Back to live' }).click();
   await expect.poll(async () => (await hook(page)).replay, SLOW).toBe(false);
   const drawn = await page.evaluate(() => {
     const w = window as unknown as { __dash: number; __marks: number };
