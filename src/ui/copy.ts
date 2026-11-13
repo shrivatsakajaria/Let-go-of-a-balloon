@@ -17,6 +17,7 @@ export const COPY = {
   tryAgain: 'Try again',
   brokenLink: 'This balloon link is broken.',
   letGoNewOne: 'Let go of a new one',
+  noWebGL: "Your phone can't show the 3D world, so here is the route on a map.",
   wholeTrip: 'Show me the whole trip',
   backToLive: 'Back to live',
   replayLabel: 'Forecast route, 72 hours in 20 seconds',
@@ -27,9 +28,8 @@ export const COPY = {
   // not fixed by 7.4: written to match its voice
   searchFailed: "We can't search right now. Try again in a moment.",
   locationTimeout: "We couldn't find you. Try again, or search for your town.",
-  // the 3D world could not load or cannot be drawn here (until the map fallback of spec 6.7)
+  // the world (3D or the 2D map) could not be fetched; a browser that cannot draw 3D gets the map
   didNotLoad: "The balloon didn't load. Check your connection and try again.",
-  noWorld: "Your browser can't show the 3D world, so the balloon can't fly here.",
   pause: 'Pause',
   resume: 'Resume',
   view: 'View',

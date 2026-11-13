@@ -28,6 +28,8 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
+import { watchContextLoss, type ContextWatch } from './contextloss';
+import { resumeAction, type Handover } from './world';
 
 export type View = 'start' | 'launch' | 'flight' | 'error' | 'link' | 'broken';
 
@@ -38,6 +40,12 @@ export type LiveDeps = {
   hudEl: HTMLElement;
   noticeEl: HTMLElement;
   setView(v: View): void;
+  /** The WebGL context was lost twice (or never came back): the page moves to the 2D map. */
+  onNoWebGL?(h: Handover): void;
+  /** The WebGL context was lost and has come back: the page builds the 3D world again from h. */
+  onReload?(h: Handover): void;
+  /** Contexts the page lost before this world was built. */
+  contextLosses?: number;
 };
 
 type Flight = { route: Route; home: { name: string; lat: number; lon: number }; own: boolean; launched: boolean };
@@ -73,6 +81,11 @@ export type LiveHook = {
   replayMs: number | null;
   /** Floating-origin re-centres so far. */
   recentres: number;
+  /** What the last frame drew (renderer.info, shadow pass included): for the performance checks. */
+  triangles: number;
+  calls: number;
+  /** WebGL context losses so far. */
+  contextLosses: number;
 };
 
 export class Live {
@@ -112,7 +125,8 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
     this.choice = choice;
@@ -155,6 +169,20 @@ export class Live {
         return this.scene.scene.children.length;
       };
     }
+    this.hook.contextLosses = deps.contextLosses ?? 0;
+    this.context = watchContextLoss(
+      this.canvas,
+      {
+        // a replay stops cleanly (its trail, timer and key listener go; Pause as it was comes back)
+        onLost: () => {
+          this.hook.contextLosses++;
+          this.backToLive();
+        },
+        onRestored: () => deps.onReload?.(this.handover()),
+        onGiveUp: () => deps.onNoWebGL?.(this.handover()),
+      },
+      { losses: deps.contextLosses ?? 0 },
+    );
     this.watchBand();
     this.setStart(choice);
   }
@@ -208,6 +236,7 @@ export class Live {
     this.opening++;
     this.windAsk++;
     this.unwatch();
+    this.context.dispose();
     this.clearNotice();
     this.hud.destroy();
     this.scene.dispose();
@@ -436,6 +465,35 @@ export class Live {
     this.replayPrep = null;
   }
 
+  /** What the 2D map needs to carry on from here. */
+  handover(): Handover {
+    // during a replay, Pause as it was before it (the replay itself plays unpaused)
+    return { choice: this.choice, state: this.state, flight: this.flight, paused: this.replayRun ? this.pausedBefore : this.hud.paused };
+  }
+
+  /**
+   * Carry on from what a world before this one was showing (its context was lost and came back): the
+   * flight, seen as open() would show it (a landed balloon from the side); a launch that had not let go
+   * yet starts again; anything else goes back to the start screen.
+   */
+  resume(h: Handover): void {
+    const a = resumeAction(h, Date.now());
+    if (a.kind === 'fly' && h.flight) {
+      const { route, home, own } = h.flight;
+      this.state = 'flight';
+      this.scene.fly(route, a.mode);
+      this.hud.setPaused(!!h.paused);
+      this.scene.setPaused(!!h.paused);
+      this.hud.setView(a.mode);
+      this.beginFlight(route, home, own, h.flight.launched ?? false);
+      this.deps.setView('flight');
+      // a launched flight's names are otherwise asked when its launch settles, which a resumed one skips
+      this.prepareReplaySoon();
+    } else if (a.kind === 'launch') this.letGo(h.choice);
+    else if (a.kind === 'start') this.backToStart();
+    // 'stay': the start screen as it was (the constructor has already set the start place)
+  }
+
   // ---- every frame ----
 
   /** The read-only test hook (only when a test asked for it): reused arrays and vectors, nothing per frame. */
@@ -471,6 +529,9 @@ export class Live {
       this.subject[1] = px(person.root.getWorldPosition(this.v2));
       h.subjectPx = this.subject;
     } else h.subjectPx = null;
+    const info = this.scene.renderer.info.render;
+    h.triangles = info.triangles;
+    h.calls = info.calls;
   }
 
   private frame(f: SceneFrame): void {

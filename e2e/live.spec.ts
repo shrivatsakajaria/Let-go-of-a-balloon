@@ -308,7 +308,7 @@ test('the winds manifest, the terrain header and the start ground are asked for 
   await expect.poll(() => terrain.length, { timeout: 10_000 }).toBeGreaterThan(0);
 });
 
-test('with no WebGL the page says the 3D world cannot show here (not that the winds failed); Cancel clears the link', async ({ context, page }) => {
+test('with no WebGL a link opens on the 2D map (not that the winds failed); "Let go of your own" clears the link', async ({ context, page }) => {
   await liveWorld(context);
   await context.addInitScript(() => {
     const get = HTMLCanvasElement.prototype.getContext;
@@ -317,9 +317,10 @@ test('with no WebGL the page says the 3D world cannot show here (not that the wi
     } as typeof get;
   });
   await page.goto(await linkTo(eastward(10)));
-  await expect(page.getByText("Your browser can't show the 3D world, so the balloon can't fly here.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Your phone can't show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.map2d')).toBeVisible();
   await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeHidden();
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Let go of your own' }).click();
   expect(new URL(page.url()).hash).toBe('');
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
 });
