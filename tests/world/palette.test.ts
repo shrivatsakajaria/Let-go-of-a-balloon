@@ -157,3 +157,38 @@ test('regionStyle is fast', () => {
   expect(performance.now() - t).toBeLessThan(2000);
   expect(n).toBeGreaterThanOrEqual(0);
 });
+
+// ---- Task 11: light strengths and golden hour ----
+import { stageLight, SUN_GAIN, SKY_LIGHT } from '../../src/world/palette';
+
+/** HSV saturation: how far a colour is from grey at its brightness. */
+const hsvSat = (hex: string) => {
+  const c = parseHex(hex);
+  const mx = Math.max(...c), mn = Math.min(...c);
+  return mx === 0 ? 0 : (mx - mn) / mx;
+};
+
+test('golden hour and twilight sun stay warm but never compete with the balloon', () => {
+  for (let e = -8; e <= 20; e += 0.5) {
+    const sun = lightFor(e).sun;
+    expect(hsvSat(sun), `${sun} at ${e} deg`).toBeLessThanOrEqual(0.55);
+  }
+  const g = parseHex(lightFor(2).sun);
+  expect(g[0]).toBeGreaterThan(g[2] + 40); // still warm
+});
+
+test('stage light: the strengths SK approved in the tile proof (sun x2, sky 2.2, sun 15% to white)', () => {
+  const L = lightFor(8);
+  const s = stageLight(L);
+  expect(SUN_GAIN).toBe(2);
+  expect(SKY_LIGHT).toBe(2.2);
+  expect(s.sunIntensity).toBeCloseTo(L.sunIntensity * 2, 9);
+  expect(s.hemiIntensity).toBe(2.2);
+  const a = parseHex(L.sun), b = parseHex(s.sunColor);
+  for (let i = 0; i < 3; i++) expect(Math.abs(b[i] - (a[i] + (255 - a[i]) * 0.15))).toBeLessThanOrEqual(1);
+  expect(s.hemiGround).toBe(L.hemiGround);
+});
+
+test('UK slate roofs are lifted so they do not read black at golden hour', () => {
+  for (const c of regionStyle({ lat: 53.48, lon: -2.24 }).roofs) expect(hslOf(c).l).toBeGreaterThanOrEqual(0.42);
+});

@@ -13,7 +13,7 @@
  * compiled in.
  */
 import * as THREE from 'three';
-import { HAZE_GLSL, type HazeUniforms } from './haze';
+import { CLOUD_SHADE_GLSL, HAZE_GLSL, WIN_GRID_M, WIN_REPEAT, type HazeUniforms } from './haze';
 import { COV_N, type CoverageUniforms } from './coverage';
 
 export const SLOT_COUNT = 64;
@@ -59,13 +59,19 @@ export class TileSlots {
   }
 }
 
-export type Bucket = 'ground' | 'water' | 'waterways' | 'roads' | 'buildings' | 'roofs' | 'trees';
-export const BUCKETS: Bucket[] = ['ground', 'water', 'waterways', 'roads', 'buildings', 'roofs', 'trees'];
+export type Bucket = 'ground' | 'water' | 'waterways' | 'roads' | 'buildings' | 'roofs' | 'trees' | 'boats';
+export const BUCKETS: Bucket[] = ['ground', 'water', 'waterways', 'roads', 'buildings', 'roofs', 'trees', 'boats'];
+
+/** Lit windows, street lamps and city glow at night: warm, pale amber (never the balloon's orange). */
+export const WINDOW_LIGHT = [1.0, 0.74, 0.42] as const;
+export const GLOW_LIGHT = [0.9, 0.6, 0.32] as const;
+export const LAMP_LIGHT = [1.0, 0.8, 0.52] as const;
+const vec3 = (c: readonly number[]) => `vec3(${c.map((v) => v.toFixed(3)).join(', ')})`;
 
 const VERTEX_PARS = `
-attribute float aSlot;
+attribute float aSlot; attribute float aGlow;
 uniform vec4 uSlots[${SLOT_COUNT}];
-varying vec3 vWP; varying vec3 vWN; varying float vFade; varying float vZoom; varying float vDither;`;
+varying vec3 vWP; varying vec3 vWN; varying float vFade; varying float vZoom; varying float vDither; varying float vGlow;`;
 
 const VERTEX_MAIN = `
   mat4 wm = modelMatrix;
@@ -74,12 +80,13 @@ const VERTEX_MAIN = `
   #endif
   vWP = (wm * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(wm) * objectNormal);
   vec4 slotV = uSlots[int(aSlot + 0.5)];
-  vFade = slotV.x; vZoom = slotV.y; vDither = slotV.z;`;
+  vFade = slotV.x; vZoom = slotV.y; vDither = slotV.z; vGlow = aGlow;`;
 
 const FRAGMENT_PARS = `
-varying vec3 vWP; varying vec3 vWN; varying float vFade; varying float vZoom; varying float vDither;
-uniform vec4 uBlock; uniform vec4 uHazeRing; uniform vec3 uWinShift;
+varying vec3 vWP; varying vec3 vWN; varying float vFade; varying float vZoom; varying float vDither; varying float vGlow;
+uniform vec4 uBlock; uniform vec4 uHazeRing; uniform vec3 uWinShift; uniform float uNight;
 ${HAZE_GLSL}
+${CLOUD_SHADE_GLSL}
 #ifdef CONTOUR_CLIP
 uniform sampler2D uCoverage; uniform vec4 uCovO; uniform vec4 uMerc;
 float bayer4(vec2 p) {
@@ -101,6 +108,7 @@ const FRAGMENT_CLIP = `
 #endif`;
 
 const FRAGMENT_FOG = `
+  gl_FragColor.rgb *= cloudShade(vWP);
   vec3 hz = hazeCol(normalize(vWP - cameraPosition));
   #ifdef USE_FOG
     float far = smoothstep(fogNear, fogFar, vFogDepth);
@@ -112,22 +120,39 @@ const FRAGMENT_FOG = `
   gl_FragColor.rgb = mix(gl_FragColor.rgb, hz, max(far, ring));
   gl_FragColor.rgb = mix(hz, gl_FragColor.rgb, vDither > 0.5 ? 1.0 : vFade);`;
 
-/** The prototype's withWindows, in metres (3.4 x 3.6 m), faded out where a window is under a pixel. */
+/**
+ * The prototype's withWindows, in metres (${WIN_GRID_M} x 3.6 m): a subtle darker pane by day, faded out
+ * where a window is under a pixel so it never shimmers. At night some windows are lit (a hash of
+ * the window's cell, repeating every ${WIN_REPEAT} windows so the shift can stay small), scaled by uNight;
+ * where windows are under a pixel the wall takes their average light instead, so a far city still
+ * glimmers.
+ */
 const FRAGMENT_WINDOWS = `
   {
     float side = step(abs(vWN.y), 0.5);
     vec3 wp = vWP + uWinShift;
-    vec2 g = vec2((abs(vWN.x) > 0.5 ? wp.z : wp.x) / 3.4, wp.y / 3.6);
+    vec2 g = vec2((abs(vWN.x) > 0.5 ? wp.z : wp.x) / ${WIN_GRID_M.toFixed(1)}, wp.y / 3.6);
     vec2 f = fract(g);
     float win = step(0.3, f.x) * step(f.x, 0.7) * step(0.32, f.y) * step(f.y, 0.78);
     float px = max(fwidth(g.x), fwidth(g.y));
     float vis = 1.0 - smoothstep(0.18, 0.4, px);
-    diffuseColor.rgb *= 1.0 - win * side * vis * 0.16;
+    diffuseColor.rgb *= 1.0 - win * side * vis * 0.16 * (1.0 - uNight);
+    if (uNight > 0.0) {
+      vec2 cl = mod(floor(g), ${WIN_REPEAT.toFixed(1)});
+      float h = fract(sin(dot(cl, vec2(12.9898, 78.233))) * 43758.5453);
+      float lit = step(0.56, h) * (0.75 + 0.5 * fract(h * 7.31));
+      float light = mix(0.115, win * lit, vis);
+      totalEmissiveRadiance += ${vec3(WINDOW_LIGHT)} * (light * side * uNight * 2.2);
+    }
   }`;
+
+/** City glow: a soft warm light on the ground and streets where buildings and roads are densest. */
+const FRAGMENT_GLOW = `
+  totalEmissiveRadiance += ${vec3(GLOW_LIGHT)} * (vGlow * vGlow * uNight * 0.55);`;
 
 type Shared = { haze: HazeUniforms; slots: TileSlots; coverage: CoverageUniforms };
 
-function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean; windows: boolean }): THREE.MeshStandardMaterial {
+function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean; windows: boolean; glow: boolean }): THREE.MeshStandardMaterial {
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, shared.haze, { uSlots: shared.slots.uniform });
     if (o.clip) Object.assign(sh.uniforms, shared.coverage);
@@ -138,21 +163,23 @@ function patch(m: THREE.MeshStandardMaterial, shared: Shared, o: { clip: boolean
       .replace('#include <common>', `#include <common>\n${FRAGMENT_PARS}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${FRAGMENT_CLIP}`)
       .replace('#include <fog_fragment>', FRAGMENT_FOG);
-    if (o.windows) sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAGMENT_WINDOWS}`);
+    const extra = (o.windows ? FRAGMENT_WINDOWS : '') + (o.glow ? FRAGMENT_GLOW : '');
+    if (extra) sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${extra}`);
   };
-  m.customProgramCacheKey = () => `contour-${o.clip ? 'clip' : 'solid'}-${o.windows ? 'win' : 'plain'}`;
+  m.customProgramCacheKey = () => `contour-${o.clip ? 'clip' : 'solid'}-${o.windows ? 'win' : 'plain'}-${o.glow ? 'glow' : 'dark'}`;
   return m;
 }
 
-type Spec = { vertexColors: boolean; roughness: number; offset?: number; windows?: boolean; tint?: boolean };
+type Spec = { vertexColors: boolean; roughness: number; offset?: number; windows?: boolean; tint?: boolean; glow?: boolean; double?: boolean };
 const SPECS: Record<Bucket, Spec> = {
-  ground: { vertexColors: true, roughness: 0.95, tint: true },
+  ground: { vertexColors: true, roughness: 0.95, tint: true, glow: true },
   water: { vertexColors: true, roughness: 0.32, offset: 1 },
   waterways: { vertexColors: true, roughness: 0.32, offset: 2 },
-  roads: { vertexColors: true, roughness: 0.95, offset: 2 },
+  roads: { vertexColors: true, roughness: 0.95, offset: 2, glow: true },
   buildings: { vertexColors: true, roughness: 0.95, windows: true },
   roofs: { vertexColors: true, roughness: 0.95 },
   trees: { vertexColors: false, roughness: 0.9 },
+  boats: { vertexColors: true, roughness: 0.6, double: true },
 };
 
 function make(b: Bucket, shared: Shared, clip: boolean, groundTint: string): THREE.MeshStandardMaterial {
@@ -163,6 +190,7 @@ function make(b: Bucket, shared: Shared, clip: boolean, groundTint: string): THR
     roughness: s.roughness,
     metalness: 0,
     flatShading: true,
+    side: s.double ? THREE.DoubleSide : THREE.FrontSide,
   });
   if (s.offset) {
     m.polygonOffset = true;
@@ -170,13 +198,48 @@ function make(b: Bucket, shared: Shared, clip: boolean, groundTint: string): THR
     m.polygonOffsetUnits = -s.offset;
   }
   m.name = `contour-${b}-${clip ? 'clip' : 'solid'}`;
-  return patch(m, shared, { clip, windows: !!s.windows });
+  return patch(m, shared, { clip, windows: !!s.windows, glow: !!s.glow });
+}
+
+/**
+ * Street lamps: one point each, a soft warm dot a few pixels wide that shows from dusk (uNight),
+ * fades with the tile and into the haze, and adds light (it never darkens what is behind it).
+ */
+function lampMaterial(shared: Shared): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    name: 'contour-lamps',
+    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSlots: shared.slots.uniform, uNight: shared.haze.uNight, uPxScale: shared.haze.uPxScale },
+    fog: true,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+    vertexShader: `attribute float aSlot; uniform vec4 uSlots[${SLOT_COUNT}]; uniform float uPxScale;
+      uniform float fogNear; uniform float fogFar; varying float vA;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position + vec3(0.0, 5.0, 0.0), 1.0);
+        gl_Position = projectionMatrix * mv;
+        float d = max(1.0, -mv.z);
+        float px = 9.0 * projectionMatrix[1][1] * uPxScale / d;
+        gl_PointSize = clamp(px, 2.0, 10.0);
+        vA = uSlots[int(aSlot + 0.5)].x * (1.0 - smoothstep(fogNear, fogFar, d)) * min(1.0, px / 2.0);
+      }`,
+    fragmentShader: `uniform float uNight; varying float vA;
+      void main() {
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        float a = (1.0 - smoothstep(0.15, 1.0, r)) * vA * smoothstep(0.15, 0.7, uNight);
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(${vec3(LAMP_LIGHT)} * a, 1.0);
+      }`,
+  });
 }
 
 /** The shared Contour materials, both variants of every bucket. */
 export class ContourMaterials {
   readonly solid: Record<Bucket, THREE.MeshStandardMaterial>;
   readonly clip: Record<Bucket, THREE.MeshStandardMaterial>;
+  /** Street lamps (points), shared by every tile. */
+  readonly lamps: THREE.ShaderMaterial;
   readonly slots: TileSlots;
   readonly haze: HazeUniforms;
 
@@ -187,6 +250,7 @@ export class ContourMaterials {
     const all = (clip: boolean) => Object.fromEntries(BUCKETS.map((b) => [b, make(b, shared, clip, opts.groundTint)])) as Record<Bucket, THREE.MeshStandardMaterial>;
     this.solid = all(false);
     this.clip = all(true);
+    this.lamps = lampMaterial(shared);
   }
 
   /** The light-dependent ground tint (palette Light.groundTint). */
@@ -200,6 +264,7 @@ export class ContourMaterials {
       this.solid[b].dispose();
       this.clip[b].dispose();
     }
+    this.lamps.dispose();
   }
 }
 

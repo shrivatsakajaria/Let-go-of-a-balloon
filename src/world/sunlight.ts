@@ -1,19 +1,16 @@
 /**
- * Sun and skylight in the Contour look, tuned in the tile proof (Task 9): the palette's light
- * values render too dark under three.js physical light units, so the sun runs at 2x the palette
- * intensity, 15% toward white (clay roofs and grass stay calm), and the skylight takes 35% of the
- * warm horizon (at golden hour most of the sky is not the zenith).
+ * Sun and skylight in the Contour look, at the strengths SK approved in the tile proof (palette
+ * stageLight: sun x2, 15% toward white, skylight 2.2 with 35% of the warm horizon).
  *
  * One directional light casts shadows, in a box around a focus point only (spec 12: live shadows
  * near the balloon). The box snaps to a grid as the focus moves, so the shadow map is redrawn only
  * when it jumps or the sun moves noticeably (the renderer does not redraw it on its own).
  */
 import * as THREE from 'three';
-import { lerpHex, type Light } from './palette';
+import { stageLight, type Light } from './palette';
 import { SHADOW_LAYER } from './tileview';
 
-export const SUN_GAIN = 2.0;
-export const SKY_LIGHT = 2.2;
+export { SUN_GAIN, SKY_LIGHT } from './palette';
 
 export type ShadowBox = {
   /** Half width of the shadowed ground, metres. */
@@ -65,11 +62,12 @@ export class SunLight {
   }
 
   setLight(L: Light): void {
-    this.sun.color.set(lerpHex(L.sun, '#ffffff', 0.15));
-    this.sun.intensity = L.sunIntensity * SUN_GAIN;
-    this.hemi.color.set(lerpHex(L.hemiSky, L.skyHorizon, 0.35));
-    this.hemi.groundColor.set(L.hemiGround);
-    this.hemi.intensity = SKY_LIGHT;
+    const s = stageLight(L);
+    this.sun.color.set(s.sunColor);
+    this.sun.intensity = s.sunIntensity;
+    this.hemi.color.set(s.hemiSky);
+    this.hemi.groundColor.set(s.hemiGround);
+    this.hemi.intensity = s.hemiIntensity;
   }
 
   /**

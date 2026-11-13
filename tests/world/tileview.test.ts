@@ -104,3 +104,56 @@ describe('TileView', () => {
     quiet.dispose();
   });
 });
+
+describe('TileView: lamps, boats and failures (Task 11)', () => {
+  const mats = new ContourMaterials(createHaze(lightFor(8), new THREE.Vector3(0, 1, 0)), noCoverage(), { groundTint: '#ffffff' });
+  const lamps = Float32Array.from([10, 30, -10, 20, 31, -20, 30, 32, -30]);
+  const boats = Float32Array.from([100, 0, -100, 0.5, 60]);
+  const withAll = { ground: quad(0), water: empty(), waterways: empty(), roads: empty(), buildings: empty(), roofs: empty(), trees: new Float32Array(0), lamps, boats };
+
+  it('street lamps are one point each on the shared lamp material, shown only at night', () => {
+    const v = new TileView(withAll, mats, { zoom: 14, castShadow: false, clip: false });
+    const pts = v.group.children.find((o) => (o as THREE.Points).isPoints) as THREE.Points;
+    expect(pts).toBeDefined();
+    expect(pts.material).toBe(mats.lamps);
+    expect(pts.geometry.getAttribute('position').count).toBe(3);
+    expect(pts.geometry.getAttribute('aSlot').getX(0)).toBe(v.slot);
+    expect(pts.visible).toBe(false);
+    v.setNight(0.6);
+    expect(pts.visible).toBe(true);
+    v.setNight(0);
+    expect(pts.visible).toBe(false);
+    v.dispose();
+  });
+
+  it('boats are instanced hulls on the shared boat material, placed, turned and sized', () => {
+    const v = new TileView(withAll, mats, { zoom: 13, castShadow: false, clip: true });
+    const b = v.group.children.find((o) => (o as THREE.Mesh).material === mats.clip.boats) as THREE.InstancedMesh;
+    expect(b.isInstancedMesh).toBe(true);
+    expect(b.count).toBe(1);
+    const m = new THREE.Matrix4();
+    b.getMatrixAt(0, m);
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    m.decompose(p, q, s);
+    expect(p.toArray()).toEqual([100, 0, -100]);
+    expect(s.x).toBeCloseTo(60, 4);
+    expect(b.castShadow).toBe(false);
+    expect(v.triangles).toBeGreaterThan(2);
+    v.dispose();
+  });
+
+  it('a failure while building gives the slot back and leaves nothing behind', () => {
+    const free = mats.slots.available;
+    const bad = { ...withAll, roads: { position: new Float32Array(9), normal: new Float32Array(3), color: new Float32Array(9) } };
+    expect(() => new TileView(bad, mats, { zoom: 14, castShadow: true, clip: false })).toThrow();
+    expect(mats.slots.available).toBe(free);
+  });
+
+  it('carries the glow of ground and roads as aGlow', () => {
+    const g = { ...quad(0), glow: new Uint8Array(6).fill(200) };
+    const v = new TileView({ ...withAll, ground: g }, mats, { zoom: 14, castShadow: false, clip: false });
+    const ground = v.group.children[0] as THREE.Mesh;
+    expect(ground.geometry.getAttribute('aGlow').getX(0)).toBeCloseTo(200 / 255, 6);
+    v.dispose();
+  });
+});

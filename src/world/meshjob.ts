@@ -1,6 +1,6 @@
 /**
- * One map tile's features to Contour meshes: ground, water, buildings, roofs, roads, rivers, tree
- * and lamp instances, and labels. Pure (no fetch, DOM or three.js) so it runs in a Worker and in
+ * One map tile's features to Contour meshes: ground, water, buildings, roofs, roads, rivers, tree,
+ * lamp and boat instances, the night glow of the ground and roads, and labels. Pure (no fetch, DOM or three.js) so it runs in a Worker and in
  * Node tests. Everything is in the tile frame's local metres (see frame.ts).
  */
 import { buildGroundMesh, carveGround, cellAt, groundGrid, withSkirts, type MeshBuffers } from './terrain';
@@ -13,6 +13,7 @@ import { buildBuildings, gapFill, type Circle } from './buildings';
 import { buildRoads, buildWaterways, placeLamps } from './lines';
 import { buildWater, waterLevels } from './water';
 import { srgbToLinear } from './color';
+import { glowGrid, placeBoats, vertexGlow } from './glow';
 
 /** A circle (from a landmark) whose buildings the map should not draw. */
 export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
@@ -30,12 +31,14 @@ export type TileMeshes<B = MeshBuffers> = {
   trees: Float32Array;
   /** Street-lamp positions, [x, y, z] each, y on the ground. */
   lamps: Float32Array;
+  /** Ships on open water, glow.ts BOAT_STRIDE floats each: x, y, z, heading, length. */
+  boats: Float32Array;
   labels: Label[];
   /** The drawn ground's vertex heights, (n+1) x (n+1), row 0 = south (terrain.ts GroundGrid.terr). */
   grid: Float32Array;
   /** [x, z, radius, top] per building and gap-fill house (local metres; top is absolute). */
   tops: Float32Array;
-  stats: { buildings: number; gapHouses: number; trees: number; lamps: number };
+  stats: { buildings: number; gapHouses: number; trees: number; lamps: number; boats: number };
 };
 
 /**
@@ -53,8 +56,12 @@ export type Detail = {
   lamps: boolean;
   /** Flat water facets across the tile (water.ts buildWater); default 20. */
   waterFacets?: number;
+  /** The odd ship on open water (glow.ts placeBoats); default true. */
+  boats?: boolean;
+  /** Night glow per ground and road vertex (glow.ts); default true. */
+  glow?: boolean;
 };
-export const FULL_DETAIL: Detail = { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true };
+export const FULL_DETAIL: Detail = { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true, boats: true, glow: true };
 /** 'lite' buildings: footprints under this many m2 are left out unless at least LITE_KEEP_M tall. */
 export const LITE_MIN_AREA_M2 = 120;
 export const LITE_KEEP_M = 12;
@@ -157,6 +164,7 @@ export function buildTileMeshes(
     features.building.map((b) => b.polygon),
   );
   const lamps = detail.lamps ? placeLamps(features.transportation, g, z, seed) : new Float32Array(0);
+  const boats = detail.boats !== false ? placeBoats(features, levels, frame, z, seed) : new Float32Array(0);
 
   const labels: Label[] = [...features.place, ...features.water_name].map((p) => ({
     name: p.name,
@@ -169,19 +177,26 @@ export function buildTileMeshes(
   }));
 
   const q = (b: MeshBuffers) => (opts.split ? splitCells(b, frame.widthM, frame.heightM) : b);
+  const roadMesh: MeshBuffers = q(roads.build());
+  if (detail.glow !== false) {
+    const glow = glowGrid(features, frame, n, landcover.grid.classes);
+    ground.glow = vertexGlow(ground.position, glow, n, frame.widthM, frame.heightM);
+    roadMesh.glow = vertexGlow(roadMesh.position, glow, n, frame.widthM, frame.heightM);
+  }
   return {
     ground,
     water: water.build(),
     buildings: q(walls.build()),
     roofs: q(roofs.build()),
-    roads: q(roads.build()),
+    roads: roadMesh,
     waterways: waterways.build(),
     trees,
     lamps,
+    boats,
     labels,
     grid: g.terr,
     tops: Float32Array.from(tops),
-    stats: { buildings: built, gapHouses, trees: trees.length / 16, lamps: lamps.length / 3 },
+    stats: { buildings: built, gapHouses, trees: trees.length / 16, lamps: lamps.length / 3, boats: boats.length / 5 },
   };
 }
 
@@ -235,6 +250,8 @@ export type PackedBuffers = {
   position: Float32Array;
   normal: Int8Array;
   color: Uint8Array;
+  /** Night glow per vertex, 0..255 (ground and roads only). */
+  glow?: Uint8Array;
   /**
    * Bounding boxes, 6 floats each (min x, y, z, max x, y, z): one per cell when `parts` is set (an
    * empty cell has min > max), else one for the whole bucket. Worked out here so the main thread
@@ -283,7 +300,10 @@ export function packBuffers(b: MeshBuffers & Quartered): PackedBuffers {
     color[i * 4 + 3] = 255;
   }
   const bounds = rangeBounds(b.position, b.parts);
-  return b.parts ? { position: b.position, normal, color, bounds, parts: b.parts } : { position: b.position, normal, color, bounds };
+  const out: PackedBuffers = { position: b.position, normal, color, bounds };
+  if (b.parts) out.parts = b.parts;
+  if (b.glow) out.glow = b.glow;
+  return out;
 }
 
 /** A tile with every bucket packed (packBuffers). */
@@ -303,7 +323,7 @@ export function packMeshes(m: TileMeshes): TileMeshes<PackedBuffers> {
 export function transferables(m: TileMeshes<MeshBuffers | PackedBuffers>): ArrayBuffer[] {
   const set = new Set<ArrayBuffer>();
   for (const b of [m.ground, m.water, m.buildings, m.roofs, m.roads, m.waterways])
-    for (const a of [b.position, b.normal, b.color, (b as Quartered).parts, (b as Partial<PackedBuffers>).bounds]) if (a) set.add(a.buffer as ArrayBuffer);
-  for (const a of [m.trees, m.lamps, m.grid, m.tops]) set.add(a.buffer as ArrayBuffer);
+    for (const a of [b.position, b.normal, b.color, b.glow, (b as Quartered).parts, (b as Partial<PackedBuffers>).bounds]) if (a) set.add(a.buffer as ArrayBuffer);
+  for (const a of [m.trees, m.lamps, m.boats, m.grid, m.tops]) set.add(a.buffer as ArrayBuffer);
   return [...set];
 }

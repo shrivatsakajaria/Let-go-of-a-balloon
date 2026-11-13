@@ -46,10 +46,10 @@ class FakePool implements BuildPool {
       type: 'built', z, x, y,
       meshes: {
         ground: quad(h), water: empty(), buildings: empty(), roofs: empty(), roads: empty(), waterways: empty(),
-        trees: new Float32Array(0), lamps: new Float32Array(0), labels: [],
+        trees: new Float32Array(0), lamps: new Float32Array(0), boats: new Float32Array(0), labels: [],
         grid: new Float32Array((n + 1) * (n + 1)).fill(h),
         tops: new Float32Array([f.widthM / 2, -f.heightM / 2, 10, h + 30]),
-        stats: { buildings: 1, gapHouses: 0, trees: 0, lamps: 0 },
+        stats: { buildings: 1, gapHouses: 0, trees: 0, lamps: 0, boats: 0 },
       },
     });
   }
@@ -153,7 +153,7 @@ describe('WorldStream', () => {
     pool.answer(z7);
     await tick();
     stream.update(cam(MANCHESTER), 50);
-    expect(stream.groundAt(MANCHESTER)).toBe(17);
+    expect(stream.groundAt(MANCHESTER)).toBe(17 - levelFor(7).dropM); // the drawn ground: z7 sits lower
     const z14 = pool.jobs.find((j) => j.msg.z === 14)!;
     pool.answer(z14);
     await tick();
@@ -278,5 +278,174 @@ describe('WorldStream', () => {
     stream.dispose();
     expect(scene.children).toHaveLength(0);
     expect(stream.materials.slots.available).toBe(63);
+  });
+});
+
+// ---- Task 10 review carries ----
+import { WIN_PERIOD_M } from '../../src/world/haze';
+
+describe('WorldStream: review carries', () => {
+  it('keeps the window shift small (modulo the window grid) over a long flight', () => {
+    const { stream } = setup();
+    let sumX = 0, sumZ = 0;
+    stream.onRecentre = (e) => {
+      sumX += e.dx;
+      sumZ += e.dz;
+    };
+    let p = MANCHESTER;
+    for (let k = 0; k < 300; k++) {
+      p = destination(p, 70, 6); // 1,800 km
+      stream.update(cam(p, 70), k * 16);
+    }
+    const w = stream.haze.uWinShift.value;
+    expect(Math.abs(sumX)).toBeGreaterThan(1e6);
+    for (const [v, sum] of [[w.x, sumX], [w.z, sumZ]]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(WIN_PERIOD_M);
+      const want = ((sum % WIN_PERIOD_M) + WIN_PERIOD_M) % WIN_PERIOD_M;
+      const d = Math.abs(v - want);
+      expect(Math.min(d, WIN_PERIOD_M - d)).toBeLessThan(1e-6);
+    }
+    expect(w.y).toBe(0);
+  });
+
+  it('a tile whose meshes cannot be built fails cleanly: its slot comes back and it is tried again later', async () => {
+    const { pool, scene, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const job = pool.jobs.find((j) => j.msg.z === 7)!;
+    const free = stream.materials.slots.available;
+    const children = scene.children.length;
+    // a reply whose buffers do not agree in length
+    (job as { done?: boolean }).done = true;
+    job.resolve({
+      type: 'built', z: job.msg.z, x: job.msg.x, y: job.msg.y,
+      meshes: {
+        ground: { position: new Float32Array(9), normal: new Float32Array(3), color: new Float32Array(9) },
+        water: { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) },
+        waterways: { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) },
+        roads: { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) },
+        buildings: { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) },
+        roofs: { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0) },
+        trees: new Float32Array(0), lamps: new Float32Array(0), boats: new Float32Array(0), labels: [],
+        grid: new Float32Array(0), tops: new Float32Array(0),
+        stats: { buildings: 0, gapHouses: 0, trees: 0, lamps: 0, boats: 0 },
+      },
+    });
+    await tick();
+    stream.update(cam(MANCHESTER), 50);
+    const key = `${job.msg.z}/${job.msg.x}/${job.msg.y}`;
+    expect(stream.stats().failed).toBe(1);
+    expect(stream.materials.slots.available).toBe(free);
+    expect(scene.children.length).toBe(children);
+    expect(stream.tiles().find((t) => t.key === key)).toBeUndefined(); // not stuck loading
+    // asked again after the back-off (once there is room in flight)
+    for (const j of pool.open()) pool.answer(j);
+    await tick();
+    stream.update(cam(MANCHESTER), 5000);
+    expect(pool.open().some((j) => `${j.msg.z}/${j.msg.x}/${j.msg.y}` === key)).toBe(true);
+  });
+
+  it('a tile leaving mid-fade dissolves out from where it was, never popping to full colour', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const z7 = pool.jobs.find((j) => j.msg.z === 7)!;
+    pool.answer(z7);
+    await tick();
+    stream.update(cam(MANCHESTER), 1000);
+    stream.update(cam(MANCHESTER), 1500); // z7 settled
+    const z14 = pool.jobs.find((j) => j.msg.z === 14)!;
+    pool.answer(z14);
+    await tick();
+    stream.update(cam(MANCHESTER), 1600); // arrives, dissolving in from 0
+    stream.update(cam(MANCHESTER), 1650);
+    const k14 = `14/${z14.msg.x}/${z14.msg.y}`;
+    const slot = () => {
+      const mesh = stream.groupOf(k14)!.children[0] as THREE.Mesh;
+      return stream.materials.slots.get(mesh.geometry.getAttribute('aSlot').getX(0)).x;
+    };
+    const mid = slot();
+    expect(mid).toBeGreaterThan(0.2);
+    expect(mid).toBeLessThan(0.9);
+    // the camera moves 6 km away: the tile is no longer wanted and the z7 under it is in
+    stream.update(cam(destination(MANCHESTER, 0, 6)), 1651);
+    expect(stream.tiles().find((t) => t.key === k14)?.state).toBe('leaving');
+    expect(slot()).toBeLessThanOrEqual(mid + 1e-9);
+    stream.update(cam(destination(MANCHESTER, 0, 6)), 1700);
+    expect(slot()).toBeLessThan(mid);
+  });
+
+  it('groundAt returns the drawn ground: coarse levels sit dropM lower', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const z13 = pool.jobs.find((j) => j.msg.z === 13)!;
+    pool.answer(z13); // grid at 10 + 13 = 23 m
+    await tick();
+    stream.update(cam(MANCHESTER), 50);
+    expect(stream.groundAt(MANCHESTER)).toBeCloseTo(23 - levelFor(13).dropM, 9);
+  });
+
+  it('uploads at most one z14 tile per frame', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    // let the coarse tiles in until two z14 builds are out at once
+    let t = 20;
+    while (pool.open().filter((j) => j.msg.z === 14).length < 2 && t < 2000) {
+      for (const j of pool.open()) if (j.msg.z !== 14) pool.answer(j);
+      await tick();
+      stream.update(cam(MANCHESTER), (t += 16));
+    }
+    const z14s = pool.open().filter((j) => j.msg.z === 14);
+    expect(z14s.length).toBeGreaterThanOrEqual(2);
+    for (const j of z14s) pool.answer(j);
+    await tick();
+    const live14 = () => stream.tiles().filter((t) => t.key.startsWith('14/') && t.state === 'live').length;
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live14()).toBe(1);
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live14()).toBe(2);
+  });
+
+  it('stats are read without building a new object each frame, and agree with the tiles', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const a = stream.stats();
+    const b = stream.stats();
+    expect(b).toBe(a);
+    expect(a.loading).toBe(pool.open().length);
+    expect(a.wanted).toBeGreaterThan(0);
+  });
+
+  it('when full, evicts the unwanted tile furthest from the camera (out in the haze), not a near one', async () => {
+    const { pool, stream } = setup();
+    // z14 tiles around Manchester, with nothing coarse settled under them
+    await start(stream, cam(MANCHESTER, 90, 450));
+    for (let k = 0; k < 60; k++) {
+      for (const j of pool.open()) {
+        if (j.msg.z === 14) pool.answer(j);
+        else {
+          (j as { done?: boolean }).done = true;
+          j.reject(new Error('no coarse land today'));
+        }
+      }
+      await tick();
+      stream.update(cam(MANCHESTER, 90, 450), 100 + k * 50);
+    }
+    // the camera moves 3 km east: the western z14 tiles are no longer wanted, but stay (no hole)
+    const p = destination(MANCHESTER, 90, 3);
+    stream.update(cam(p, 90, 450), 3000);
+    const centre = (key: string) => {
+      const [z, x, y] = key.split('/').map(Number);
+      const b = tileBounds(z, x, y);
+      const s = stream.toScene({ lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 });
+      const c = stream.toScene(p);
+      return Math.hypot(s.x - c.x, s.z - c.z);
+    };
+    const unwanted = () => stream.tiles().filter((t) => t.state === 'live' && !t.wanted).map((t) => t.key);
+    const before = unwanted();
+    expect(before.length).toBeGreaterThanOrEqual(3);
+    const furthest = before.reduce((a, b) => (centre(b) > centre(a) ? b : a));
+    expect((stream as unknown as { evictOne(): boolean }).evictOne()).toBe(true);
+    const gone = before.filter((k) => !unwanted().includes(k));
+    expect(gone).toEqual([furthest]);
   });
 });

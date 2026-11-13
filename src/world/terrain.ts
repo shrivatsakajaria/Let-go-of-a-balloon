@@ -5,7 +5,8 @@ import { TERRACE_STEP_M } from '../config';
 import { CONTOUR, lerpHex, parseHex, type Color } from './palette';
 import { frameFromBounds, type Bounds, type TileFrame } from './frame';
 
-export type MeshBuffers = { position: Float32Array; normal: Float32Array; color: Float32Array };
+/** Flat triangle buffers; `glow` (ground and roads) is the night glow per vertex, 0..255 (glow.ts). */
+export type MeshBuffers = { position: Float32Array; normal: Float32Array; color: Float32Array; glow?: Uint8Array };
 
 /** One land-cover class per ground cell (row-major, row 0 = south). */
 export type LandcoverGrid = { size: number; classes: Uint8Array };

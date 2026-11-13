@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import type { MeshBuffers } from './terrain';
 import type { PackedBuffers, Quartered } from './meshjob';
-import { freeAfterUpload, sphereOfBox, toGeometry, treeGeometry, unionBox } from './geometry';
+import { boatGeometry, freeAfterUpload, sphereOfBox, toGeometry, treeGeometry, unionBox } from './geometry';
 import type { Bucket, ContourMaterials } from './materials';
 
 /** The Contour tree colours (the prototype's sage treeCols). */
@@ -23,10 +23,14 @@ export type TileBuffers = {
   roofs: Buffers;
   /** Tree instance matrices, 16 floats each. */
   trees: Float32Array;
+  /** Street lamps, [x, y, z] each (y the ground): drawn as points at night. */
+  lamps?: Float32Array;
+  /** Ships, glow.ts BOAT_STRIDE floats each: x, y, z, heading, length. */
+  boats?: Float32Array;
 };
 
 /** Mesh buckets in draw order, and whether they cast shadows (when the tile casts at all). */
-const MESH_BUCKETS: [Exclude<Bucket, 'trees'>, boolean][] = [
+const MESH_BUCKETS: [Exclude<Bucket, 'trees' | 'boats'>, boolean][] = [
   ['ground', false],
   ['water', false],
   ['waterways', false],
@@ -36,7 +40,10 @@ const MESH_BUCKETS: [Exclude<Bucket, 'trees'>, boolean][] = [
 ];
 
 let sharedTree: THREE.BufferGeometry | null = null;
+let sharedBoat: THREE.BufferGeometry | null = null;
 let treeColours: THREE.Color[] | null = null;
+/** Lamps show from this night factor on. */
+const LAMPS_FROM = 0.03;
 
 /**
  * The layer of shadow-only meshes: a sun whose shadow camera has it enabled draws them into the
@@ -105,6 +112,7 @@ export class TileView {
   readonly triangles: number;
   private readonly meshes: { mesh: THREE.Mesh; bucket: Bucket }[] = [];
   private readonly materials: ContourMaterials;
+  private lamps: THREE.Points | null = null;
   private clipped: boolean;
   private disposed = false;
 
@@ -114,7 +122,18 @@ export class TileView {
     if (slot < 0) throw new Error('no free tile slot');
     this.slot = slot;
     this.clipped = o.clip;
-    const set = o.clip ? materials.clip : materials.solid;
+    try {
+      this.triangles = this.build(b, o);
+    } catch (e) {
+      // nothing half-built stays behind: geometries freed, the slot back
+      this.dispose();
+      throw e;
+    }
+  }
+
+  private build(b: TileBuffers, o: TileViewOptions): number {
+    const slot = this.slot;
+    const set = o.clip ? this.materials.clip : this.materials.solid;
     let tris = 0;
     for (const [bucket, casts] of MESH_BUCKETS) {
       const g = toGeometry(b[bucket], slot);
@@ -152,7 +171,48 @@ export class TileView {
       this.group.add(trees);
       this.meshes.push({ mesh: trees, bucket: 'trees' });
     }
-    this.triangles = tris;
+    const boats = b.boats && b.boats.length >= 5 ? b.boats : null;
+    if (boats) {
+      const n = Math.floor(boats.length / 5);
+      sharedBoat ??= boatGeometry();
+      const geo = sharedBoat.clone();
+      geo.setAttribute('aSlot', new THREE.InstancedBufferAttribute(new Uint8Array(n).fill(slot), 1));
+      const mesh = new THREE.InstancedMesh(geo, set.boats, n);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
+      const up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < n; i++) {
+        const k = i * 5;
+        q.setFromAxisAngle(up, boats[k + 3]);
+        mesh.setMatrixAt(i, m.compose(p.set(boats[k], boats[k + 1], boats[k + 2]), q, s.setScalar(boats[k + 4])));
+      }
+      mesh.computeBoundingSphere();
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      tris += n * (sharedBoat.getAttribute('position').count / 3);
+      this.group.add(mesh);
+      this.meshes.push({ mesh, bucket: 'boats' });
+    }
+    if (b.lamps && b.lamps.length >= 3) {
+      const n = Math.floor(b.lamps.length / 3);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(b.lamps.subarray(0, n * 3), 3));
+      geo.setAttribute('aSlot', new THREE.BufferAttribute(new Uint8Array(n).fill(slot), 1));
+      geo.computeBoundingSphere();
+      if (o.freeArrays) freeAfterUpload(geo);
+      const pts = new THREE.Points(geo, this.materials.lamps);
+      pts.matrixAutoUpdate = false;
+      pts.visible = false;
+      pts.renderOrder = 2;
+      this.group.add(pts);
+      this.lamps = pts;
+    }
+    return tris;
+  }
+
+  /** Night 0..1: the street lamps show from dusk (their brightness is in the shared material). */
+  setNight(night: number): void {
+    if (this.lamps) this.lamps.visible = night > LAMPS_FROM;
   }
 
   private add(geo: THREE.BufferGeometry, material: THREE.Material, bucket: Bucket, castShadow: boolean): THREE.Mesh {
@@ -198,9 +258,11 @@ export class TileView {
     this.group.removeFromParent();
     for (const { mesh, bucket } of this.meshes) {
       mesh.geometry.dispose();
-      if (bucket === 'trees') (mesh as THREE.InstancedMesh).dispose(); // instance matrices and colours
+      if (bucket === 'trees' || bucket === 'boats') (mesh as THREE.InstancedMesh).dispose(); // instance matrices and colours
     }
     this.meshes.length = 0;
+    this.lamps?.geometry.dispose();
+    this.lamps = null;
     this.materials.slots.release(this.slot);
   }
 }

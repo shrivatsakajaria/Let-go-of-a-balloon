@@ -20,13 +20,14 @@ type Key = Light & { el: number };
 /**
  * Contour time-of-day keys, by sun elevation. Skies stay calm (blue-grey, no purple) so the
  * balloon's #ff5a12 remains the only saturated thing in the world. Golden hour (0-15 deg) is
- * the hero look: a warm low sun over a pale horizon.
+ * the hero look: a warm low sun over a pale horizon. The sun's colour stays below 0.55 HSV
+ * saturation at every elevation (warm apricot, never the balloon's orange).
  */
 const KEYS: Key[] = [
   { el: -18, skyTop: '#0a1022', skyHorizon: '#18223c', groundTint: '#46526e', sun: '#9fb0d8', sunIntensity: 0.35, hemiSky: '#34446e', hemiGround: '#1e222a', night: 1 },
   { el: -10, skyTop: '#101a36', skyHorizon: '#2a3b60', groundTint: '#55607c', sun: '#93a6d2', sunIntensity: 0.42, hemiSky: '#425382', hemiGround: '#262a32', night: 0.8 },
-  { el: -4, skyTop: '#2a3c64', skyHorizon: '#78809a', groundTint: '#8f93a6', sun: '#ff9a5c', sunIntensity: 0.9, hemiSky: '#67779a', hemiGround: '#444048', night: 0.35 },
-  { el: 0, skyTop: '#4a5a7e', skyHorizon: '#eea878', groundTint: '#ffd2ae', sun: '#ff9a56', sunIntensity: 1.5, hemiSky: '#8f98b2', hemiGround: '#5e5148', night: 0.12 },
+  { el: -4, skyTop: '#2a3c64', skyHorizon: '#78809a', groundTint: '#8f93a6', sun: '#d6ab8c', sunIntensity: 0.9, hemiSky: '#67779a', hemiGround: '#444048', night: 0.35 },
+  { el: 0, skyTop: '#4a5a7e', skyHorizon: '#eea878', groundTint: '#ffd2ae', sun: '#f6b688', sunIntensity: 1.5, hemiSky: '#8f98b2', hemiGround: '#5e5148', night: 0.12 },
   { el: 5, skyTop: '#5c7aa6', skyHorizon: '#f4c595', groundTint: '#ffe0c4', sun: '#ffb676', sunIntensity: 1.8, hemiSky: '#a8b7d0', hemiGround: '#6d6150', night: 0 },
   { el: 15, skyTop: '#5e90ca', skyHorizon: '#d8e3e6', groundTint: '#fff0e0', sun: '#ffe0b8', sunIntensity: 2.2, hemiSky: '#c4d6e8', hemiGround: '#78805c', night: 0 },
   { el: 40, skyTop: '#5a9edf', skyHorizon: '#d6e8f0', groundTint: '#ffffff', sun: '#fff3df', sunIntensity: 2.6, hemiSky: '#d2e6f8', hemiGround: '#7f8b5c', night: 0 },
@@ -60,6 +61,28 @@ export function lightFor(elevationDeg: number): Light {
     hemiSky: lerpHex(a.hemiSky, b.hemiSky, f),
     hemiGround: lerpHex(a.hemiGround, b.hemiGround, f),
     night: n(a.night, b.night),
+  };
+}
+
+/**
+ * The light strengths SK approved in the tile proof (Task 9). Under three.js physical light units
+ * the palette's values render too dark, so the sun runs at SUN_GAIN times the palette intensity,
+ * 15% toward white (clay roofs and grass stay calm), and the skylight at SKY_LIGHT takes 35% of the
+ * warm horizon (at golden hour most of the sky is not the zenith). Every 3D page lights the world
+ * through this, so the tile proof and the app match.
+ */
+export const SUN_GAIN = 2.0;
+export const SKY_LIGHT = 2.2;
+
+export type StageLight = { sunColor: Color; sunIntensity: number; hemiSky: Color; hemiGround: Color; hemiIntensity: number };
+
+export function stageLight(L: Light): StageLight {
+  return {
+    sunColor: lerpHex(L.sun, '#ffffff', 0.15),
+    sunIntensity: L.sunIntensity * SUN_GAIN,
+    hemiSky: lerpHex(L.hemiSky, L.skyHorizon, 0.35),
+    hemiGround: L.hemiGround,
+    hemiIntensity: SKY_LIGHT,
   };
 }
 
@@ -107,7 +130,9 @@ const PARIS: RegionStyle = {
 };
 const UK: RegionStyle = {
   walls: ['#a58b80', '#9b8478', '#b09a8c', '#a39a8e'], // muted brick, stock brick
-  roofs: ['#575d63', '#4d535a', '#656b70'], // slate
+  // slate, lifted from #575d63/#4d535a/#656b70: those read nearly black on big low roofs facing
+  // away from a golden-hour sun (Task 10 report)
+  roofs: ['#6f767c', '#666d74', '#787e84'],
   roofPitch: 35,
 };
 const BARCELONA: RegionStyle = {

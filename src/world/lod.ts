@@ -46,7 +46,7 @@ export type LodLevel = {
   split: boolean;
 };
 
-const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false };
+const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false, boats: false };
 
 /**
  * Triangles per tile, averaged over the live tiles of a 1.5 km cruise over central Manchester and

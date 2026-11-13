@@ -16,13 +16,17 @@
  *   fades in from the haze outwards, never grey squares), or dissolving in over the coarser land
  *   they replace. Coarser levels sit a little lower and are clipped where a finer level is drawn
  *   (coverage.ts), and skirts close every edge.
- * - groundAt / buildingTopAt read the finest loaded tile, with no allocation per call.
+ * - groundAt / buildingTopAt read the finest loaded tile, with no allocation per call. groundAt is
+ *   the ground as drawn (coarse levels sit dropM lower).
+ * - At most one z14 tile arrives per frame (its GPU upload is the costly part); the others wait.
+ * - At night (setNight) the tiles' street lamps show; windows and city glow read the shared haze
+ *   uniform uNight directly.
  */
 import * as THREE from 'three';
 import { lonDelta, tileBounds, wrapLon, type LatLon } from '../geo/coords';
 import { M_PER_DEG, tileFrame } from './frame';
 import { CoverageMap } from './coverage';
-import { createHaze, type HazeUniforms } from './haze';
+import { createHaze, WIN_PERIOD_M, type HazeUniforms } from './haze';
 import { ContourMaterials } from './materials';
 import { lightFor, type RegionStyle } from './palette';
 import { groundHeightAt, type GroundGrid } from './terrain';
@@ -107,6 +111,7 @@ export type StreamStats = {
 };
 
 const ease = (x: number) => 1 - Math.pow(2, -10 * Math.min(1, Math.max(0, x)));
+const mod = (a: number, m: number) => ((a % m) + m) % m;
 const D2R = Math.PI / 180;
 
 export class WorldStream {
@@ -138,6 +143,13 @@ export class WorldStream {
   private cosO = 1;
   private coverageDirty = true;
   private wantedKeys: TileKey[] = [];
+  /** tileKey of each wanted key, worked out once per retarget (not per frame). */
+  private wantedStr: string[] = [];
+  /** z14 replies waiting for their frame (at most one z14 arrival per frame). */
+  private arrivals: { e: Entry; reply: Extract<BuildReply, { type: 'built' }> }[] = [];
+  private readonly statsOut: StreamStats = { alive: 0, loading: 0, live: 0, leaving: 0, settled: 0, hidden: 0, failed: 0, built: 0, cancelled: 0, triangles: 0, recentres: 0, wanted: 0, ready: false, arriveMsMax: 0 };
+  private night = 0;
+  private lastCamera: LodCamera | null = null;
   private lastWant = { lat: NaN, lon: NaN, alt: NaN, heading: NaN, at: -Infinity };
   private time = 0;
   private counts = { built: 0, cancelled: 0, failed: 0, recentres: 0 };
@@ -185,7 +197,9 @@ export class WorldStream {
   update(camera: LodCamera, nowMs = this.now()): void {
     if (this.disposed) return;
     this.time = nowMs;
+    this.lastCamera = camera;
     const moved = this.maybeRecentre(camera);
+    this.takeArrival();
     if (!this.tpl) this.loadTemplate();
     const w = this.lastWant;
     const far = Math.abs(camera.lat - w.lat) * M_PER_DEG > 40 || Math.abs(lonDelta(w.lon, camera.lon)) * M_PER_DEG * this.cosO > 40;
@@ -200,10 +214,13 @@ export class WorldStream {
 
   // ---- queries ----
 
-  /** Height of the drawn ground at p (m), from the finest loaded tile; coarse route data or 0 elsewhere. */
+  /**
+   * Height of the ground as drawn at p (m), from the finest loaded tile (coarse levels are drawn
+   * dropM below their data, so that is taken off); coarse route data or 0 where no tile is in.
+   */
   groundAt(p: LatLon): number {
     const e = this.finestAt(p);
-    if (e) return this.groundOf(e, p);
+    if (e) return this.groundOf(e, p) - e.level.dropM;
     const f = this.fallbackGround(p);
     return f !== undefined && Number.isFinite(f) ? f : 0;
   }
@@ -227,6 +244,7 @@ export class WorldStream {
     return best;
   }
 
+  /** The stream's numbers. The same object is filled in on every call (no garbage per frame). */
   stats(): StreamStats {
     let loading = 0, live = 0, leaving = 0, settled = 0, hidden = 0, triangles = 0;
     for (const e of this.entries.values()) {
@@ -237,17 +255,39 @@ export class WorldStream {
       if (e.view && !e.view.group.visible) hidden++;
       if (e.view) triangles += e.view.triangles;
     }
-    let ready = loading === 0 && leaving === 0 && this.wantedKeys.length > 0;
-    for (let i = 0; ready && i < this.wantedKeys.length; i++) {
-      const e = this.entries.get(tileKey(this.wantedKeys[i]));
+    let ready = loading === 0 && leaving === 0 && this.wantedStr.length > 0;
+    for (let i = 0; ready && i < this.wantedStr.length; i++) {
+      const e = this.entries.get(this.wantedStr[i]);
       if (!e || !e.settled) ready = false;
     }
-    return { alive: this.entries.size, loading, live, leaving, settled, hidden, failed: this.counts.failed, built: this.counts.built, cancelled: this.counts.cancelled, triangles, recentres: this.counts.recentres, wanted: this.wantedKeys.length, ready, arriveMsMax: this.arriveMsMax };
+    const o = this.statsOut;
+    o.alive = this.entries.size;
+    o.loading = loading;
+    o.live = live;
+    o.leaving = leaving;
+    o.settled = settled;
+    o.hidden = hidden;
+    o.failed = this.counts.failed;
+    o.built = this.counts.built;
+    o.cancelled = this.counts.cancelled;
+    o.triangles = triangles;
+    o.recentres = this.counts.recentres;
+    o.wanted = this.wantedStr.length;
+    o.ready = ready;
+    o.arriveMsMax = this.arriveMsMax;
+    return o;
+  }
+
+  /** Night 0..1 (palette Light.night): street lamps show from dusk. */
+  setNight(night: number): void {
+    if (night === this.night) return;
+    this.night = night;
+    for (const e of this.entries.values()) e.view?.setNight(night);
   }
 
   /** Keys of the tiles alive, by state (for debugging and tests). */
-  tiles(): { key: string; state: Entry['state']; settled: boolean; visible: boolean }[] {
-    return [...this.entries.values()].map((e) => ({ key: e.key, state: e.state, settled: e.settled, visible: !!e.view?.group.visible }));
+  tiles(): { key: string; state: Entry['state']; settled: boolean; visible: boolean; wanted: boolean }[] {
+    return [...this.entries.values()].map((e) => ({ key: e.key, state: e.state, settled: e.settled, visible: !!e.view?.group.visible, wanted: e.wanted }));
   }
 
   /** The scene group of a live tile, or null (for checks). */
@@ -258,6 +298,7 @@ export class WorldStream {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.arrivals.length = 0;
     for (const e of this.entries.values()) this.drop(e, false);
     this.entries.clear();
     this.live = [];
@@ -300,8 +341,10 @@ export class WorldStream {
     for (const e of this.entries.values()) if (e.view) this.place(e);
     // always told, even with no tile in: the balloon and camera may already be placed
     this.counts.recentres++;
-    this.haze.uWinShift.value.x += shift.x;
-    this.haze.uWinShift.value.z += shift.z;
+    // modulo the window pattern's period, so the shift stays small (float precision) on any flight
+    const w = this.haze.uWinShift.value;
+    w.x = mod(w.x + shift.x, WIN_PERIOD_M);
+    w.z = mod(w.z + shift.z, WIN_PERIOD_M);
     const newCos = this.cosO;
     const remap = (x: number, z: number) => {
       const lat = from.lat - z / M_PER_DEG, lon = from.lon + x / (M_PER_DEG * oldCos);
@@ -316,7 +359,8 @@ export class WorldStream {
     const keep = new Set<string>();
     for (const e of this.entries.values()) if (e.state !== 'leaving') keep.add(e.key);
     this.wantedKeys = tilesFor(camera, this.maxTiles, { keep });
-    const wanted = new Set(this.wantedKeys.map(tileKey));
+    this.wantedStr = this.wantedKeys.map(tileKey);
+    const wanted = new Set(this.wantedStr);
     for (const e of [...this.entries.values()]) {
       e.wanted = wanted.has(e.key);
       if (e.wanted) {
@@ -344,10 +388,11 @@ export class WorldStream {
     if (!this.tpl) return;
     let loading = 0;
     for (const e of this.entries.values()) if (e.state === 'loading') loading++;
-    for (const t of this.wantedKeys) {
+    for (let i = 0; i < this.wantedKeys.length; i++) {
       if (loading >= this.maxInFlight) break;
-      const key = tileKey(t);
+      const key = this.wantedStr[i];
       if (this.entries.has(key)) continue;
+      const t = this.wantedKeys[i];
       const f = this.failed.get(key);
       if (f && f.until > this.time) continue;
       if (this.entries.size >= this.maxTiles && !this.evictOne()) break;
@@ -356,19 +401,41 @@ export class WorldStream {
     }
   }
 
-  /** Make room: drop a leaving tile, else an unwanted one (furthest from being needed first). */
+  /**
+   * Make room without opening a hole where it shows. In order: a leaving tile (coarser land is in
+   * under it); an unwanted tile hidden under finer land; an unwanted tile with coarser land in under
+   * it; else the unwanted tile furthest from the camera (out in the haze, or behind).
+   */
   private evictOne(): boolean {
     let pick: Entry | null = null;
+    let best = -Infinity;
+    const c = this.lastCamera;
     for (const e of this.entries.values()) {
       if (e.state === 'leaving') {
         pick = e;
         break;
       }
-      if (e.state === 'live' && !e.wanted && (!pick || e.t.z > pick.t.z)) pick = e;
+      if (e.state !== 'live' || e.wanted) continue;
+      let score: number;
+      if (e.view && !e.view.group.visible) score = 3e9;
+      else if (this.coarserSettled(e.t)) score = 2e9 + e.t.z;
+      else score = c ? this.distanceTo(e.t, c) : e.t.z;
+      if (score > best) {
+        best = score;
+        pick = e;
+      }
     }
     if (!pick) return false;
     this.drop(pick, true);
     return true;
+  }
+
+  /** Metres from the camera's ground point to the centre of tile t. */
+  private distanceTo(t: TileKey, c: LodCamera): number {
+    const b = tileBounds(t.z, t.x, t.y);
+    const dz = ((b.south + b.north) / 2 - c.lat) * M_PER_DEG;
+    const dx = lonDelta(c.lon, (b.west + b.east) / 2) * M_PER_DEG * Math.cos(c.lat * D2R);
+    return Math.hypot(dx, dz);
   }
 
   private build(t: TileKey, key: string): void {
@@ -398,6 +465,7 @@ export class WorldStream {
         (reply) => {
           if (this.entries.get(key) !== e || e.state !== 'loading' || this.disposed) return; // cancelled meanwhile
           if (reply.type !== 'built') this.fail(e, reply.message);
+          else if (e.t.z === 14) this.arrivals.push({ e, reply });
           else this.arrive(e, reply);
         },
         (err: Error) => {
@@ -415,13 +483,31 @@ export class WorldStream {
     console.warn(`tile ${e.key}: ${message}`);
   }
 
+  /** The first z14 reply still wanted, if any, arrives this frame. */
+  private takeArrival(): void {
+    while (this.arrivals.length > 0) {
+      const { e, reply } = this.arrivals.shift()!;
+      if (this.entries.get(e.key) !== e || e.state !== 'loading') continue; // cancelled meanwhile
+      this.arrive(e, reply);
+      return;
+    }
+  }
+
   private arrive(e: Entry, reply: Extract<BuildReply, { type: 'built' }>): void {
     const t0 = performance.now();
     const m = reply.meshes;
     e.ac = null;
     e.dither = this.coarserSettled(e.t);
     const clip = e.t.z < 14 || e.dither;
-    e.view = new TileView(m, this.materials, { zoom: e.t.z, castShadow: e.level.castShadow, clip, dither: e.dither, freeArrays: true });
+    try {
+      e.view = new TileView(m, this.materials, { zoom: e.t.z, castShadow: e.level.castShadow, clip, dither: e.dither, freeArrays: true });
+    } catch (err) {
+      // the view gave its slot back; the tile is tried again after a back-off
+      e.view = null;
+      this.fail(e, (err as Error)?.message ?? String(err));
+      return;
+    }
+    e.view.setNight(this.night);
     this.place(e);
     this.scene.add(e.view.group);
     e.state = 'live';
@@ -484,12 +570,15 @@ export class WorldStream {
     if (this.coverageDirty) this.releaseUnwanted();
   }
 
+  /** Dissolve out from where the tile is (it may still be fading in). */
   private leave(e: Entry): void {
+    const from = Math.min(1, Math.max(0, e.fade));
     e.state = 'leaving';
-    e.born = this.time;
+    e.born = this.time - (1 - from) * this.fadeMs;
+    e.fade = from;
     e.settled = false;
     e.view!.setClip(true);
-    e.view!.setFade(1, true);
+    e.view!.setFade(from, true);
     this.coverageDirty = true;
   }
 

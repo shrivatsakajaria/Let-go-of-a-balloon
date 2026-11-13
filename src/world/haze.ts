@@ -35,9 +35,46 @@ export type HazeUniforms = {
    */
   uBlock: U<THREE.Vector4>;
   uHazeRing: U<THREE.Vector4>;
-  /** Added to world positions for the window pattern, so it stays put when the origin moves. */
+  /**
+   * Added to world positions for the window pattern, so it stays put when the origin moves. Kept
+   * modulo WIN_PERIOD_M on x and z (the pattern repeats there), so it stays small on any flight.
+   */
   uWinShift: U<THREE.Vector3>;
+  /** 0 by day, 1 at night (palette Light.night): lit windows, street lamps and city glow. */
+  uNight: U<number>;
+  /**
+   * Cloud shadows (clouds.ts): per cloud x, y (middle of the cloud), z and shadow radius in scene
+   * metres; a radius of 0 is no cloud. uCloudSun: xyz toward the sun, w the shadow strength (0: none).
+   */
+  uClouds: U<THREE.Vector4[]>;
+  uCloudSun: U<THREE.Vector4>;
+  /** Pixels per unit of projected size (half the drawing buffer's height), for point sizes. */
+  uPxScale: U<number>;
 };
+
+/** The window grid is 3.4 m across; lit windows repeat every 64 windows, so the pattern repeats here. */
+export const WIN_GRID_M = 3.4;
+export const WIN_REPEAT = 64;
+export const WIN_PERIOD_M = WIN_GRID_M * WIN_REPEAT;
+/** Cloud shadow slots (clouds.ts keeps 8 to 14 clouds). */
+export const CLOUD_MAX = 14;
+
+/**
+ * Soft cloud shadows on anything at p: the sun's ray from p meets each cloud's middle height, and
+ * falls off from 45% to 100% of the cloud's shadow radius. Returns the light left (1 = none).
+ */
+export const CLOUD_SHADE_GLSL = `uniform vec4 uClouds[${CLOUD_MAX}]; uniform vec4 uCloudSun;
+float cloudShade(vec3 p) {
+  if (uCloudSun.w <= 0.0) return 1.0;
+  float sh = 0.0;
+  for (int i = 0; i < ${CLOUD_MAX}; i++) {
+    vec4 c = uClouds[i];
+    if (c.w <= 0.0) continue;
+    vec2 q = p.xz + uCloudSun.xz * ((c.y - p.y) / uCloudSun.y) - c.xz;
+    sh = max(sh, 1.0 - smoothstep(0.45 * c.w, c.w, length(q)));
+  }
+  return 1.0 - uCloudSun.w * sh;
+}`;
 
 const srgb = (hex: string, out = new THREE.Vector3()) => {
   const [r, g, b] = parseHex(hex);
@@ -56,6 +93,10 @@ export function createHaze(light: Light, sunDir: THREE.Vector3): HazeUniforms {
     uBlock: { value: new THREE.Vector4(-FAR, FAR, -FAR, FAR) },
     uHazeRing: { value: new THREE.Vector4(0, 1, FAR, FAR * 2) },
     uWinShift: { value: new THREE.Vector3() },
+    uNight: { value: 0 },
+    uClouds: { value: Array.from({ length: CLOUD_MAX }, () => new THREE.Vector4(0, 0, 0, 0)) },
+    uCloudSun: { value: new THREE.Vector4(0, 1, 0, 0) },
+    uPxScale: { value: 600 },
   };
   setHazeLight(h, light);
   return h;
