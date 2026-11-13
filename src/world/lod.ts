@@ -49,9 +49,10 @@ export type LodLevel = {
 const NONE: Detail = { buildings: 'none', roadMinRank: Infinity, waterways: false, trees: false, lamps: false };
 
 /**
- * Triangles per tile, measured in the world page (central Manchester and Westminster, the densest
- * tiles tried): z14 60-90k, z13 15-40k, z12 10-20k, z10 3-8k, z7 8-15k. The ground grid alone is
- * 2 lcSize^2 plus skirts.
+ * Triangles per tile, averaged over the live tiles of a 1.5 km cruise over central Manchester and
+ * over Westminster (world page): z14 92-110k, z13 37-57k, z12 10-16k, z10 8k, z7 11-16k. The
+ * ground grid alone is 2 lcSize^2 plus skirts; lcSize bounds the far levels, the detail flags
+ * the near ones.
  */
 export const LOD_LEVELS: LodLevel[] = [
   { z: 14, radiusM: 1500, lcSize: 64, detail: { buildings: 'full', roadMinRank: 0, waterways: true, trees: true, lamps: true }, skirtM: 25, dropM: 0, castShadow: true, split: true },
