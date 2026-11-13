@@ -24,6 +24,7 @@ import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
 import { closeCardView } from '../ui/cardview';
+import { homeFor } from '../app/landingcard';
 import { luminance, type StartChoice } from '../ui/start';
 import { BALLOON_HEX } from '../config';
 import { CONTOUR } from '../world/palette';
@@ -316,8 +317,10 @@ export class Fallback implements World {
       throw e;
     }
     if (ticket !== this.opening || this.state !== 'flight') return;
-    const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
-    this.show({ route, home, own, launched: false });
+    // "your location" only on the visitor's own balloon; a shared one is named for its place
+    const home = { name: await homeFor(b, own), lat: b.start.lat, lon: b.start.lon };
+    if (ticket !== this.opening || this.state !== 'flight') return;
+    this.show({ route, home, own, launched: false, saved: b });
     encodeBalloon(b).then((payload) => history.replaceState(null, '', linkFor(payload))).catch(() => {});
   }
 

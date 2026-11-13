@@ -27,8 +27,8 @@ import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
 import { LiveScene, type SceneFrame } from './scene';
-import { cardHook, presentCard } from './landingcard';
-import { cardScene, farStats, settledWorld } from './cardshot';
+import { cardHook, homeFor, presentCard } from './landingcard';
+import { cardScene, farStats, isFarRoute, settledWorld } from './cardshot';
 import { closeCardView } from '../ui/cardview';
 import { watchContextLoss, type ContextWatch } from './contextloss';
 import { resumeAction, savedFor, type Handover } from './world';
@@ -299,14 +299,16 @@ export class Live {
     const own = store.list().some((x) => x.id === balloonId(b));
     const ticket = ++this.opening;
     let route: Route;
+    let name: string;
     try {
-      route = await linkRoute(b);
+      // "your location" only on the visitor's own balloon; a shared one is named for its place
+      [route, name] = await Promise.all([linkRoute(b), homeFor(b, own)]);
     } catch (e) {
       if (ticket === this.opening) this.state = 'start';
       throw e;
     }
     if (ticket !== this.opening || this.state !== 'flight') return; // the visitor moved on meanwhile
-    const home = { name: b.name === COPY.yourLocation ? COPY.yourLocation.toLowerCase() : b.name, lat: b.start.lat, lon: b.start.lon };
+    const home = { name, lat: b.start.lat, lon: b.start.lon };
     // a landed balloon is seen from the side, in its field or on its sea, not from straight above
     const mode: DirectorMode = Date.now() >= landedAt(route) ? 'side' : 'film';
     this.scene.fly(route, mode);
@@ -462,12 +464,15 @@ export class Live {
     cardHook.world = farStats;
     await presentCard({
       scene: cardScene(this.scene),
-      settle: () => settledWorld(this.scene, opts.waitMs ?? 8000, isCurrent),
+      // a long route's card world is its own: no wait for the live world round the landing
+      settle: isFarRoute(r) ? undefined : () => settledWorld(this.scene, opts.waitMs ?? 8000, isCurrent),
       route: r,
       saved: fl.saved,
       own: fl.own,
       landing,
       isCurrent,
+      // the card goes on being made while this balloon is on screen (a newer request shares it)
+      alive: () => this.flight === fl && !this.scene.gone,
       closeLabel: opts.closeLabel,
       onClose: opts.onClose,
     });
