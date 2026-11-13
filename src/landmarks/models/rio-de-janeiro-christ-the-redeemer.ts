@@ -99,12 +99,15 @@ function rock(k: Kit): void {
   }
 }
 
-/** The summit terrace: the round upper terrace, the long launch platform, parapets, retaining walls. */
-function terrace(k: Kit): void {
+/**
+ * The summit terrace: the round upper terrace and the long launch platform with their retaining walls
+ * (into `ground`), and the parapets (into `k`).
+ */
+function terrace(ground: Kit, k: Kit): void {
   const y = TERRACE_Y, wall = 34;
-  k.prism('plain', C.stone, 0, y - wall, 0, 18, wall, 12, { topColour: C.paving });
+  ground.prism('plain', C.stone, 0, y - wall, 0, 18, wall, 12, { topColour: C.paving });
   const { x, z, halfW, halfD } = LAUNCH;
-  k.box('plain', C.stone, x, y - wall, z, 2 * halfW, wall, 2 * halfD, { topColour: C.paving });
+  ground.box('plain', C.stone, x, y - wall, z, 2 * halfW, wall, 2 * halfD, { topColour: C.paving });
   // parapets along the platform and round its front
   for (const s of [-1, 1]) k.box('plain', C.chalkShade, x + s * (halfW - 0.3), y, z, 0.6, 1.1, 2 * halfD);
   k.box('plain', C.chalkShade, x, y, z - halfD + 0.3, 2 * halfW, 1.1, 0.6);
@@ -219,11 +222,18 @@ function figure(k: Kit): void {
 
 export const model: LandmarkModel = {
   build() {
+    // the rock and the terrace are the summit the map has lost: their own mesh, marked as ground
+    // (types.ts), so the person, the street camera and the climb stand on them
+    const kg = new Kit();
     const k = new Kit();
-    rock(k);
-    terrace(k);
+    rock(kg);
+    terrace(kg, k);
     pedestal(k);
     figure(k);
-    return k.group('rio-de-janeiro-christ-the-redeemer');
+    const g = k.group('rio-de-janeiro-christ-the-redeemer');
+    const ground = kg.mesh('plain', 'rio-de-janeiro-christ-the-redeemer-ground')!;
+    ground.userData.ground = true;
+    g.add(ground);
+    return g;
   },
 };

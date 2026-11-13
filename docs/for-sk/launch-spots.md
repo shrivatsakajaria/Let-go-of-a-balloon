@@ -12,7 +12,7 @@ Coordinates are to 5 decimal places (about 1 metre).
 ## Needs your decision
 
 1. **Cappadocia: Sunset Point, not the town.** I moved the spot from the main street to Sunset Point, the open hilltop above the town. The camera now faces a small group of fairy chimneys we placed in the valley below it, toward the sunset. Say if you would rather launch from the town.
-2. **Small squares put the landmark very close.** In Oxford (45 m), Rio (40 m, the statue on its terrace), Tokyo (55 m), Manchester (60 m), Belfast (70 m), Birmingham (90 m) and Mumbai (100 m) the open space is small, so the landmark will look big and close. I found no open space further back with a clear view. Belfast could use Donegall Place instead (170 m, looking straight down the street at the dome), but that is a bus street.
+2. **Small squares put the landmark very close.** In Oxford (45 m), Rio (35 m, the statue on its terrace), Tokyo (55 m), Manchester (60 m), Belfast (70 m), Birmingham (90 m) and Mumbai (100 m) the open space is small, so the landmark will look big and close. I found no open space further back with a clear view. Belfast could use Donegall Place instead (170 m, looking straight down the street at the dome), but that is a bus street.
 3. **Far landmarks.** Singapore (770 m) is further than ideal, but Marina Bay Sands is big enough to read well. In Singapore and Dubai, low buildings hide the very bottom of the landmark; the towers rise well above them.
 4. **Cork: a street, not a square.** Church Street is a quiet street that runs straight to the tower. There is no square near Shandon with a clear view.
 5. **Glasgow: George Square is being rebuilt.** OpenStreetMap marks it as a building site (the George Square works). The spot still works, but the square may look different when the works finish.
@@ -28,7 +28,7 @@ Already decided: **Rio de Janeiro** now launches from Corcovado, below Christ th
 | --- | --- | --- | --- |
 | New York | Liberty Island, beside the Statue of Liberty (40.689, -74.045) | Flagpole Plaza, Liberty Island (40.69060, -74.04600) | The old point was at the foot of the statue. The plaza is open paving 190 m away, so the whole statue is in view |
 | Mumbai | Gateway of India waterfront (18.922, 72.8347) | Apollo Bunder plaza, facing the Gateway of India (18.92250, 72.83380) | The old point was on the Gateway itself. Moved to the open plaza in front, 100 m away |
-| Rio de Janeiro | Copacabana beach (-22.9711, -43.1822) | Corcovado, below Christ the Redeemer (-22.95220, -43.21030) | Your choice (13 November): the summit terrace in front of the statue, which is now the landmark the camera faces. Sugarloaf is the second landmark |
+| Rio de Janeiro | Copacabana beach (-22.9711, -43.1822) | Corcovado, below Christ the Redeemer (-22.95188, -43.21017) | Your choice (13 November): the platform on the summit terrace in front of the statue, which is now the landmark the camera faces. Sugarloaf is the second landmark |
 | London | Parliament Square | Same (51.50070, -0.12630) | Already right: open paving at the east side of the square, 120 m from Big Ben |
 | Manchester | Albert Square, by the Town Hall | Same square, west side (53.47945, -2.24550) | Already in the square. Small move so the clock tower is straight ahead |
 | Edinburgh | Castle Esplanade (55.9488, -3.196) | Castle Esplanade, middle (55.94878, -3.19730) | The old point was just off the esplanade, at the top of Castlehill by the houses. The camera now faces the Gatehouse, not the summit behind it, so the gate is in the middle of the view |
@@ -57,7 +57,7 @@ Already decided: **Rio de Janeiro** now launches from Corcovado, below Christ th
 | --- | --- | --- | --- | --- |
 | New York | Statue of Liberty | 40.68925, -74.04455 | 190 m | south-east |
 | Mumbai | Gateway of India | 18.92197, 72.83457 | 100 m | south-east |
-| Rio de Janeiro | Christ the Redeemer | -22.95192, -43.21049 | 40 m | north-west |
+| Rio de Janeiro | Christ the Redeemer | -22.95192, -43.21049 | 35 m | west |
 | London | Elizabeth Tower (Big Ben) | 51.50069, -0.12457 | 120 m | east |
 | Manchester | Town Hall clock tower | 53.47935, -2.24465 | 60 m | east |
 | Edinburgh | Edinburgh Castle (the Gatehouse) | 55.94853, -3.19855 | 80 m | west |

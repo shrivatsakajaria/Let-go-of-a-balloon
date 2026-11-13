@@ -60,10 +60,10 @@
     "tier": 1,
     "batch": "launch",
     "launch": {
-      "lat": -22.9522,
-      "lon": -43.2103,
+      "lat": -22.95188,
+      "lon": -43.21017,
       "label": "Corcovado, below Christ the Redeemer",
-      "headingDeg": 328
+      "headingDeg": 262.3
     },
     "landmarks": [
       "Christ the Redeemer",

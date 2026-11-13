@@ -196,3 +196,21 @@ test('positionAt can fill a given point (no allocation per frame), with the same
   out.lat = 99; // writing to it leaves the route alone
   expect(r.points[432].lat).not.toBe(99);
 });
+
+test('a start on a landmark (a summit terrace over lost ground) climbs from the terrace, not from inside the rock', async () => {
+  const wind = await makeWind([-10], [0, 20], 10);
+  const plain = await computeRoute({ lat: 0, lon: 0 }, ISSUED, wind, flat(500));
+  const r = await computeRoute({ lat: 0, lon: 0 }, ISSUED, wind, flat(500), { startLiftM: 172 });
+  // the route's ground stays the ground; the climb starts 172 m above it
+  expect(r.points[0].groundM).toBe(500);
+  expect(r.points[0].altM).toBeCloseTo(500 + 172 + 1.5, 5);
+  // the first minutes of the climb stay above the terrace, and above the unlifted climb
+  for (const t of [30, 60, 120, 300]) {
+    const a = positionAt(r, ISSUED + t * 1000).altM, b = positionAt(plain, ISSUED + t * 1000).altM;
+    expect(a - 500, `${t} s`).toBeGreaterThan(172 + 1.5);
+    expect(a, `${t} s`).toBeGreaterThan(b);
+  }
+  expect(r.points[2].altM).toBeCloseTo(plain.points[2].altM, 5); // at cruise, as before
+  // no lift: the same route as before
+  expect(await computeRoute({ lat: 0, lon: 0 }, ISSUED, wind, flat(500), { startLiftM: 0 })).toEqual(plain);
+});

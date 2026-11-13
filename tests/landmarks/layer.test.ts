@@ -189,3 +189,37 @@ test('a model that fails to import (offline) is tried again after 5 s, 20 s, the
     console.warn = warn;
   }
 });
+
+test("a landmark's own ground (meshes marked userData.ground: a terrace, a rock) is standable; its statue is not", async () => {
+  const { layer, site, tick } = oneModel(() => {
+    // a 40 m x 60 m terrace 30 m up (ground), a 25 m statue on it (not ground)
+    const kg = new Kit();
+    kg.box('plain', LANDMARK_COLOURS.stone, 0, -5, 0, 40, 35, 60);
+    const k = new Kit();
+    k.box('walls', LANDMARK_COLOURS.chalk, 0, 30, 10, 4, 25, 4);
+    const g = k.group('test-terrace');
+    const ground = kg.mesh('plain', 'test-terrace-ground')!;
+    ground.userData.ground = true;
+    g.add(ground);
+    return g;
+  }, undefined, 'test-terrace');
+  const day = lightFor(30);
+  // before the model is in, nothing is known to stand on, and the start is not settled
+  expect(layer.groundAt(site.at)).toBe(-Infinity);
+  layer.update(SQUARE, 0, day);
+  expect(layer.settledAt(site.at)).toBe(false);
+  await flush(layer, 1);
+  tick(16);
+  layer.update(SQUARE, 0, day);
+  expect(layer.settledAt(site.at)).toBe(true);
+  // the terrace: its top over the site's ground (10)
+  expect(layer.groundAt(modelToLatLon(site, 5, -20))).toBeCloseTo(40, 3);
+  // where the statue stands, still the terrace (the statue is a top, not ground)
+  expect(layer.groundAt(modelToLatLon(site, 0, 10))).toBeCloseTo(40, 3);
+  expect(layer.topAt(modelToLatLon(site, 0, 10), 1)).toBeCloseTo(65, 3);
+  // off the terrace: none
+  expect(layer.groundAt(modelToLatLon(site, 40, 0))).toBe(-Infinity);
+  // far from any landmark the start is settled at once
+  expect(layer.settledAt({ lat: 52, lon: -1 })).toBe(true);
+  layer.dispose();
+});

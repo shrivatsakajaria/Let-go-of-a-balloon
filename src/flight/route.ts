@@ -43,6 +43,16 @@ async function withTiles<T>(wind: WindField, p: LatLon, utcMs: number, fn: () =>
  */
 export type RouteGround = ((p: LatLon) => Promise<number>) & { peek?: (p: LatLon) => number | undefined };
 
+export type RouteOptions = {
+  /**
+   * Metres the start stands above the route's ground there: a launch on a landmark's own ground (a
+   * summit terrace the elevation data has lost). The climb starts from that height (route ground +
+   * lift); the points still record the route's ground, so the drawn height above the ground keeps
+   * the lift until the balloon is well up.
+   */
+  startLiftM?: number;
+};
+
 /** Scouting passes before falling back to awaiting the ground at every step (bounds retries of failing tiles). */
 const SCOUT_PASSES = 8;
 
@@ -60,13 +70,15 @@ export async function computeRoute(
   releaseUtcMs: number,
   wind: WindField,
   ground: RouteGround,
+  opts: RouteOptions = {},
 ): Promise<Route> {
+  const lift = Math.max(0, opts.startLiftM ?? 0);
   const p0: LatLon = { lat: start.lat, lon: wrapLon(start.lon) };
   const peek = ground.peek;
   if (peek) {
     for (let pass = 0; pass < SCOUT_PASSES; pass++) {
       const pending: Promise<unknown>[] = [];
-      const route = await integrate(p0, releaseUtcMs, wind, (p) => {
+      const route = await integrate(p0, releaseUtcMs, wind, lift, (p) => {
         const g = peek(p);
         if (g !== undefined) return g;
         pending.push(ground(p).catch(() => undefined)); // a failure surfaces in the final pass
@@ -76,18 +88,21 @@ export async function computeRoute(
       await Promise.all(pending);
     }
   }
-  return integrate(p0, releaseUtcMs, wind, ground);
+  return integrate(p0, releaseUtcMs, wind, lift, ground);
 }
 
 async function integrate(
   start: LatLon,
   releaseUtcMs: number,
   wind: WindField,
+  lift: number,
   ground: (p: LatLon) => number | Promise<number>,
 ): Promise<Route> {
   const points: RoutePoint[] = [];
   let p: LatLon = start;
   const ground0 = await ground(p);
+  // the climb starts from the launch's own ground (a landmark's terrace), recorded ground stays
+  const base = ground0 + lift;
   let climbing = true;
   let alt = 0;
   let target = 0;
@@ -98,13 +113,13 @@ async function integrate(
     const groundM = i === 0 ? ground0 : await ground(p);
     target = (await withTiles(wind, p, utc, () => wind.cruiseLevelHeight(p, utc, groundM))).heightM;
     if (climbing) {
-      alt = altitudeAt(tSec, ground0, target);
+      alt = altitudeAt(tSec, base, target);
       if (alt >= target) climbing = false;
     } else {
       const maxStep = CLIMB_RATE_MS * STEP_S;
       alt = Math.max(Math.min(target, alt + maxStep), alt - maxStep, groundM + CRUISE_CLEARANCE_M);
     }
-    const midAlt = climbing ? altitudeAt(tSec + STEP_S / 2, ground0, target) : alt;
+    const midAlt = climbing ? altitudeAt(tSec + STEP_S / 2, base, target) : alt;
     const w1 = await withTiles(wind, p, utc, () => wind.sample(p, alt, utc));
     const half = destination(p, (Math.atan2(w1.u, w1.v) / RAD + 360) % 360, (Math.hypot(w1.u, w1.v) * STEP_S) / 2000);
     const utcMid = utc + (STEP_S / 2) * 1000;

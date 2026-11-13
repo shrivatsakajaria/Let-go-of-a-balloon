@@ -67,6 +67,11 @@ export type LandmarkModel = Pick<Landmark, 'build' | 'animate'>;
  * `mesh(bucket, name)`) marked `mesh.userData.noTops = true`: the layer leaves them out of the
  * landmark's tops for the camera, which would otherwise stand each long triangle's highest point
  * over the whole of its plan bounds.
+ *
+ * Ground a landmark carries itself (a summit rock and terrace where the map's elevation data has
+ * lost the summit: Corcovado) goes in its own mesh marked `mesh.userData.ground = true`: the layer
+ * samples its top (LandmarkLayer.groundAt), and the person, the street camera and the balloon's
+ * climb stand on it (app/standable.ts).
  */
 export type LandmarkBucket = 'walls' | 'plain' | 'glow';
 export const LANDMARK_BUCKETS: LandmarkBucket[] = ['walls', 'plain', 'glow'];

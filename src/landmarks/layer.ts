@@ -21,7 +21,7 @@
  * update() and topAt() do not allocate (apart from the scans every SCAN_M).
  */
 import * as THREE from 'three';
-import { lonDelta, type LatLon } from '../geo/coords';
+import { haversineKm, lonDelta, type LatLon } from '../geo/coords';
 import { M_PER_DEG } from '../world/frame';
 import { SLOT_ALWAYS, WINDOW_LIGHT, type ContourMaterials } from '../world/materials';
 import { regionStyle as defaultRegion, type Light, type RegionStyle } from '../world/palette';
@@ -72,6 +72,8 @@ type Entry = {
   groundS: number;
   placedAt: number;
   tops: Tops | null;
+  /** The landmark's own ground (meshes marked userData.ground), sampled at cell centres; null if none. */
+  ground: Tops | null;
 };
 
 const smooth = (a: number, b: number, x: number) => {
@@ -156,6 +158,43 @@ export class LandmarkLayer {
     return best;
   }
 
+  /**
+   * The landmark's own ground at p (absolute, like the stream's groundAt): the top of the meshes a
+   * model marks userData.ground (a summit rock and terrace where the elevation data has lost the
+   * summit), sampled every CELL_M; -Infinity where no landmark's ground is (or it is not in sight yet).
+   * A person, a street camera and the balloon's climb stand on max(stream ground, this).
+   */
+  groundAt(p: LatLon): number {
+    let best = -Infinity;
+    for (const e of this.entries.values()) {
+      const gr = e.ground;
+      if (e.state !== 'shown' || !gr || !e.group!.visible) continue;
+      const site = e.site;
+      const east = lonDelta(site.at.lon, p.lon) * M_PER_DEG * Math.cos(site.at.lat * D2R);
+      const south = -(p.lat - site.at.lat) * M_PER_DEG;
+      if (east * east + south * south > gr.reach * gr.reach) continue;
+      const h = site.headingDeg * D2R, c = Math.cos(h), sn = Math.sin(h);
+      const i = Math.floor((east * c + south * sn - gr.minX) / CELL_M), j = Math.floor((-east * sn + south * c - gr.minZ) / CELL_M);
+      if (i < 0 || j < 0 || i >= gr.nx || j >= gr.nz) continue;
+      const v = gr.h[j * gr.nx + i];
+      if (v > -Infinity && v + e.groundS > best) best = v + e.groundS;
+    }
+    return best;
+  }
+
+  /**
+   * Whether every landmark whose footprint takes in p is in sight (loaded, placed and shown), so
+   * its ground there is known. True where no landmark is near. Allocates nothing.
+   */
+  settledAt(p: LatLon): boolean {
+    for (const s of this.sites) {
+      if (haversineKm(p, s.at) * 1000 > s.footprintRadiusM) continue;
+      const e = this.entries.get(s.id);
+      if (!e || e.state !== 'shown' || !e.group!.visible) return false;
+    }
+    return true;
+  }
+
   /** Ids of the landmarks in the scene (for checks). */
   shown(): string[] {
     const out: string[] = [];
@@ -189,7 +228,7 @@ export class LandmarkLayer {
         this.retryAt = Math.min(this.retryAt, f.at);
         continue;
       }
-      const e: Entry = { site, state: 'loading', landmark: null, group: null, slot: SLOT_ALWAYS, born: NaN, fade: 0, groundS: NaN, placedAt: 0, tops: null };
+      const e: Entry = { site, state: 'loading', landmark: null, group: null, slot: SLOT_ALWAYS, born: NaN, fade: 0, groundS: NaN, placedAt: 0, tops: null, ground: null };
       this.entries.set(site.id, e);
       loadLandmark(site, this.models).then(
         (l) => {
@@ -230,6 +269,7 @@ export class LandmarkLayer {
     group.rotation.y = -l.headingDeg * D2R;
     group.visible = false;
     e.tops = heightGrid(group);
+    e.ground = groundGrid(group);
     e.landmark = l;
     e.group = group;
     e.state = 'shown';
@@ -271,6 +311,54 @@ export class LandmarkLayer {
     if (e.slot !== SLOT_ALWAYS) this.host.materials.slots.release(e.slot);
     e.slot = SLOT_ALWAYS;
   }
+}
+
+/**
+ * The top of a model's own ground (meshes marked userData.ground) at the centre of every CELL_M
+ * cell (its own frame, before the heading turn), -Infinity where there is none; null for a model
+ * without ground. Each upward-facing triangle gives its height where it covers a cell's centre.
+ */
+export function groundGrid(group: THREE.Group): Tops | null {
+  group.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
+  const meshes: THREE.Mesh[] = [];
+  group.traverse((o) => (o as THREE.Mesh).isMesh && o.userData.ground && meshes.push(o as THREE.Mesh));
+  if (!meshes.length) return null;
+  const box = new THREE.Box3();
+  for (const mesh of meshes) box.union(new THREE.Box3().setFromObject(mesh).applyMatrix4(inv));
+  const minX = Math.floor(box.min.x), minZ = Math.floor(box.min.z);
+  const nx = Math.max(1, Math.ceil((box.max.x - minX) / CELL_M)), nz = Math.max(1, Math.ceil((box.max.z - minZ) / CELL_M));
+  const h = new Float32Array(nx * nz).fill(-Infinity);
+  const m = new THREE.Matrix4();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (const mesh of meshes) {
+    m.multiplyMatrices(inv, mesh.matrixWorld);
+    const p = mesh.geometry.getAttribute('position');
+    for (let t = 0; t + 2 < p.count; t += 3) {
+      a.fromBufferAttribute(p, t).applyMatrix4(m);
+      b.fromBufferAttribute(p, t + 1).applyMatrix4(m);
+      c.fromBufferAttribute(p, t + 2).applyMatrix4(m);
+      // plan area (twice), signed; the barycentric weights of a cell centre come from it
+      const det = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+      if (Math.abs(det) < 1e-6) continue; // upright: no plan area
+      const i0 = Math.max(0, Math.ceil((Math.min(a.x, b.x, c.x) - minX) / CELL_M - 0.5)), i1 = Math.min(nx - 1, Math.floor((Math.max(a.x, b.x, c.x) - minX) / CELL_M - 0.5));
+      const j0 = Math.max(0, Math.ceil((Math.min(a.z, b.z, c.z) - minZ) / CELL_M - 0.5)), j1 = Math.min(nz - 1, Math.floor((Math.max(a.z, b.z, c.z) - minZ) / CELL_M - 0.5));
+      for (let j = j0; j <= j1; j++) {
+        const z = minZ + (j + 0.5) * CELL_M;
+        for (let i = i0; i <= i1; i++) {
+          const x = minX + (i + 0.5) * CELL_M;
+          const wb = ((x - a.x) * (c.z - a.z) - (c.x - a.x) * (z - a.z)) / det;
+          const wc = ((b.x - a.x) * (z - a.z) - (x - a.x) * (b.z - a.z)) / det;
+          const wa = 1 - wb - wc;
+          if (wa < -1e-6 || wb < -1e-6 || wc < -1e-6) continue;
+          const y = wa * a.y + wb * b.y + wc * c.y;
+          if (y > h[j * nx + i]) h[j * nx + i] = y;
+        }
+      }
+    }
+  }
+  const reach = Math.hypot(Math.max(-box.min.x, box.max.x), Math.max(-box.min.z, box.max.z));
+  return { minX, minZ, nx, nz, h, reach };
 }
 
 /**

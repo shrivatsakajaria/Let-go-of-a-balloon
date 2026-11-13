@@ -55,10 +55,13 @@ export async function surfaceWind(p: LatLon, now = Date.now()): Promise<{ speedM
   }
 }
 
-/** The 72-hour route from p, released at releaseMs, from the latest winds (spec 6.3). */
-export async function releaseRoute(p: LatLon, releaseMs: number): Promise<Route> {
+/**
+ * The 72-hour route from p, released at releaseMs, from the latest winds (spec 6.3). `startLiftM`:
+ * how far the launch stands above the drawn ground (a landmark's terrace; scene.startLift()).
+ */
+export async function releaseRoute(p: LatLon, releaseMs: number, startLiftM = 0): Promise<Route> {
   const w = await windField();
-  return computeRoute(p, releaseMs, w, routeGround);
+  return computeRoute(p, releaseMs, w, routeGround, { startLiftM });
 }
 
 /** How long a link waits for the terrain under its route before counting it as sea level. */

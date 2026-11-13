@@ -22,6 +22,7 @@ import type { LatLon } from '../geo/coords';
 import { brightLuminance, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
+import { standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
 import { hazeFarM } from '../world/lod';
 import { regionStyle } from '../world/palette';
@@ -69,6 +70,8 @@ export class LiveScene {
   readonly stream: WorldStream;
   /** Landmark models near the camera, in place of their map buildings. */
   readonly landmarks: LandmarkLayer;
+  /** Where people, the street camera and the climb stand: the drawn ground or a landmark's own ground (standable.ts). */
+  private readonly ground: GroundSources = { groundAt: (p) => this.stream.groundAt(p), landmarkGroundAt: (p) => this.landmarks.groundAt(p) };
   readonly sky: Sky;
   readonly clouds: Clouds;
   readonly director: Director;
@@ -146,7 +149,8 @@ export class LiveScene {
     };
     this.director = new Director(this.camera, {
       toScene: (p) => this.stream.toScene(p),
-      groundAt: (p) => this.stream.groundAt(p),
+      // street camera spots stand on a landmark's own ground (a summit terrace), never inside it
+      groundAt: (p) => standableGround(this.ground, p),
       buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
@@ -308,13 +312,22 @@ export class LiveScene {
     this.balloon.hold(this.person.hand);
   }
 
+  /**
+   * How far the launch spot stands above the drawn ground (a landmark's terrace over a summit the
+   * map has lost), for the route's climb; 0 almost everywhere.
+   */
+  startLift(): number {
+    return startLiftM(this.ground, this.start);
+  }
+
   private updatePerson(dt: number): void {
     const person = this.person;
     if (!person) return;
-    const g = this.stream.groundAt(this.start);
-    // until the street's own tile is in, the ground there is a guess: the person waits out of sight
-    // rather than sinking into the street as finer land arrives
-    const fine = this.stream.zoomAt(this.start) >= 13 || performance.now() - this.placedAt > 6000;
+    const g = standableGround(this.ground, this.start);
+    // until the street's own tile is in (and any landmark whose ground may be under the spot), the
+    // ground there is a guess: the person waits out of sight rather than sinking into the street, or
+    // standing inside a summit's rock, as finer land and the landmark arrive
+    const fine = (this.stream.zoomAt(this.start) >= 13 && this.landmarks.settledAt(this.start)) || performance.now() - this.placedAt > 6000;
     if (fine && !person.root.visible) this.feetS = Number.NaN;
     person.root.visible = fine;
     if (!this.released) this.balloon.root.visible = fine;
@@ -363,7 +376,10 @@ export class LiveScene {
 
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
     this.updatePerson(dt);
-    const y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
+    let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
+    // never inside a landmark's own ground (the route's climb starts from it: this only catches a
+    // replayed route, which knows nothing of the terrace)
+    if (this.released) y = Math.max(y, this.landmarks.groundAt(pt) + 1.5);
     const s = this.stream.toScene(pt, this.tmp);
     this.pos.set(s.x, y, s.z);
 
@@ -384,7 +400,7 @@ export class LiveScene {
     const dB = this.camera.position.distanceTo(this.target);
     let near = (dB - 1.4 - 0.2 * displayScale(dB)) * 0.5;
     if (this.person) near = Math.min(near, (this.camera.position.distanceTo(this.person.root.position) - 0.6) * 0.5);
-    const camGround = this.stream.groundAt(this.stream.fromScene(this.camera.position.x, this.camera.position.z));
+    const camGround = standableGround(this.ground, this.stream.fromScene(this.camera.position.x, this.camera.position.z));
     near = Math.min(near, (this.camera.position.y - camGround) * 0.5);
     this.camera.near = Math.min(10, Math.max(0.08, near));
     const far = hazeFarM(this.camera.position.y);

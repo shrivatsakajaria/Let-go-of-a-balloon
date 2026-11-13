@@ -165,7 +165,7 @@ describe('cities.json', () => {
       expect(get('cardiff').launch.headingDeg).toBeLessThanOrEqual(320);
       // Rio: SK's choice (13 Nov 2026), Corcovado beside Christ the Redeemer
       const rio = get('rio-de-janeiro');
-      expect(rio.launch).toMatchObject({ lat: -22.9522, lon: -43.2103, label: 'Corcovado, below Christ the Redeemer' });
+      expect(rio.launch).toMatchObject({ lat: -22.95188, lon: -43.21017, label: 'Corcovado, below Christ the Redeemer' });
       expect(rio.landmarks.slice(0, 2)).toEqual(['Christ the Redeemer', 'Sugarloaf Mountain and cable car']);
       expect(rio.hero).toEqual({ name: 'Christ the Redeemer', lat: -22.95192, lon: -43.21049 });
       expect(rio.notes).toMatch(/13 Nov 2026/);
