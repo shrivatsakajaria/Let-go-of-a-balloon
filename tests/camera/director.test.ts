@@ -984,6 +984,55 @@ describe('launch crane', () => {
     });
   });
 
+  // the wind along the landmark's line, or near it (London's westerlies over Parliament Square, Big Ben to the east)
+  test.each([[315, 110], [290, 150], [300, 100], [315, 125]])('reduced motion with a tall landmark behind the person (wind %d deg, tower %d m off): its top is in the still, with the person and a balloon that reads', (heading, off) => {
+    const ground = 10;
+    // a clock tower 96 m tall, 12 m square, to the north-west of the person (the featured landmark)
+    const h = (315 * Math.PI) / 180;
+    const tx = Math.sin(h) * off, tz = -Math.cos(h) * off;
+    const boxes: Box[] = [{ x0: tx - 6, x1: tx + 6, z0: tz - 6, z1: tz + 6, top: ground + 96 }];
+    const mk = rising(ground, heading);
+    let checked = 0;
+    launch({
+      boxes, ground, heading, landmark: 315, reduced: true, until: 12,
+      each: (t, cam, d) => {
+        const k = Math.round(t * 100) / 100;
+        if (d.shot !== 'launch' || k < 1.3 || k > 4) return;
+        // the tower's top (its near top corner and its middle) is in the frame
+        expect(inFrame(cam, new THREE.Vector3(tx, ground + 96 - 0.5, tz)), `${k}`).toBe(true);
+        if (k === 1.5 || k === 3) {
+          expect(inFrame(cam, new THREE.Vector3(0, ground + 0.9, 0))).toBe(true); // the person
+          expect(inFrame(cam, new THREE.Vector3(0, ground + 0.1, 0))).toBe(true); // their feet
+          const B = ballPos(mk(t));
+          expect(inFrame(cam, B)).toBe(true);
+          if (k === 1.5) expect(framing(cam, B, REAL(cam.position.distanceTo(B))).h, `${k}`).toBeGreaterThanOrEqual(0.04); // the balloon reads
+          checked++;
+        }
+      },
+    });
+    expect(checked).toBe(2); // the still holds through 3 s
+  });
+
+  test('reduced motion with a tall landmark and a crosswind (the balloon would leave a frame that close at once): the plain still, held as before', () => {
+    const ground = 10;
+    const tx = Math.sin((315 * Math.PI) / 180) * 110, tz = -Math.cos((315 * Math.PI) / 180) * 110;
+    const boxes: Box[] = [{ x0: tx - 6, x1: tx + 6, z0: tz - 6, z1: tz + 6, top: ground + 96 }];
+    const mk = rising(ground, 45);
+    let checked = false;
+    launch({
+      boxes, ground, heading: 45, landmark: 315, reduced: true, until: 12,
+      each: (t, cam, d) => {
+        if (d.shot !== 'launch' || Math.abs(t - 1.5) > 1e-6) return;
+        expect(cam.fov).toBeCloseTo(26, 6); // the plain still's long lens
+        const B = ballPos(mk(t));
+        expect(inFrame(cam, B)).toBe(true);
+        expect(inFrame(cam, new THREE.Vector3(0, ground + 0.9, 0))).toBe(true);
+        checked = true;
+      },
+    });
+    expect(checked).toBe(true);
+  });
+
   test('reduced motion: no crane, a still frame of the person and the rising balloon (big enough to read), then a cut to the settled view as it leaves it', () => {
     const ground = 10;
     const mk = rising(ground, 70);

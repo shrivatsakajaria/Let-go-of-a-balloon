@@ -138,6 +138,21 @@ const STILL_MIN_M = 11;
 const STILL_FIT_S = 4;
 /** ...and the cut comes early if the drifting balloon is about to leave it (NDC). */
 const STILL_EDGE = 0.85;
+/**
+ * With a tall featured landmark behind the person (Big Ben), the still takes in its top too: from as far
+ * back as keeps the balloon at STILL_READ of the frame's height or more for STILL_READ_S after it leaves the
+ * hand (nearer and wider when the landmark is tall), the person's feet, the landmark's top and the first
+ * STILL_RISE_S of the rise in it, with STILL_MARGIN (radians) at the top and bottom edges. A wind across the
+ * landmark's line would carry the balloon out of a frame that near at once: then the plain still is used.
+ */
+const STILL_READ = 0.041;
+const STILL_READ_S = 0.5;
+const STILL_NEAR_M = 5;
+const STILL_RISE_S = 2;
+const STILL_MARGIN = 1.5 * (Math.PI / 180);
+/** How far along the landmark's line its top is looked for (m), and how often. */
+const STILL_LM_REACH_M = 600;
+const STILL_LM_STEP_M = 5;
 /** The launch camera passing over the person keeps this high over their ground (m): the crane eases up within PERSON_EASE_M of them, the clamp holds it within PERSON_CLEAR_M. */
 const PERSON_OVER_M = 2.8;
 const PERSON_CLEAR_M = 1.2;
@@ -283,8 +298,8 @@ export class Director {
   private craneMovedAt = -Infinity;
   /** The push's target last frame, likewise. */
   private readonly pushPrev = new THREE.Vector3(Number.NaN, 0, Number.NaN);
-  /** Reduced motion: the still frame after the release (position, and the fixed view's yaw and pitch). */
-  private still: { pos: THREE.Vector3; yaw: number; pitch: number } | null = null;
+  /** Reduced motion: the still frame after the release (position, the fixed view's yaw and pitch, its field of view). */
+  private still: { pos: THREE.Vector3; yaw: number; pitch: number; fov: number } | null = null;
   /** Reduced motion: the balloon is about to leave the still frame (the cut comes now). */
   private stillLost = false;
   private readonly craneT: Target = { pos: new THREE.Vector3(), y0: 0, x0: 0, fov: 50, anchor: { x: 0, y: 0, z: 0 } };
@@ -1164,14 +1179,14 @@ export class Director {
     const vx = B.x - st.pos.x, vy = B.y - st.pos.y, vz = B.z - st.pos.z;
     const dYaw = wrapPi(Math.atan2(vx, -vz) - st.yaw);
     const dPitch = Math.atan2(vy, Math.hypot(vx, vz)) - st.pitch;
-    const x0 = Math.tan(dYaw) / this.tanH(STILL_FOV);
-    const y0 = Math.tan(dPitch) / Math.tan((STILL_FOV * RAD) / 2);
+    const x0 = Math.tan(dYaw) / this.tanH(st.fov);
+    const y0 = Math.tan(dPitch) / Math.tan((st.fov * RAD) / 2);
     if (!(Math.abs(dYaw) < 1.2 && Math.abs(x0) < STILL_EDGE && Math.abs(y0) < STILL_EDGE)) this.stillLost = true;
     const tg = this.craneT;
     tg.pos.copy(st.pos);
     tg.x0 = x0;
     tg.y0 = y0;
-    tg.fov = STILL_FOV;
+    tg.fov = st.fov;
     tg.anchor.x = tg.anchor.y = tg.anchor.z = 0;
     tg.snap = true;
     tg.x0Now = false;
@@ -1184,8 +1199,10 @@ export class Director {
    * feet and the balloon over the first STILL_FIT_S of its rise fill STILL_FILL of the height, on a long lens
    * (STILL_FOV), so the balloon reads (about 4% of the frame or more); the cut comes as it leaves the frame. A line with a building on the spot or between it and
    * the person is passed over for the next; if every one has, the first is used, over the building.
+   * With a featured landmark taller than that frame (Big Ben), a frame that takes in its top is tried first
+   * (landmarkFrame); the plain one is the fallback.
    */
-  private stillFrame(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3): { pos: THREE.Vector3; yaw: number; pitch: number } {
+  private stillFrame(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3): { pos: THREE.Vector3; yaw: number; pitch: number; fov: number } {
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const gP = this.deps.groundAt(o.personAt);
@@ -1200,20 +1217,21 @@ export class Director {
     // with a featured landmark, first on its line through the person (the landmark behind them, R57)
     const Ld = this.landmarkDir();
     if (Ld) axes.unshift(Ld.clone().negate());
-    const frame = (a: THREE.Vector3, h: number) => {
+    const riseUp = (a: THREE.Vector3, h: number, D: number, uMax: number) => {
       const along = -dir.dot(a); // the drift away from the camera, per m/s
-      const span = (D: number) => {
-        let up = -Math.PI / 2;
-        for (let u = 0; u <= uTop + 1e-6; u += uTop / 8) up = Math.max(up, Math.atan2(2.4 + CLIMB_RATE_MS * u - h, D + v * u * along));
-        return { up, down: Math.atan2(h, D) };
-      };
+      let up = -Math.PI / 2;
+      for (let u = 0; u <= uMax + 1e-6; u += uMax / 8) up = Math.max(up, Math.atan2(2.4 + CLIMB_RATE_MS * u - h, D + v * u * along));
+      return up;
+    };
+    const frame = (a: THREE.Vector3, h: number) => {
+      const span = (D: number) => ({ up: riseUp(a, h, D, uTop), down: Math.atan2(h, D) });
       let D = STILL_MIN_M;
       for (; D < 150; D += 0.5) {
         const s = span(D);
         if (s.up + s.down <= fill) break;
       }
       const s = span(D);
-      return { D, pitch: (s.up - s.down) / 2 };
+      return { D, pitch: (s.up - s.down) / 2, fov: STILL_FOV };
     };
     const at = (a: THREE.Vector3, D: number) => this.fromScene(ps.x + a.x * D, ps.z + a.z * D, b, B0);
     const clear = (a: THREE.Vector3, D: number): boolean => {
@@ -1224,11 +1242,34 @@ export class Director {
       }
       return true;
     };
-    let pick: { a: THREE.Vector3; D: number; h: number; pitch: number } | null = null;
-    for (const a of axes) {
+    let pick: { a: THREE.Vector3; D: number; h: number; pitch: number; fov: number; yawOff?: number } | null = null;
+
+    // the landmark's top, along its line from the person: [distance from the person, height over their eyes]
+    const tops: [number, number][] = [];
+    if (Ld && this.deps.buildingTopAt) {
+      for (let dl = STILL_LM_STEP_M * 2; dl <= STILL_LM_REACH_M; dl += STILL_LM_STEP_M) {
+        const t = this.deps.buildingTopAt(this.fromScene(ps.x + Ld.x * dl, ps.z + Ld.z * dl, b, B0), STILL_LM_STEP_M / 2) - gP - EYE_M;
+        if (Number.isFinite(t) && t > OPEN_M) tops.push([dl, t]);
+      }
+    }
+    if (Ld && tops.length) {
+      // lines near the landmark's (it stays behind the person), the most nearly upwind first (the drift away)
+      const lines = [0, 15, -15, 30, -30, 45, -45, 60, -60]
+        .map((deg) => Ld.clone().negate().applyAxisAngle(new THREE.Vector3(0, 1, 0), deg * RAD))
+        .sort((p, q) => q.dot(a0) - p.dot(a0));
+      for (const a of lines) {
+        const f = this.landmarkFrame(a, Ld, tops, dir, v, (D) => riseUp(a, EYE_M, D, Math.min(uTop, STILL_RISE_S)));
+        if (f && clear(a, f.D)) {
+          pick = { a, D: f.D, h: EYE_M, pitch: f.pitch, fov: f.fov, yawOff: f.yawOff };
+          break;
+        }
+      }
+    }
+
+    for (const a of pick ? [] : axes) {
       const f = frame(a, EYE_M);
       if (clear(a, f.D)) {
-        pick = { a, D: f.D, h: EYE_M, pitch: f.pitch };
+        pick = { a, D: f.D, h: EYE_M, pitch: f.pitch, fov: f.fov };
         break;
       }
     }
@@ -1238,12 +1279,61 @@ export class Director {
       const q = at(a, D);
       const over = this.deps.buildingTopAt ? this.deps.buildingTopAt(q, STREET_CLEAR_M) + CRANE_OVER_M - gP : EYE_M;
       const h = Math.max(EYE_M, over);
-      pick = { a, D, h, pitch: frame(a, h).pitch };
+      const f = frame(a, h);
+      pick = { a, D, h, pitch: f.pitch, fov: f.fov };
     }
     const q = at(pick.a, pick.D);
     const g = this.deps.groundAt(q);
     const pos = new THREE.Vector3(ps.x + pick.a.x * pick.D, (Number.isFinite(g) ? Math.max(g, gP) : gP) + pick.h, ps.z + pick.a.z * pick.D);
-    return { pos, yaw: Math.atan2(-pick.a.x, pick.a.z), pitch: pick.pitch };
+    return { pos, yaw: Math.atan2(-pick.a.x, pick.a.z) + (pick.yawOff ?? 0), pitch: pick.pitch, fov: pick.fov };
+  }
+
+  /**
+   * A still on line `a` (person to camera) that takes in the featured landmark's top (spec 7.3; `tops`: along
+   * its line Ld from the person, [distance, height over the person's eyes]), the person's feet and the start
+   * of the rise (`riseUp(D)`: the highest angle the balloon reaches in it from D back), with a margin at both
+   * edges, and across the frame the person, the landmark and the drifting balloon for STILL_RISE_S (the frame
+   * turned by `yawOff` to hold them).
+   * As far back as keeps the balloon at STILL_READ of the frame's height as it leaves the hand and STILL_READ_S on (a tall
+   * landmark brings the camera nearer and the lens wider). Null when no distance does all that.
+   */
+  private landmarkFrame(a: THREE.Vector3, Ld: THREE.Vector3, tops: [number, number][], dir: THREE.Vector3, v: number, riseUp: (D: number) => number): { D: number; pitch: number; fov: number; yawOff: number } | null {
+    // across the frame, as angles from the line to the person (the yaw the frame is turned by is chosen to
+    // hold them all): the person, the landmark's top and the balloon as it drifts over STILL_RISE_S
+    const yaw0 = Math.atan2(-a.x, a.z);
+    const across = (wx: number, wz: number) => wrapPi(Math.atan2(wx, -wz) - yaw0);
+    let best: { D: number; pitch: number; fov: number; yawOff: number } | null = null;
+    for (let D = STILL_NEAR_M; D <= 60; D += 0.5) {
+      let lm = -Math.PI / 2, lmAcross = 0;
+      for (const [dl, t] of tops) {
+        const dx = Ld.x * dl - a.x * D, dz = Ld.z * dl - a.z * D;
+        const ang = Math.atan2(t, Math.hypot(dx, dz));
+        if (ang > lm) {
+          lm = ang;
+          lmAcross = across(dx, dz);
+        }
+      }
+      const up = Math.max(lm, riseUp(D)) + STILL_MARGIN;
+      const down = Math.atan2(EYE_M, D) + STILL_MARGIN;
+      const fov = Math.max(STILL_FOV * RAD, up + down);
+      // it reads as it leaves the hand, and a moment on (drifting away, it shrinks)
+      const dist = Math.hypot(D + v * STILL_READ_S * Math.max(0, -dir.dot(a)), 2.4 + CLIMB_RATE_MS * STILL_READ_S - EYE_M);
+      if ((2 * this.deps.balloonRadius(dist)) / dist / fov < STILL_READ) continue;
+      let lo = Math.min(0, lmAcross), hi = Math.max(0, lmAcross);
+      let near = false;
+      for (let u = 0; u <= STILL_RISE_S + 1e-6; u += STILL_RISE_S / 8) {
+        const wx = -a.x * D + dir.x * v * u, wz = -a.z * D + dir.z * v * u;
+        if (Math.hypot(wx, wz) < 2) near = true; // it would drift over the camera
+        const f = across(wx, wz);
+        lo = Math.min(lo, f);
+        hi = Math.max(hi, f);
+      }
+      const half = Math.atan(this.tanH(fov / RAD)) * STILL_EDGE * 0.9;
+      if (near || hi - lo > 2 * half) continue;
+      // further back while it all holds: a longer lens
+      best = { D, pitch: (up - down) / 2, fov: fov / RAD, yawOff: (hi + lo) / 2 };
+    }
+    return best;
   }
 
   /**
