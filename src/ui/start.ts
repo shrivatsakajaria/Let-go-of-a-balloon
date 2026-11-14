@@ -10,6 +10,7 @@ import type { LatLon } from '../geo/coords';
 import { sunPosition } from '../geo/sun';
 import { lightFor, parseHex } from '../world/palette';
 import { COPY } from './copy';
+import { shadeBottomPx, shadeTopPx } from './shade';
 import { CREDITS, MAP_CREDIT, creditHtml } from './credits';
 import { featuredCities } from './featured';
 import { mountSearch, type Place } from './search';
@@ -191,14 +192,16 @@ export function mountStart(
   };
   const sceneTimer = setInterval(paintSky, 60_000);
 
-  // ---- the bottom shading grows with the stack when "Your balloons" adds a row ----
+  // ---- the shading fits the text: each stack sits in its band's full-strength part ----
+  const head = $<HTMLElement>('.top');
   const fitShade = () => {
-    const h = bottom.getBoundingClientRect().height;
-    const need = Math.max(300, Math.ceil(h + 70));
-    document.documentElement.style.setProperty('--shade-bottom-h', `${need}px`);
+    const root = document.documentElement.style;
+    root.setProperty('--shade-bottom-h', `${shadeBottomPx(bottom.getBoundingClientRect().height)}px`);
+    root.setProperty('--shade-top-start', `${shadeTopPx(head.getBoundingClientRect().bottom)}px`);
   };
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fitShade) : null;
   ro?.observe(bottom);
+  ro?.observe(head);
 
   // ---- start place ----
   const render = () => {
