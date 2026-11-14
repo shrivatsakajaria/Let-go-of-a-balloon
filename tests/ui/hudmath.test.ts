@@ -14,6 +14,8 @@ import {
   sceneLabel,
   startLabel,
   brightLuminance,
+  landedOver,
+  viewTab,
   type AnnounceState,
 } from '../../src/ui/hudmath';
 
@@ -210,5 +212,20 @@ describe('startLabel', () => {
   test('names the place, or "where you are" for a GPS start, and the balloon is orange', () => {
     expect(startLabel({ name: 'London', kind: 'default' })).toBe('A person standing in London, holding an orange balloon');
     expect(startLabel({ name: 'Your location', kind: 'gps' })).toBe('A person standing where you are, holding an orange balloon');
+  });
+});
+
+describe('owner\'s decisions, 14 November 2026 (panel review)', () => {
+  test('"Landed near ..." names the country of a town', () => {
+    expect(landedOver({ name: 'Strzelce Krajeńskie', kind: 'town', country: 'Poland' })).toBe('Landed near Strzelce Krajeńskie, Poland');
+    expect(landedOver({ name: 'North Sea', kind: 'sea' })).toBe('Came down in the North Sea');
+    expect(announcement(null, { phase: 'landed', home: 'London', country: null, landing: { name: 'Bergen', kind: 'town', country: 'Norway' }, own: true, launched: false })).toBe('Your balloon landed near Bergen, Norway');
+  });
+
+  test('the view tabs are Film, Above and Side-on; a ride shot shows as Film', () => {
+    expect(viewTab('ride')).toBe('film');
+    expect(viewTab('film')).toBe('film');
+    expect(viewTab('above')).toBe('above');
+    expect(viewTab('side')).toBe('side');
   });
 });

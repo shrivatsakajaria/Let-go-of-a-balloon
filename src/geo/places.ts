@@ -3,7 +3,7 @@
  * the balloon); everywhere else (the landing place, replay, far points) the gazetteer answers.
  */
 import { bearingDeg, haversineKm, type LatLon } from './coords';
-import { nearestPlace, townsNear } from './gazetteer';
+import { GENERIC_LAND, GENERIC_SEA, nearestPlace, townsNear } from './gazetteer';
 import type { Label } from '../world/meshjob';
 
 /** Label kinds (OpenMapTiles `place` and `water_name` classes, plus park and peak where present). */
@@ -59,8 +59,31 @@ const THE_COUNTRY =
  * tidied from CLDR's long forms, with "the" where English uses it.
  */
 export function countryName(c: string): string {
-  const name = COUNTRY_TIDY.reduce((s, [re, to]) => s.replace(re, to), c.trim());
+  const name = countryLabel(c);
   return THE_COUNTRY.test(name) ? `the ${name}` : name;
+}
+
+/** A country's name after a place, with no article: "near Strzelce Krajeńskie, Poland", "Hilo, United States". */
+export function countryLabel(c: string): string {
+  return COUNTRY_TIDY.reduce((s, [re, to]) => s.replace(re, to), c.trim());
+}
+
+/**
+ * "Strzelce Krajeńskie, Poland": a place named with its country when that is not the start's country
+ * (owner's decision, 14 November 2026, panel review), so people can place it. Left alone when either country
+ * is unknown, for the generic names (R56), and when the name is the country.
+ */
+export function withCountry(name: string, country: string | null | undefined, homeCountry: string | null | undefined): string {
+  if (!country || !homeCountry || country === homeCountry) return name;
+  if (name === GENERIC_LAND || name === GENERIC_SEA || /^countryside near /.test(name)) return name;
+  const c = countryLabel(country);
+  return name === c || name.endsWith(`, ${c}`) ? name : `${name}, ${c}`;
+}
+
+/** The start's country, from the gazetteer (null where it has no town near): what withCountry compares with. */
+export async function countryAt(p: LatLon): Promise<string | null> {
+  const place = await nearestPlace(p).catch(() => null);
+  return place?.kind === 'town' ? place.country ?? null : null;
 }
 
 /** "Over the North Sea", "Over Leeds". */
@@ -111,12 +134,12 @@ export async function placeOver(p: LatLon, labels: Label[]): Promise<string> {
 export async function townAhead(
   here: { lat: number; lon: number; headingDeg: number },
   radiusKm = 30,
-): Promise<{ name: string; population: number; distanceKm: number } | null> {
-  let best: { name: string; population: number; distanceKm: number } | null = null;
+): Promise<{ name: string; population: number; distanceKm: number; country: string } | null> {
+  let best: { name: string; population: number; distanceKm: number; country: string } | null = null;
   for (const t of await townsNear(here, radiusKm)) {
     const off = Math.abs(((bearingDeg(here, t) - here.headingDeg + 540) % 360) - 180);
     if ((t.distanceKm < 2 || off <= 35) && (!best || t.population > best.population)) {
-      best = { name: t.name, population: t.population, distanceKm: t.distanceKm };
+      best = { name: t.name, population: t.population, distanceKm: t.distanceKm, country: t.country };
     }
   }
   return best;

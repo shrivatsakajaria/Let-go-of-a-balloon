@@ -8,7 +8,8 @@ import tzlookup from '@photostructure/tz-lookup';
 import { FLIGHT_HOURS } from '../config';
 import type { Route } from '../flight/route';
 import type { LatLon } from '../geo/coords';
-import { countryName, withArticle } from '../geo/places';
+import { countryLabel, countryName, withArticle } from '../geo/places';
+import type { DirectorMode } from '../camera/director';
 import { localTime } from '../geo/time';
 
 const H = 3600e3;
@@ -150,7 +151,7 @@ export function climbFloor(y: number, tSec: number, releaseY: number, altM: numb
   return k > 0 && y < floor ? y + (floor - y) * k : y;
 }
 
-export type Landing = { name: string; kind: string };
+export type Landing = { name: string; kind: string; country?: string };
 export type AnnounceState = {
   phase: 'flying' | 'landed';
   home: string;
@@ -170,7 +171,8 @@ const whose = (own: boolean) => (own ? 'Your balloon' : 'This balloon');
 function landedWords(l: Landing | null): string {
   if (!l) return 'landed';
   if (l.kind === 'sea') return `came down in ${withArticle(l.name, 'sea')}`;
-  return l.kind === 'town' ? `landed near ${l.name}` : `landed in ${withArticle(l.name, l.kind)}`;
+  if (l.kind !== 'town') return `landed in ${withArticle(l.name, l.kind)}`;
+  return l.country ? `landed near ${l.name}, ${countryLabel(l.country)}` : `landed near ${l.name}`;
 }
 
 /** The line under the clock once it is down: "Landed near Bergen", "Came down in the North Sea". */
@@ -223,3 +225,11 @@ export function brightLuminance(rgba: Uint8Array): number {
 }
 
 export const FLIGHT_MS_TOTAL = FLIGHT_MS;
+
+/** The view switch is Film · Above · Side-on (owner's decision, 14 November 2026): Ride is one of Film's shots. */
+export const VIEW_TABS = ['film', 'above', 'side'] as const;
+export type ViewTab = (typeof VIEW_TABS)[number];
+/** The tab that shows as chosen for a camera mode: "ride" (from an older page or link) is Film. */
+export function viewTab(mode: DirectorMode | string): ViewTab {
+  return (VIEW_TABS as readonly string[]).includes(mode) ? (mode as ViewTab) : 'film';
+}

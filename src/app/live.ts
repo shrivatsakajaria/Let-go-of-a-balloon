@@ -18,7 +18,7 @@ import { balloonId, store } from '../flight/store';
 import { haversineKm, type LatLon } from '../geo/coords';
 import { factsFor, landingPlace } from '../geo/facts';
 import { GENERIC_LAND, nearestPlace, type Place } from '../geo/gazetteer';
-import { overText, placeOver, townAhead } from '../geo/places';
+import { countryAt, overText, placeOver, townAhead, withCountry } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type AnnounceState } from '../ui/hudmath';
@@ -699,17 +699,18 @@ export class Live {
         this.landing = await landingPlace(fl.route).catch(() => null);
         this.landingFor = fl.route;
       }
-      const [over, town, place] = await Promise.all([
+      const [over, town, place, homeCountry] = await Promise.all([
         placeOver(here, this.scene.labelsNear(here)).catch(() => ''),
         landed ? Promise.resolve(null) : townAhead(here).catch(() => null),
         nearestPlace(here).catch(() => null),
+        countryAt(fl.home),
       ]);
       if (this.flight !== fl || this.replayRun) return;
       this.over = over;
-      const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
-      this.overLine = landed ? landedOver(landing ?? null) : over ? overText(over) : '';
+      const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind, country: this.landing.country } : undefined;
+      this.overLine = landed ? landedOver(landing ?? null) : over ? overText(withCountry(over, place?.kind === 'town' ? place.country : null, homeCountry)) : '';
       this.hud.setOver(this.overLine);
-      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing }));
+      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing, homeCountry }));
 
       // film events: a coast crossed, a town reached
       const kind = place ? (place.kind === 'sea' ? 'sea' : 'land') : null;

@@ -1,6 +1,6 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { clearGazetteerCache } from '../../src/geo/gazetteer';
-import { countryName, overText, placeOver, withArticle } from '../../src/geo/places';
+import { countryLabel, countryName, overText, placeOver, withArticle, withCountry } from '../../src/geo/places';
 import type { Label } from '../../src/world/meshjob';
 import { stubGazetteer } from './helpers';
 
@@ -91,4 +91,23 @@ test('country names read naturally aloud: "the" where English uses it, and CLDR\
   expect(countryName('Bosnia & Herzegovina')).toBe('Bosnia and Herzegovina');
   expect(countryName('Trinidad & Tobago')).toBe('Trinidad and Tobago');
   expect(countryName('Palestinian Territories')).toBe('the Palestinian Territories');
+});
+
+describe('countries people can place (owner\'s decision, 14 November 2026, panel review)', () => {
+  test('countryLabel is the tidy name with no article', () => {
+    expect(countryLabel('United Kingdom')).toBe('United Kingdom');
+    expect(countryLabel('Congo - Kinshasa')).toBe('Democratic Republic of the Congo');
+    expect(countryLabel('Bosnia & Herzegovina')).toBe('Bosnia and Herzegovina');
+  });
+
+  test('withCountry adds the country only when it is not the start\'s', () => {
+    expect(withCountry('Strzelce Krajeńskie', 'Poland', 'Germany')).toBe('Strzelce Krajeńskie, Poland');
+    expect(withCountry('Tillingham', 'United Kingdom', 'United Kingdom')).toBe('Tillingham');
+    // unknown either side: left alone (the start's country is not known yet, or the place has none)
+    expect(withCountry('Tillingham', 'United Kingdom', null)).toBe('Tillingham');
+    expect(withCountry('the North Sea', undefined, 'United Kingdom')).toBe('the North Sea');
+    // generic names stay lower case and alone (R56); a name that is the country is not said twice
+    expect(withCountry('open countryside', 'France', 'United Kingdom')).toBe('open countryside');
+    expect(withCountry('Luxembourg', 'Luxembourg', 'Belgium')).toBe('Luxembourg');
+  });
 });

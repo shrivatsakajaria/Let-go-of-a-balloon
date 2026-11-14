@@ -164,3 +164,27 @@ test('townAhead picks the biggest town along the heading, not behind', async () 
   // open sea: nothing
   expect(await townAhead({ lat: 56, lon: 3, headingDeg: 90 })).toBeNull();
 });
+
+// owner's decision, 14 November 2026 (panel review): place names people can place
+test('the landing line always names the country of a town', () => {
+  const at = (l: FactState['landing']) => factsFor(state({ landing: l })).at(-1);
+  expect(at({ name: 'Strzelce Krajeńskie', kind: 'town', country: 'Poland' })).toBe('Expected to land near Strzelce Krajeńskie, Poland');
+  // tidied, with no article: "near Hilo, United States", never "the United States"
+  expect(at({ name: 'Hilo', kind: 'town', country: 'United States' })).toBe('Expected to land near Hilo, United States');
+  expect(at({ name: 'North Sea', kind: 'sea', country: undefined })).toBe('Expected to come down in the North Sea');
+});
+
+test('after landing the country is named too', () => {
+  const route = straightRoute({ lat: 60.39, lon: 5.32 }, RELEASE, 90, 0);
+  const now = RELEASE + 80 * HOUR;
+  const facts = factsFor({ route, nowUtcMs: now, home: MANCHESTER, here: positionAt(route, now), landing: { name: 'Bergen', kind: 'town', country: 'Norway' } });
+  expect(facts[0]).toBe('Landed near Bergen, Norway on Sun 15 Nov');
+});
+
+test('a town ahead in another country than the start is named with its country; at home it is not', () => {
+  const leeds = { name: 'Leeds', population: 455_000, distanceKm: 12, country: 'United Kingdom' };
+  const cross = (homeCountry: string | null) => factsFor(state({ nearestTown: leeds, homeCountry })).find((f) => f.startsWith('At this speed'));
+  expect(cross('United Kingdom')).toMatch(/cross Leeds in /);
+  expect(cross('Ireland')).toMatch(/cross Leeds, United Kingdom in /);
+  expect(cross(null)).toMatch(/cross Leeds in /);
+});

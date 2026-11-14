@@ -18,7 +18,7 @@ import { balloonId, store } from '../flight/store';
 import { haversineKm } from '../geo/coords';
 import { factsFor, landingPlace } from '../geo/facts';
 import { GENERIC_LAND, nearestPlace, type Place } from '../geo/gazetteer';
-import { overText, placeOver, townAhead } from '../geo/places';
+import { countryAt, overText, placeOver, townAhead, withCountry } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, type AnnounceState } from '../ui/hudmath';
@@ -504,15 +504,16 @@ export class Fallback implements World {
         this.landing = await landingPlace(fl.route).catch(() => null);
         this.landingFor = fl.route;
       }
-      const [over, town, place] = await Promise.all([
+      const [over, town, place, homeCountry] = await Promise.all([
         placeOver(here, []).catch(() => ''),
         landed ? Promise.resolve(null) : townAhead(here).catch(() => null),
         nearestPlace(here).catch(() => null),
+        countryAt(fl.home),
       ]);
       if (this.flight !== fl) return;
-      const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
-      this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
-      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing }));
+      const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind, country: this.landing.country } : undefined;
+      this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(withCountry(over, place?.kind === 'town' ? place.country : null, homeCountry)) : '');
+      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing, homeCountry }));
       const country = place?.kind === 'town' ? place.country ?? null : null;
       const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched ?? false };
       const say = announcement(this.said, next);
