@@ -10,6 +10,9 @@ import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from '.
  * worker, fails the test.
  */
 test.use(SWIFTSHADER);
+// The visitor here is in Manchester: search ranks results from the visitor's own country first (Task 29),
+// so the browser says so, as a British visitor's would.
+test.use({ locale: 'en-GB', timezoneId: 'Europe/London' });
 test.describe.configure({ mode: 'default', timeout: 120_000 });
 
 const RULES = parseHeaders(readFileSync(new URL('../public/_headers', import.meta.url), 'utf8'));
