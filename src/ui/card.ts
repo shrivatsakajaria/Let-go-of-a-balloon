@@ -1,15 +1,21 @@
 /**
- * The landing card (spec 6.5): a 1080 x 1350 postcard made in the browser, and the ways to pass it on.
+ * The landing card (spec 6.5, design A: the owner's decision of 14 November 2026): a 1080 x 1350
+ * postcard made in the browser, and the ways to pass it on.
  *
- *   top 60%     a high, angled golden-hour view of the landing area looking back along the route,
- *               a 6 px off-white trail and the balloon at the landing point (CardScene draws the view
- *               and projects the trail; with no 3D scene a plain golden-hour sketch of the route)
- *   bottom 40%  the scene fades into ink (no box) under the text:
- *               kicker 32 px, secondary  "Expected to land near" / "Landed near"
- *               headline 120 px condensed bold (88 px at the least), two lines at most, "to" regular
- *               three stats, values 56 px, labels 26 px: distance, time aloft, top speed
- *               the date and time it was let go, with the site address on the same row
- *               the card credit line, 22 px
+ *   the picture (top 1000 px)  the app's own low-poly world from high up, looking along the route,
+ *                              the Earth's curve arcing into a soft haze; graded to the landing's local
+ *                              time (golden hour, day, night with the towns lit); the route in orange,
+ *                              the start an off-white ring, the landing the balloon on a short string;
+ *                              a few country and sea names in light small caps; the two place names
+ *                              big, where they cover the least land, never the route or the markers
+ *   the panel                  the picture fades into ink (no box); "Landed · Thu 12 Nov, 18:48" (or
+ *                              "Expected to land", "Came down at sea"), the day-progress line, three
+ *                              big stats (distance, time aloft, top speed), a quiet comparison line
+ *                              when one fits, the small credit line with the site's address
+ *
+ * CardScene draws the picture (cardshot.ts: the card world; mapcard.ts: the 2D map); with neither, a
+ * plain map-less sketch. The same painter (paintCard) draws the still and every frame of the reveal,
+ * so the reveal ends exactly on the shared image.
  *
  * Sharing: the system share sheet with the image, the text and the link where files can be shared,
  * otherwise a download. In-app browsers (LinkedIn, X), where both are unreliable, get the card full
@@ -19,11 +25,36 @@
  */
 import { CARD_H, CARD_W, FLIGHT_HOURS } from '../config';
 import type { Route } from '../flight/route';
-import { haversineKm, type LatLon } from '../geo/coords';
+import { haversineKm, lonDelta, type LatLon } from '../geo/coords';
 import { withArticle } from '../geo/places';
 import { localTime } from '../geo/time';
+import { compareLine } from './cardcompare';
+import {
+  costGrid,
+  fitName,
+  KICKER_FONT,
+  MARGIN,
+  nameFont,
+  panelLayout,
+  PICTURE_H,
+  PLACE_FONT,
+  pickPlaces,
+  placeNamesFitting,
+  statFont,
+  subFont,
+  type Box,
+  type CardFont,
+  type Measure,
+  type NameBlock,
+  type Panel,
+  type PickedPlace,
+  type PlacedName,
+  type Pt,
+} from './cardplace';
 import { CARD_CREDIT } from './credits';
+import { countText, REVEALED, type RevealState } from './revealmath';
 
+export type { CardFont, Measure } from './cardplace';
 /** The card's credit line: the one in credits.ts, where every credit lives. */
 export { CARD_CREDIT };
 /** The address printed on the card. */
@@ -59,307 +90,164 @@ export type CardFacts = {
   /** The visitor's own balloon, or one from someone else's link. */
   own: boolean;
   releaseMs: number;
+  /** When it comes down (UTC ms). */
+  downMs: number;
+  /** When the card is made: how much of the trip is flown. */
+  nowMs: number;
   start: LatLon;
+  end: LatLon;
   distanceKm: number;
   hoursAloft: number;
   topSpeedKmh: number;
+  /** The country it was let go in (the comparison line), when known. */
+  country: string | null;
 };
 
-export function cardFacts(route: Route, o: { home: string; landing: Landing | null; own: boolean; now: number }): CardFacts {
+export function cardFacts(route: Route, o: { home: string; landing: Landing | null; own: boolean; now: number; country?: string | null }): CardFacts {
   const start = route.points[0];
   const last = route.points[route.points.length - 1];
   let top = 0;
   for (const p of route.points) if (Number.isFinite(p.speedMs)) top = Math.max(top, p.speedMs);
+  const downMs = route.release + FLIGHT_HOURS * 3600e3;
   return {
     home: o.home,
     landing: o.landing,
-    landed: o.now >= route.release + FLIGHT_HOURS * 3600e3,
+    landed: o.now >= downMs,
     own: o.own,
     releaseMs: route.release,
+    downMs,
+    nowMs: o.now,
     start: { lat: start.lat, lon: start.lon },
+    end: { lat: last.lat, lon: last.lon },
     distanceKm: haversineKm(start, last),
     hoursAloft: FLIGHT_HOURS,
     topSpeedKmh: top * 3.6,
+    country: o.country ?? null,
   };
 }
 
+export type CardStat = { label: string; value: string; num: number; decimals: number; unit: string };
+
 export type CardWords = {
+  /** The panel's first word: "Landed", "Expected to land", "Came down at sea", "Expected to come down at sea". */
   kicker: string;
+  /** When it comes down, local time there: "Thu 12 Nov, 18:48". */
+  when: string;
+  /** The start's name, big ("Manchester"). */
   from: string;
+  /** Under it: "Let go Mon 9 Nov, 18:48" (local time there). */
+  fromLine: string;
   /** The landing place with its article ("Bergen", "the North Sea"); empty when it has no name. */
   to: string;
-  /** "Expected to land near Bergen", "Came down in the North Sea". */
+  /** The landing's name as the map shows it, big ("Bergen", "North Sea"); empty when it has none. */
+  toName: string;
+  /** "Expected to land near Bergen", "Came down in the North Sea" (the card's title and alt text). */
   sentence: string;
   shareText: string;
   /** The card as words, for the image's alt text. */
   alt: string;
-  stats: { label: string; value: string }[];
-  when: string;
+  stats: CardStat[];
+  /** "About the length of Britain", or null. */
+  compare: string | null;
   site: string;
   credit: string;
+  /** The small print: the site's address and the credits. */
+  creditLine: string;
   filename: string;
+  /** The day-progress line: local midnights as shares of the 72 hours, and how much is flown (0..1). */
+  ticks: number[];
+  flown: number;
+  landed: boolean;
 };
 
-const km = (d: number) => (d < 10 ? `${d.toFixed(1)} km` : `${Math.round(d).toLocaleString('en-GB')} km`);
-
-function whenText(utcMs: number, start: LatLon): string {
-  let tz = 'UTC';
+const tzOf = (p: LatLon) => {
   try {
-    tz = localTime(utcMs, start).tz;
+    return localTime(0, p).tz;
   } catch {
-    /* keep UTC */
+    return 'UTC';
   }
+};
+
+function dayTime(utcMs: number, tz: string): string {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(utcMs));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return `Let go on ${get('weekday')} ${get('day')} ${get('month')} at ${get('hour')}:${get('minute')}`;
+  return `${get('weekday')} ${get('day')} ${get('month')}, ${get('hour')}:${get('minute')}`;
+}
+
+/** Local midnights at `p` between from and to, as shares of the span (the string line's ticks). */
+export function midnights(fromMs: number, toMs: number, p: LatLon): number[] {
+  const tz = tzOf(p);
+  const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric' });
+  const out: number[] = [];
+  const step = 15 * 60e3;
+  let day = fmt.format(new Date(fromMs));
+  for (let t = fromMs + step; t <= toMs; t += step) {
+    const d = fmt.format(new Date(t));
+    if (d !== day) out.push((t - fromMs) / (toMs - fromMs));
+    day = d;
+  }
+  return out;
 }
 
 const slug = (s: string) =>
   s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+const kmStat = (d: number): CardStat => {
+  const decimals = d < 10 ? 1 : 0;
+  const num = decimals ? Math.round(d * 10) / 10 : Math.round(d);
+  return { label: 'Distance', value: `${num.toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} km`, num, decimals, unit: 'km' };
+};
+
 export function cardWords(f: CardFacts): CardWords {
   const l = f.landing;
   const to = l ? withArticle(l.name, l.kind) : '';
-  let kicker: string;
+  const sea = l?.kind === 'sea';
+  // the panel: R56 at sea; otherwise as the string line says it
+  const kicker = sea ? (f.landed ? 'Came down at sea' : 'Expected to come down at sea') : f.landed ? 'Landed' : 'Expected to land';
   let verb: string; // after "My balloon from Manchester ..."
+  let sentence: string;
   if (!l) {
-    kicker = 'Let go from';
     verb = f.landed ? 'has landed' : 'is on its way';
+    sentence = `${f.landed ? 'Landed' : 'On its way'} · let go from ${f.home}`;
   } else {
     const prep = l.kind === 'town' ? 'near' : 'in';
-    const action = l.kind === 'sea' ? (f.landed ? 'Came down' : 'Expected to come down') : f.landed ? 'Landed' : 'Expected to land';
-    kicker = `${action} ${prep}`;
-    const v = l.kind === 'sea' ? (f.landed ? 'came down' : 'is expected to come down') : f.landed ? 'landed' : 'is expected to land';
+    const action = sea ? (f.landed ? 'Came down' : 'Expected to come down') : f.landed ? 'Landed' : 'Expected to land';
+    sentence = `${action} ${prep} ${to}`;
+    const v = sea ? (f.landed ? 'came down' : 'is expected to come down') : f.landed ? 'landed' : 'is expected to land';
     verb = `${v} ${prep} ${to}`;
   }
-  const sentence = l ? `${kicker} ${to}` : `${kicker} ${f.home}`;
-  const stats = [
-    { label: 'Distance', value: km(f.distanceKm) },
-    { label: 'Time aloft', value: `${f.hoursAloft} h` },
-    { label: 'Top speed', value: `${f.topSpeedKmh < 9.95 ? f.topSpeedKmh.toFixed(1) : Math.round(f.topSpeedKmh)} km/h` },
+  const top = f.topSpeedKmh;
+  const topDec = top < 9.95 ? 1 : 0;
+  const topNum = topDec ? Math.round(top * 10) / 10 : Math.round(top);
+  const stats: CardStat[] = [
+    kmStat(f.distanceKm),
+    { label: 'Time aloft', value: `${f.hoursAloft} h`, num: f.hoursAloft, decimals: 0, unit: 'h' },
+    { label: 'Top speed', value: `${topNum.toFixed(topDec)} km/h`, num: topNum, decimals: topDec, unit: 'km/h' },
   ];
   const from = f.home.charAt(0).toUpperCase() + f.home.slice(1);
   const route = to ? `${from} to ${to}` : `From ${f.home}`;
+  const when = dayTime(f.downMs, tzOf(f.end));
+  const compare = compareLine(f.distanceKm, f.country, { start: f.start, end: f.end });
   return {
     kicker,
+    when,
     from,
+    fromLine: `Let go ${dayTime(f.releaseMs, tzOf(f.start))}`,
     to,
+    toName: l ? (sea ? l.name.replace(/^the\s/i, '') : l.name) : '',
     sentence,
     shareText: `${f.own ? 'My' : 'A'} balloon from ${f.home} ${verb}.`,
-    alt: `${sentence}. ${route}: ${stats[0].value} in ${f.hoursAloft} hours, top speed ${stats[2].value}.`,
+    alt: `${sentence}, ${when}. ${route}: ${stats[0].value} in ${f.hoursAloft} hours, top speed ${stats[2].value}.${compare ? ` ${compare}.` : ''}`,
     stats,
-    when: whenText(f.releaseMs, f.start),
+    compare,
     site: CARD_SITE,
     credit: CARD_CREDIT,
+    creditLine: `${CARD_SITE} · ${CARD_CREDIT}`,
     filename: `balloon-${[slug(f.home), to ? 'to' : '', slug(to.replace(/^the\s/i, ''))].filter(Boolean).join('-') || 'card'}.png`,
+    ticks: midnights(f.releaseMs, f.downMs, f.start),
+    flown: Math.max(0, Math.min(1, (f.nowMs - f.releaseMs) / (f.downMs - f.releaseMs))),
+    landed: f.landed,
   };
-}
-
-// ---- layout ----
-
-export type CardFont = { size: number; weight: number; condensed: boolean };
-export type Measure = (text: string, font: CardFont) => number;
-export type Segment = { text: string; bold: boolean };
-export type Headline = { size: number; lines: Segment[][] };
-
-const H_MAX = 120;
-/** Two lines are set no larger than this, so the text block starts below the 60% line. */
-const H_TWO_MAX = 108;
-const H_MIN = 88;
-const H_STEP = 4;
-const headFont = (size: number, bold: boolean): CardFont => ({ size, weight: bold ? 700 : 400, condensed: true });
-const lineWidth = (line: Segment[], size: number, m: Measure) => line.reduce((w, s) => w + m(s.text, headFont(size, s.bold)), 0);
-
-/** Merge neighbours of the same weight; a space belongs to the word before it. */
-function toLine(words: Segment[]): Segment[] {
-  const out: Segment[] = [];
-  words.forEach((w, i) => {
-    const text = i < words.length - 1 ? `${w.text} ` : w.text;
-    const prev = out[out.length - 1];
-    if (prev && prev.bold === w.bold) prev.text += text;
-    else out.push({ text, bold: w.bold });
-  });
-  return out;
-}
-
-/** Words into lines, greedily; each line is still a list of words. */
-function greedy(words: Segment[], size: number, m: Measure, max: number): Segment[][] {
-  const lines: Segment[][] = [];
-  let cur: Segment[] = [];
-  for (const w of words) {
-    if (cur.length && lineWidth(toLine([...cur, w]), size, m) > max) {
-      lines.push(cur);
-      cur = [w];
-    } else cur.push(w);
-  }
-  if (cur.length) lines.push(cur);
-  return lines;
-}
-
-function ellipsize(line: Segment[], size: number, m: Measure, max: number): Segment[] {
-  const segs = line.map((s) => ({ ...s }));
-  const fits = () => lineWidth(segs, size, m) <= max;
-  const last = () => segs[segs.length - 1];
-  last().text = last().text.trimEnd() + '…';
-  while (!fits() && segs.length) {
-    const s = last();
-    const body = s.text.slice(0, -1).trimEnd();
-    if (!body) {
-      segs.pop();
-      if (segs.length) last().text = last().text.trimEnd() + '…';
-      continue;
-    }
-    s.text = body.slice(0, -1).trimEnd() + '…';
-  }
-  return segs;
-}
-
-/**
- * "Manchester to Bergen" at the largest size from 120 px down to 88 px that fits in two lines of
- * maxWidth: one line if it can, else broken before "to" ("Manchester" / "to Bergen"), else word by
- * word; two lines at 108 px at the most. Past 88 px the second line ends in an ellipsis.
- */
-export function fitHeadline(from: string, to: string, m: Measure, maxWidth: number): Headline {
-  const split = (s: string, bold: boolean) => s.split(/\s+/).filter(Boolean).map((text) => ({ text, bold }));
-  const fromW = split(from, true);
-  const toW = to ? [{ text: 'to', bold: false }, ...split(to, true)] : [];
-  const all = [...fromW, ...toW];
-  const ok = (lines: Segment[][], size: number) => lines.length <= 2 && lines.every((l) => lineWidth(l, size, m) <= maxWidth);
-  for (let size = H_MAX; size >= H_MIN; size -= H_STEP) {
-    const one = [toLine(all)];
-    if (ok(one, size)) return { size, lines: one };
-    if (size > H_TWO_MAX) continue;
-    if (toW.length) {
-      const two = [toLine(fromW), toLine(toW)];
-      if (ok(two, size)) return { size, lines: two };
-    }
-    const g = greedy(all, size, m, maxWidth).map(toLine);
-    if (ok(g, size)) return { size, lines: g };
-  }
-  // still too long at 88 px: the first line as it wraps, everything else on the second, cut short
-  const g = greedy(all, H_MIN, m, maxWidth);
-  const lines = [g[0], g.slice(1).flat()].filter((l) => l.length).map(toLine);
-  return { size: H_MIN, lines: lines.map((l) => (lineWidth(l, H_MIN, m) > maxWidth ? ellipsize(l, H_MIN, m, maxWidth) : l)) };
-}
-
-export type CardText = {
-  role: 'kicker' | 'headline' | 'stat-value' | 'stat-label' | 'when' | 'site' | 'credit';
-  text: string;
-  /** Left edge and baseline, card px. */
-  x: number;
-  y: number;
-  width: number;
-  size: number;
-  weight: number;
-  condensed: boolean;
-  /** Primary (off-white) or secondary (off-white at 72%). */
-  tone: 'primary' | 'secondary';
-};
-
-export type CardLayout = {
-  width: number;
-  height: number;
-  /** The 3D view is drawn over 0..sceneBottom. */
-  sceneBottom: number;
-  /** Where the fade into ink starts and where it is complete. */
-  fadeTop: number;
-  fadeBottom: number;
-  headline: Headline;
-  texts: CardText[];
-};
-
-export const CARD_MARGIN = 72;
-const BOTTOM = 52;
-/** The view covers the top of the card; the fade into ink starts high enough to sit under the text. */
-export const CARD_SCENE_H = 1000;
-
-function wrap(text: string, f: CardFont, m: Measure, max: number): string[] {
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (cur && m(next, f) > max) {
-      lines.push(cur);
-      cur = w;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
-
-/** The credit line, broken only between credits (the " · " at a break is left out); a credit too long for a line wraps by word. */
-function wrapCredits(text: string, f: CardFont, m: Measure, max: number): string[] {
-  const lines: string[] = [];
-  let cur = '';
-  for (const part of text.split(' · ')) {
-    const next = cur ? `${cur} · ${part}` : part;
-    if (cur && m(next, f) > max) {
-      lines.push(cur);
-      cur = part;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines.flatMap((l) => (m(l, f) > max ? wrap(l, f, m, max) : [l]));
-}
-
-/** Where every piece of text goes, laid out from the bottom up so the stack always ends at the same place. */
-export function cardLayout(w: CardWords, m: Measure): CardLayout {
-  const W = CARD_W, H = CARD_H, X = CARD_MARGIN, inner = W - 2 * X;
-  const texts: CardText[] = [];
-  const put = (role: CardText['role'], text: string, x: number, y: number, f: CardFont, tone: CardText['tone']) => {
-    texts.push({ role, text, x, y, width: m(text, f), size: f.size, weight: f.weight, condensed: f.condensed, tone });
-  };
-
-  // credits, 22 px, wrapped
-  const creditF: CardFont = { size: 22, weight: 450, condensed: false };
-  const credit = wrapCredits(w.credit, creditF, m, inner);
-  let y = H - BOTTOM - (credit.length - 1) * 30;
-  credit.forEach((line, i) => put('credit', line, X, y + i * 30, creditF, 'secondary'));
-
-  // the date and time it was let go, then the site address, each on its own line
-  const metaF: CardFont = { size: 26, weight: 500, condensed: false };
-  y -= 34;
-  put('site', w.site, X, y, metaF, 'secondary');
-  y -= 32;
-  put('when', w.when, X, y, metaF, 'secondary');
-  y -= 19 + 28;
-
-  // stats: value over label, in thirds
-  const valF: CardFont = { size: 56, weight: 650, condensed: true };
-  const labF: CardFont = { size: 26, weight: 500, condensed: false };
-  w.stats.forEach((s, i) => {
-    const x = X + (i * inner) / 3;
-    put('stat-label', s.label, x, y, labF, 'secondary');
-    put('stat-value', s.value, x, y - 26 - 8, valF, 'primary');
-  });
-  // from the labels' baseline to the headline's: the values (41 px caps) and room for descenders;
-  // a one-line headline has the room to stand further off
-  const head = fitHeadline(w.from, w.to, m, inner);
-  y -= 26 + 8 + 41 + (head.lines.length > 1 ? 34 : 56);
-
-  // headline
-  const lh = Math.round(head.size * 0.92);
-  const lines = head.lines;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    let x = X;
-    for (const s of lines[i]) {
-      const f = headFont(head.size, s.bold);
-      put('headline', s.text, x, y, f, 'primary');
-      x += m(s.text, f);
-    }
-    if (i > 0) y -= lh;
-  }
-  // the kicker sits a little above the headline's cap height
-  const capTop = y - head.size * 0.72;
-  const kickF: CardFont = { size: 32, weight: 500, condensed: false };
-  const ky = Math.round(capTop - 22);
-  put('kicker', w.kicker, X, ky, kickF, 'secondary');
-
-  // the fade: complete just above the kicker, starting about 240 px higher
-  const fadeBottom = Math.round(ky - 32 - 8);
-  const fadeTop = fadeBottom - 240;
-  return { width: W, height: H, sceneBottom: CARD_SCENE_H, fadeTop, fadeBottom, headline: head, texts };
 }
 
 // ---- the picture ----
@@ -372,7 +260,7 @@ const WARM_SAT_MAX = 0.5;
  * light come out as saturated as the balloon, which must stay the one bright thing on the card
  * (spec 7). Pixels with a hue between orange-red and amber (about 8 to 45 degrees, feathered to 0
  * and 55) keep their hue and brightness but lose saturation above WARM_SAT_MAX; everything else
- * (greens, sea, the pale sky) is left as it is. The balloon is drawn afterwards.
+ * (greens, sea, the pale sky) is left as it is. The route and the balloon are drawn afterwards.
  */
 export function tameWarm(px: Uint8ClampedArray | Uint8Array): void {
   const ramp = (a: number, b: number, x: number) => Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -394,28 +282,106 @@ export function tameWarm(px: Uint8ClampedArray | Uint8Array): void {
   }
 }
 
-// ---- drawing ----
-
-/** What a 3D view of the landing area gives the card: the picture, and the trail projected onto it. */
-export type CardFrame = {
-  image: CanvasImageSource;
-  /** Polylines in frame px; `a` is how clear each point is through the haze (0..1). */
-  trail: { x: number; y: number; a: number }[][];
-  /** The landing point on the ground, frame px. */
-  landing: { x: number; y: number } | null;
-  /** The start, when it is in the picture (a small route knot, as on the string line). */
-  start?: { x: number; y: number; a: number } | null;
+/**
+ * What a scene gives the card: the picture (1080 x 1000; its sky clear where the sky is painted under
+ * it) and, in picture pixels, what is drawn over it.
+ */
+export type CardPicture = {
+  image: CanvasImageSource | null;
+  /** The sky's colours (painted under a picture whose sky is clear), and how dark the night is (0..1). */
+  sky: { top: string; horizon: string; night: number };
+  /** The route, start to landing, each point with whether it is in sight and its time (s from release). */
+  route: { x: number; y: number; seen: boolean }[];
+  routeSec: number[];
+  start: Pt | null;
+  landing: Pt | null;
+  horizon: Pt[];
+  places: { text: string; kind: 'country' | 'sea'; rank: number; x: number; y: number }[];
+  towns: { x: number; y: number; rank: number }[];
 };
 
 /**
  * `alive` says whether the card is still wanted (a long render stops early when it is not); `gate`,
  * when given, holds the picture itself back until it resolves (the land can load meanwhile).
  */
-export type CardScene = { cardFrame(route: Route, w: number, h: number, alive?: () => boolean, gate?: Promise<void>): CardFrame | null | Promise<CardFrame | null> };
+export type CardScene = {
+  cardPicture(route: Route, alive?: () => boolean, gate?: Promise<void>): CardPicture | null | Promise<CardPicture | null>;
+};
+
+// ---- the plan: where the words go, worked out once from the finished picture ----
+
+export type CardPlan = {
+  start: { block: NameBlock; at: PlacedName } | null;
+  landing: { block: NameBlock; at: PlacedName } | null;
+  places: PickedPlace[];
+  panel: Panel;
+};
 
 const PAPER = '247, 243, 236';
 const INK = '10, 14, 28';
 const ORANGE = '#ff5a12';
+const BALLOON_R = 22;
+const BALLOON_LIFT = 58;
+
+/** The start ring's box and the balloon's, in picture pixels (the big names keep clear of them). */
+const ringBox = (p: Pt): Box => ({ x0: p.x - 20, y0: p.y - 20, x1: p.x + 20, y1: p.y + 20 });
+const balloonBox = (p: Pt, s = 1): Box => ({ x0: p.x - (BALLOON_R + 8) * s, y0: p.y - (BALLOON_LIFT + BALLOON_R + 6) * s, x1: p.x + (BALLOON_R + 8) * s, y1: p.y + 8 });
+
+/** The seen points of the route, as one or more polylines. */
+function routeLines(pic: CardPicture, share = 1): Pt[][] {
+  const out: Pt[][] = [];
+  let cur: Pt[] = [];
+  const n = pic.route.length;
+  const last = share >= 1 ? n - 1 : Math.floor(share * (n - 1));
+  for (let i = 0; i <= last && i < n; i++) {
+    const p = pic.route[i];
+    if (!p.seen) {
+      if (cur.length > 1) out.push(cur);
+      cur = [];
+      continue;
+    }
+    cur.push({ x: p.x, y: p.y });
+  }
+  // the part of the segment still to come
+  if (share < 1 && last + 1 < n && pic.route[last + 1].seen && cur.length) {
+    const f = share * (n - 1) - last;
+    const a = pic.route[last], b = pic.route[last + 1];
+    cur.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+  }
+  if (cur.length > 1) out.push(cur);
+  return out;
+}
+
+/** Where everything goes on the finished card: the names by the picture's pixels, the map's names, the panel. */
+export function planCard(pic: CardPicture, words: CardWords, m: Measure, pixels: Uint8ClampedArray | null): CardPlan {
+  const grid = pixels ? costGrid(pixels, CARD_W, PICTURE_H) : costGrid(new Uint8ClampedArray(CARD_W * PICTURE_H * 4), CARD_W, PICTURE_H);
+  const line = routeLines(pic).flat();
+  const bounds: Box = { x0: 44, y0: 36, x1: CARD_W - 44, y1: 0 };
+  const panel = panelLayout({ kicker: words.kicker, when: words.when, stats: words.stats.map((s) => ({ label: s.label, num: s.value.replace(/\s.*$/, ''), unit: s.unit })), compare: words.compare, credit: words.creditLine, ticks: words.ticks }, m);
+  bounds.y1 = panel.fadeBottom - 4;
+  // the largest size at which neither name has to cover the route or a marker
+  const ps = pic.start, pl = pic.landing;
+  const placed = placeNamesFitting({
+    start: ps ? (size) => ({ block: fitName(words.from, words.fromLine, m, undefined, size), at: ps, clear: ringBox(ps) }) : null,
+    landing: pl && words.toName ? (size) => ({ block: fitName(words.toName, '', m, undefined, size), at: pl, clear: balloonBox(pl) }) : null,
+    route: line,
+    grid,
+    bounds,
+  });
+  const sBlock = placed.startIn?.block ?? null;
+  const lBlock = placed.landingIn?.block ?? null;
+  const avoid = [placed.start?.box, placed.landing?.box, pic.start && ringBox(pic.start), pic.landing && balloonBox(pic.landing)].filter((b): b is Box => !!b);
+  const skyY = pic.horizon.length ? Math.max(...pic.horizon.map((p) => p.y)) : undefined;
+  const places = pickPlaces({ places: pic.places, route: line, avoid, m, bounds: { x0: 44, y0: 36, x1: CARD_W - 44, y1: panel.fadeTop + 60 }, skyY, exclude: [words.toName, words.from] });
+  return {
+    start: sBlock && placed.start ? { block: sBlock, at: placed.start } : null,
+    landing: lBlock && placed.landing ? { block: lBlock, at: placed.landing } : null,
+    places,
+    panel,
+  };
+}
+
+// ---- painting ----
 
 function setFont(ctx: CanvasRenderingContext2D, f: CardFont): void {
   ctx.font = `${f.weight} ${f.size}px Archivo, ui-sans-serif, system-ui, sans-serif`;
@@ -423,110 +389,183 @@ function setFont(ctx: CanvasRenderingContext2D, f: CardFont): void {
   if ('fontStretch' in c) c.fontStretch = f.condensed ? 'extra-condensed' : 'normal';
 }
 
+/** Text with extra space between the letters (small caps), drawn letter by letter (any browser). */
+function spaced(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, spacing: number): void {
+  let cx = x;
+  for (const ch of text) {
+    ctx.fillText(ch, cx, y);
+    cx += ctx.measureText(ch).width + spacing;
+  }
+}
+
 export function canvasMeasure(ctx: CanvasRenderingContext2D): Measure {
   return (text, f) => {
     setFont(ctx, f);
-    return ctx.measureText(text).width;
+    if (!f.spacing) return ctx.measureText(text).width;
+    let w = 0;
+    for (const ch of text) w += ctx.measureText(ch).width + f.spacing;
+    return w - f.spacing;
   };
 }
 
 /** Wait for the card's faces (one variable file: weight 400-700, width 62-100). */
-async function fontsReady(): Promise<void> {
+export async function fontsReady(): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return;
   try {
-    await Promise.all(['700 120px Archivo', '400 120px Archivo', '500 32px Archivo'].map((f) => document.fonts.load(f)));
+    await Promise.all(['700 120px Archivo', '450 32px Archivo', '600 22px Archivo'].map((f) => document.fonts.load(f)));
   } catch {
     /* the fallback face draws it */
   }
 }
 
-/** No 3D view (the 2D fallback, or no WebGL): a golden-hour sky over the route drawn as a sketch. */
-function sketchFrame(route: Route, w: number, h: number): CardFrame {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const g = c.getContext('2d')!;
-  const horizon = h * 0.2;
-  const sky = g.createLinearGradient(0, 0, 0, horizon);
-  sky.addColorStop(0, '#8292b4');
-  sky.addColorStop(1, '#f1c592');
-  g.fillStyle = sky;
-  g.fillRect(0, 0, w, horizon);
-  const land = g.createLinearGradient(0, horizon, 0, h);
-  land.addColorStop(0, '#cdbd8e');
-  land.addColorStop(0.5, '#a9bd78');
-  land.addColorStop(1, '#7f9f63');
-  g.fillStyle = land;
-  g.fillRect(0, horizon, w, h - horizon);
-  // the route in an oblique view: the landing near, the start toward the horizon
-  const last = route.points[route.points.length - 1];
-  const cos = Math.cos((last.lat * Math.PI) / 180);
-  const pts = route.points.map((p) => ({ e: (p.lon - last.lon) * cos, n: p.lat - last.lat }));
-  const back = pts[0];
-  const ang = Math.atan2(back.e, back.n);
-  const span = Math.max(1e-6, ...pts.map((p) => Math.hypot(p.e, p.n)));
-  const out = pts.map((p) => {
-    // rotate so the start lies straight ahead, then squash with depth
-    const fwd = (p.e * Math.sin(ang) + p.n * Math.cos(ang)) / span;
-    const side = (p.e * Math.cos(ang) - p.n * Math.sin(ang)) / span;
-    const depth = 1 + 3 * Math.max(0, fwd);
-    return { x: w / 2 + (side * w * 0.45) / depth, y: horizon + (h * 0.42 - horizon) / depth, a: 1 - 0.6 * Math.max(0, fwd) };
-  });
-  return { image: c, trail: [out], landing: out[out.length - 1], start: out[0] };
+/**
+ * The sky behind the picture: deep overhead, the haze at the curved horizon; under the horizon the
+ * haze's own colour, so far land that is not drawn reads as haze, never as sky.
+ */
+function paintSky(ctx: CanvasRenderingContext2D, pic: CardPicture): void {
+  if (!pic.horizon.length) {
+    ctx.fillStyle = pic.sky.horizon;
+    ctx.fillRect(0, 0, CARD_W, PICTURE_H);
+    return;
+  }
+  const hy = Math.max(...pic.horizon.map((p) => p.y));
+  const g = ctx.createLinearGradient(0, 0, 0, Math.max(40, hy));
+  g.addColorStop(0, pic.sky.top);
+  g.addColorStop(0.6, mix(pic.sky.top, pic.sky.horizon, 0.4));
+  g.addColorStop(1, pic.sky.horizon);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CARD_W, PICTURE_H);
+  if (pic.sky.night > 0.4) {
+    // a few stars in the sky (always the same ones); the haze under the horizon covers the rest
+    let s = 7;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    ctx.fillStyle = `rgba(${PAPER}, ${(0.55 * pic.sky.night).toFixed(3)})`;
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * CARD_W, y = rnd() * hy;
+      ctx.fillRect(x, y, 1.6, 1.6);
+    }
+  }
+  ctx.fillStyle = pic.sky.horizon;
+  ctx.beginPath();
+  pic.horizon.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.lineTo(pic.horizon[pic.horizon.length - 1].x, PICTURE_H);
+  ctx.lineTo(pic.horizon[0].x, PICTURE_H);
+  ctx.closePath();
+  ctx.fill();
 }
 
-function drawTrail(ctx: CanvasRenderingContext2D, frame: CardFrame): void {
+/** A soft band of haze along the curved horizon, over the picture's edge (the land fades into it). */
+function paintLimb(ctx: CanvasRenderingContext2D, pic: CardPicture): void {
+  if (pic.horizon.length < 2) return;
   ctx.save();
-  ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const raw of frame.trail) {
-    // far points crowd together near the horizon: keep one per 1.5 px
-    const line = raw.filter((p, i) => i === 0 || i === raw.length - 1 || Math.hypot(p.x - raw[i - 1].x, p.y - raw[i - 1].y) >= 1.5 || p.a > 0.9);
-    if (line.length < 2) continue;
-    // one path per line (overlapping segments would build up), shaded from its haziest to its clearest point
-    const near = line.reduce((p, q) => (q.a > p.a ? q : p));
-    const far = line.reduce((p, q) => (q.a < p.a ? q : p));
-    const along = Math.hypot(near.x - far.x, near.y - far.y) > 1;
-    const paint = (rgb: string, alpha: (a: number) => number) => {
-      if (!along) return `rgba(${rgb}, ${alpha(near.a).toFixed(3)})`;
-      const g = ctx.createLinearGradient(far.x, far.y, near.x, near.y);
-      for (const t of [0, 0.25, 0.5, 0.75, 1]) g.addColorStop(t, `rgba(${rgb}, ${alpha(far.a + (near.a - far.a) * t).toFixed(3)})`);
-      return g;
-    };
-    ctx.beginPath();
-    ctx.moveTo(line[0].x, line[0].y);
-    for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
-    // a faint ink edge keeps the line clear over chalk and sand, only where it is clear itself
-    ctx.strokeStyle = paint(INK, (a) => 0.16 * a ** 4);
-    ctx.lineWidth = 8;
-    ctx.stroke();
-    ctx.strokeStyle = paint(PAPER, (a) => a);
-    ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  pic.horizon.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  // many faint strokes, each wider: brightest on the line, fading smoothly either side
+  ctx.strokeStyle = withAlpha(lighten(pic.sky.horizon, 0.3), 0.035 * (1 - 0.6 * pic.sky.night));
+  for (let i = 1; i <= 24; i++) {
+    ctx.lineWidth = i * 5;
     ctx.stroke();
   }
   ctx.restore();
 }
 
-/** The balloon at the landing point: the one bright thing on the card. */
-function drawBalloon(ctx: CanvasRenderingContext2D, at: { x: number; y: number }): void {
-  const r = 15, lift = 40;
+/** At night, the towns lit: warm points with a soft halo, the big ones brighter. */
+function paintLights(ctx: CanvasRenderingContext2D, pic: CardPicture, alpha: number): void {
+  const k = Math.max(0, (pic.sky.night - 0.35) / 0.65) * alpha;
+  if (k <= 0.01) return;
+  ctx.save();
+  for (const t of pic.towns.slice(0, 140)) {
+    if (t.y < 0 || t.y > PICTURE_H || t.x < 0 || t.x > CARD_W) continue;
+    const big = Math.max(0, 7 - t.rank) / 6; // rank 1 (capital) .. 7+
+    const r = 5 + 11 * big;
+    const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r);
+    g.addColorStop(0, `rgba(255, 214, 150, ${(0.55 * k).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(255, 214, 150, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(t.x - r, t.y - r, 2 * r, 2 * r);
+    ctx.fillStyle = `rgba(255, 242, 216, ${(0.95 * k).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 1.3 + 1.4 * big, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The route in orange: flown solid, still to come (a forecast) dashed; a faint ink edge so it reads over pale ground. */
+function paintRoute(ctx: CanvasRenderingContext2D, pic: CardPicture, words: CardWords, share: number): void {
+  const flownSec = words.landed ? Infinity : words.flown * FLIGHT_HOURS * 3600;
+  const lines = routeLines(pic, share);
+  if (!lines.length) return;
+  // the index where the forecast starts
+  let cut = pic.routeSec.findIndex((s) => s > flownSec);
+  if (cut < 0) cut = pic.route.length;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const stroke = (pts: Pt[], dash: boolean) => {
+    if (pts.length < 2) return;
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.setLineDash(dash ? [14, 12] : []);
+    ctx.strokeStyle = `rgba(${INK}, 0.28)`;
+    ctx.lineWidth = 10;
+    ctx.stroke();
+    ctx.strokeStyle = ORANGE;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  };
+  if (cut >= pic.route.length) for (const l of lines) stroke(l, false);
+  else {
+    // split by time: the route's own points, flown then forecast
+    const all = routeLines({ ...pic, route: pic.route.map((p, i) => ({ ...p, seen: p.seen && i <= cut })) }, share);
+    const rest = routeLines({ ...pic, route: pic.route.map((p, i) => ({ ...p, seen: p.seen && i >= cut })) }, share);
+    for (const l of all) stroke(l, false);
+    for (const l of rest) stroke(l, true);
+  }
+  ctx.restore();
+}
+
+/** The start: an off-white ring. */
+function paintStart(ctx: CanvasRenderingContext2D, p: Pt): void {
+  ctx.save();
+  ctx.fillStyle = `rgba(${INK}, 0.45)`;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = `rgb(${PAPER})`;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.fillStyle = `rgb(${PAPER})`;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** The balloon at the landing on a short string: the one bright thing on the card. `s` scales it (the reveal's close-up). */
+export function paintBalloon(ctx: CanvasRenderingContext2D, at: Pt, s = 1): void {
+  const r = BALLOON_R * s, lift = BALLOON_LIFT * s;
   const cx = at.x, cy = at.y - lift;
   ctx.save();
-  // string
-  ctx.strokeStyle = `rgba(${PAPER}, 0.9)`;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = `rgba(${PAPER}, 0.92)`;
+  ctx.lineWidth = Math.max(2, 2.4 * Math.sqrt(s));
+  ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(cx, cy + r + 4);
-  ctx.quadraticCurveTo(cx + 5, at.y - lift / 2, at.x, at.y);
+  ctx.moveTo(cx, cy + r + 4 * s);
+  ctx.bezierCurveTo(cx + 7 * s, cy + r + lift * 0.3, at.x - 6 * s, at.y - lift * 0.3, at.x, at.y);
   ctx.stroke();
-  // knot
+  ctx.fillStyle = `rgb(${PAPER})`;
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, 3.2 * Math.sqrt(s), 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = '#e04a08';
   ctx.beginPath();
-  ctx.moveTo(cx - 3.5, cy + r + 5);
-  ctx.lineTo(cx + 3.5, cy + r + 5);
-  ctx.lineTo(cx, cy + r - 1);
+  ctx.moveTo(cx - 4 * s, cy + r + 5 * s);
+  ctx.lineTo(cx + 4 * s, cy + r + 5 * s);
+  ctx.lineTo(cx, cy + r - 1 * s);
   ctx.fill();
-  // body, lit from the low sun
   const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r * 1.1);
   body.addColorStop(0, '#ff9a62');
   body.addColorStop(0.45, ORANGE);
@@ -538,18 +577,166 @@ function drawBalloon(ctx: CanvasRenderingContext2D, at: { x: number; y: number }
   ctx.restore();
 }
 
-/** The fade into ink: eased stops, so no edge shows. */
-function drawFade(ctx: CanvasRenderingContext2D, L: CardLayout): void {
-  const g = ctx.createLinearGradient(0, L.fadeTop, 0, L.fadeBottom);
+function paintFade(ctx: CanvasRenderingContext2D, top: number, bottom: number): void {
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
   const stops: [number, number][] = [[0, 0], [0.18, 0.08], [0.4, 0.3], [0.62, 0.62], [0.82, 0.88], [1, 1]];
   for (const [t, a] of stops) g.addColorStop(t, `rgba(${INK}, ${a})`);
   ctx.fillStyle = g;
-  ctx.fillRect(0, L.fadeTop, L.width, L.fadeBottom - L.fadeTop);
+  ctx.fillRect(0, top, CARD_W, bottom - top);
   ctx.fillStyle = `rgb(${INK})`;
-  ctx.fillRect(0, L.fadeBottom, L.width, L.height - L.fadeBottom);
+  ctx.fillRect(0, bottom, CARD_W, CARD_H - bottom);
 }
 
-export type DrawnCard = { canvas: HTMLCanvasElement; layout: CardLayout; frame: 'scene' | 'sketch' };
+function paintName(ctx: CanvasRenderingContext2D, n: { block: NameBlock; at: PlacedName }, alpha: number): void {
+  const { block: b, at } = n;
+  const xFor = (w: number) => (at.align === 'left' ? at.box.x0 : at.align === 'right' ? at.box.x1 - w : (at.box.x0 + at.box.x1) / 2 - w / 2);
+  setFont(ctx, nameFont(b.size));
+  ctx.fillStyle = `rgba(${PAPER}, ${alpha.toFixed(3)})`;
+  ctx.fillText(b.text, xFor(b.nameW), at.baseline);
+  if (b.sub) {
+    setFont(ctx, subFont);
+    ctx.fillStyle = `rgba(${PAPER}, ${(0.86 * alpha).toFixed(3)})`;
+    ctx.fillText(b.sub, xFor(b.subW), at.baseline + 16 + subFont.size);
+  }
+}
+
+function paintPlaces(ctx: CanvasRenderingContext2D, places: PickedPlace[], alpha: number): void {
+  if (alpha <= 0) return;
+  setFont(ctx, PLACE_FONT);
+  ctx.fillStyle = `rgba(${PAPER}, ${(0.82 * alpha).toFixed(3)})`;
+  for (const p of places) spaced(ctx, p.text, p.box.x0, p.box.y1 - 4, PLACE_FONT.spacing ?? 0);
+}
+
+function paintPanel(ctx: CanvasRenderingContext2D, words: CardWords, P: Panel, st: RevealState): void {
+  const a = st.names;
+  if (a <= 0) return;
+  // the day-progress line: the track, the flown part in orange, the local midnights, a knot at the end
+  const L = P.line;
+  const fill = L.x0 + (L.x1 - L.x0) * (words.landed ? 1 : words.flown);
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = `rgba(${PAPER}, 0.3)`;
+  ctx.fillRect(L.x0, L.y - 1, L.x1 - L.x0, 2);
+  ctx.fillStyle = ORANGE;
+  ctx.fillRect(L.x0, L.y - 1.5, fill - L.x0, 3);
+  ctx.fillStyle = `rgba(${PAPER}, 0.75)`;
+  for (const t of L.ticks) ctx.fillRect(L.x0 + (L.x1 - L.x0) * t - 1, L.y - 9, 2, 18);
+  if (words.landed) {
+    ctx.fillStyle = ORANGE;
+    ctx.beginPath();
+    ctx.arc(L.x1, L.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = ORANGE;
+    ctx.beginPath();
+    ctx.arc(fill, L.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgb(${PAPER})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(L.x1, L.y, 8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  for (const t of P.texts) {
+    let text = t.text;
+    let x = t.x;
+    let alpha = a;
+    if (t.role === 'stat-value' && t.stat !== undefined) {
+      // the numbers count up, right-aligned to where the final number ends (the unit never moves)
+      const s = words.stats[t.stat];
+      if (st.count <= 0) continue;
+      text = countText(s.num, s.decimals, st.count);
+      setFont(ctx, t.font);
+      x = P.statRight[t.stat] - ctx.measureText(text).width;
+    }
+    if (t.role === 'stat-unit' && st.count <= 0) alpha = 0;
+    if (alpha <= 0) continue;
+    setFont(ctx, t.font);
+    ctx.fillStyle = t.tone === 'primary' ? `rgba(${PAPER}, ${alpha.toFixed(3)})` : `rgba(${PAPER}, ${(0.74 * alpha).toFixed(3)})`;
+    ctx.fillText(text, x, t.y);
+  }
+}
+
+/**
+ * Paint the card (or a frame of its reveal) onto a 1080 x 1350 context: the sky, the picture, the
+ * horizon's haze, the town lights, the route, the markers, the map's names, the fade into ink, the
+ * big names and the panel. `balloonScale` draws the balloon larger (the reveal's start, close to it);
+ * `calm` (0..1) takes some colour out of the picture (the reveal's start, close to the slopes).
+ */
+export function paintCard(ctx: CanvasRenderingContext2D, pic: CardPicture, words: CardWords, plan: CardPlan, st: RevealState = REVEALED, balloonScale = 1, calm = 0): void {
+  ctx.save();
+  ctx.fillStyle = `rgb(${INK})`;
+  ctx.fillRect(0, 0, CARD_W, CARD_H);
+  ctx.beginPath();
+  ctx.rect(0, 0, CARD_W, PICTURE_H);
+  ctx.clip();
+  paintSky(ctx, pic);
+  if (pic.image) {
+    // close to the ground (the reveal's start) the slopes' clay is calmed, as tameWarm does for the still,
+    // so the balloon stays the one bright thing (where the browser can filter a canvas)
+    if (calm > 0) ctx.filter = `saturate(${(1 - 0.35 * calm).toFixed(3)})`;
+    ctx.drawImage(pic.image, 0, 0, CARD_W, PICTURE_H);
+    ctx.filter = 'none';
+  }
+  paintLimb(ctx, pic);
+  paintLights(ctx, pic, 1);
+  paintRoute(ctx, pic, words, st.route);
+  if (pic.start && st.route > 0) paintStart(ctx, pic.start);
+  paintPlaces(ctx, plan.places, st.places);
+  if (pic.landing) paintBalloon(ctx, pic.landing, balloonScale);
+  ctx.restore();
+  paintFade(ctx, plan.panel.fadeTop, plan.panel.fadeBottom);
+  ctx.textBaseline = 'alphabetic';
+  if (st.names > 0) {
+    if (plan.start) paintName(ctx, plan.start, st.names);
+    if (plan.landing) paintName(ctx, plan.landing, st.names);
+  }
+  paintPanel(ctx, words, plan.panel, st);
+}
+
+/** The picture's pixels with the route and markers on (for placing the names over what shows). */
+function picturePixels(pic: CardPicture, words: CardWords): Uint8ClampedArray | null {
+  const c = document.createElement('canvas');
+  c.width = CARD_W;
+  c.height = PICTURE_H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  paintSky(ctx, pic);
+  if (pic.image) ctx.drawImage(pic.image, 0, 0, CARD_W, PICTURE_H);
+  paintLimb(ctx, pic);
+  paintLights(ctx, pic, 1);
+  paintRoute(ctx, pic, words, 1);
+  return ctx.getImageData(0, 0, CARD_W, PICTURE_H).data;
+}
+
+/** No picture at all (no scene): a plain dusk-blue ground under the route, laid out as a flat map. */
+export function sketchPicture(route: Route): CardPicture {
+  const pts = route.points;
+  const last = pts[pts.length - 1];
+  // a flat map round the route (longitude wrapped across the date line), the route kept in the picture's middle
+  const cos = Math.cos((((pts[0].lat + last.lat) / 2) * Math.PI) / 180);
+  const local = pts.map((p) => ({ e: lonDelta(pts[0].lon, p.lon) * cos, n: p.lat - pts[0].lat }));
+  const e0 = Math.min(...local.map((p) => p.e)), e1 = Math.max(...local.map((p) => p.e));
+  const n0 = Math.min(...local.map((p) => p.n)), n1 = Math.max(...local.map((p) => p.n));
+  const box = { x0: 200, x1: CARD_W - 200, y0: 260, y1: 740 };
+  const k = Math.min((box.x1 - box.x0) / Math.max(1e-6, e1 - e0), (box.y1 - box.y0) / Math.max(1e-6, n1 - n0));
+  const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2;
+  const px = local.map((p) => ({ x: cx + (p.e - (e0 + e1) / 2) * k, y: cy - (p.n - (n0 + n1) / 2) * k, seen: true }));
+  return {
+    image: null,
+    sky: { top: '#1d2a44', horizon: '#3a4d6c', night: 0 },
+    route: px,
+    routeSec: pts.map((p) => p.tSec),
+    start: px[0],
+    landing: px[px.length - 1],
+    horizon: [],
+    places: [],
+    towns: [],
+  };
+}
+
+export type DrawnCard = { canvas: HTMLCanvasElement; plan: CardPlan; picture: CardPicture; frame: 'scene' | 'sketch' };
 
 /** Draw the card onto a new canvas (not yet encoded). */
 export async function drawCard(route: Route, scene: CardScene | null, words: CardWords, alive?: () => boolean, gate?: Promise<void>): Promise<DrawnCard> {
@@ -558,50 +745,40 @@ export async function drawCard(route: Route, scene: CardScene | null, words: Car
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext('2d')!;
-  const L = cardLayout(words, canvasMeasure(ctx));
-
-  ctx.fillStyle = `rgb(${INK})`;
-  ctx.fillRect(0, 0, CARD_W, CARD_H);
-  let frame: CardFrame | null = null;
+  let pic: CardPicture | null = null;
   try {
-    frame = (await scene?.cardFrame(route, CARD_W, CARD_SCENE_H, alive, gate)) ?? null;
-  } catch {
-    frame = null;
+    pic = (await scene?.cardPicture(route, alive, gate)) ?? null;
+  } catch (e) {
+    console.warn('the card picture could not be made', e);
+    pic = null;
   }
-  const kind = frame ? 'scene' : 'sketch';
-  frame ??= sketchFrame(route, CARD_W, CARD_SCENE_H);
-  ctx.drawImage(frame.image, 0, 0, CARD_W, CARD_SCENE_H);
-  drawTrail(ctx, frame);
-  if (frame.start) {
-    ctx.fillStyle = `rgba(${PAPER}, ${Math.max(0.35, frame.start.a).toFixed(3)})`;
-    ctx.beginPath();
-    ctx.arc(frame.start.x, frame.start.y, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (frame.landing) drawBalloon(ctx, frame.landing);
-  drawFade(ctx, L);
-
-  ctx.textBaseline = 'alphabetic';
-  for (const t of L.texts) {
-    setFont(ctx, t);
-    ctx.fillStyle = t.tone === 'primary' ? `rgb(${PAPER})` : `rgba(${PAPER}, 0.74)`;
-    ctx.fillText(t.text, t.x, t.y);
-  }
-  return { canvas, layout: L, frame: kind };
+  const frame = pic ? 'scene' : 'sketch';
+  pic ??= sketchPicture(route);
+  const plan = planCard(pic, words, canvasMeasure(ctx), picturePixels(pic, words));
+  paintCard(ctx, pic, words, plan);
+  return { canvas, plan, picture: pic, frame };
 }
 
 export function toPng(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('the card could not be encoded'))), 'image/png'));
 }
 
-/**
- * The card for a route as a 1080 x 1350 PNG: a fresh frame of the landing area at golden hour from
- * `scene` (or a sketch when there is none), then the text laid out in 2D.
- */
-export async function renderCard(route: Route, scene: CardScene | null, info: { home: string; landing: Landing | null; own: boolean; now?: number }): Promise<Blob> {
-  const words = cardWords(cardFacts(route, { ...info, now: info.now ?? Date.now() }));
-  return toPng((await drawCard(route, scene, words)).canvas);
+// ---- colours ----
+
+function hexRgb(h: string): [number, number, number] {
+  const s = h.replace('#', '');
+  const n = parseInt(s.length === 3 ? s.replace(/./g, (c) => c + c) : s, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
+function mix(a: string, b: string, t: number): string {
+  const x = hexRgb(a), y = hexRgb(b);
+  return `#${x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
+}
+const lighten = (h: string, t: number) => mix(h, '#ffffff', t);
+const withAlpha = (h: string, a: number) => {
+  const [r, g, b] = hexRgb(h);
+  return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+};
 
 // ---- passing it on ----
 
@@ -635,7 +812,7 @@ export function canShareFiles(nav: ShareEnv['nav']): boolean {
 }
 
 /** Share card: the system share sheet with the image, the text and the link where it can; otherwise a download. */
-export async function shareCard(blob: Blob, w: CardWords, link: string, env: ShareEnv): Promise<'shared' | 'downloaded' | 'cancelled'> {
+export async function shareCard(blob: Blob, w: Pick<CardWords, 'filename' | 'shareText'>, link: string, env: ShareEnv): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const file = new File([blob], w.filename, { type: 'image/png' });
   const data: ShareData = { files: [file], text: w.shareText, url: link };
   let ok = false;
@@ -668,3 +845,5 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+export { KICKER_FONT, MARGIN, statFont };

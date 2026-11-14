@@ -4,7 +4,7 @@ import { SITE_URL } from './src/config';
 
 /**
  * The proof pages (debug.html: the route proof; tileproof.html and world.html: the 3D look;
- * lmview.html: one landmark model alone; personview.html: the person and the release) are for checking, not for visitors. `npm run dev` serves them as always. A build includes them only for a
+ * lmview.html: one landmark model alone; personview.html: the person and the release; cardproof.html: the landing card by trip) are for checking, not for visitors. `npm run dev` serves them as always. A build includes them only for a
  * preview branch (the deploy workflow sets BRANCH; `main` is the live site) or with DEBUG_PAGES=1
  * (the browser tests, which use tileproof.html).
  */
@@ -24,7 +24,7 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2022',
     rollupOptions: {
-      input: proofPages ? { main: page('index'), debug: page('debug'), tileproof: page('tileproof'), world: page('world'), lmview: page('lmview'), personview: page('personview') } : { main: page('index') },
+      input: proofPages ? { main: page('index'), debug: page('debug'), tileproof: page('tileproof'), world: page('world'), lmview: page('lmview'), personview: page('personview'), cardproof: page('cardproof') } : { main: page('index') },
     },
   },
 });

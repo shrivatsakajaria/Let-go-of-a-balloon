@@ -30,26 +30,29 @@ function facetColour(seed: number): RGB {
 function facets(
   ax: number, az: number, bx: number, bz: number, cx: number, cz: number,
   y: (x: number, z: number) => number, maxLen: number, depth: number, seed: number, out: MeshBuilder,
+  calmCell = 0,
 ): void {
   const ab = Math.hypot(bx - ax, bz - az), bc = Math.hypot(cx - bx, cz - bz), ca = Math.hypot(ax - cx, az - cz);
   const m = Math.max(ab, bc, ca);
   if (m <= maxLen || depth >= 12) {
-    out.tri(ax, y(ax, az), az, bx, y(bx, bz), bz, cx, y(cx, cz), cz, facetColour(seed));
+    // calm water (seen from very high up): one colour per broad patch, so long thin facets never show as fans
+    const s = calmCell > 0 ? Math.floor((ax + bx + cx) / 3 / calmCell) * 7919 + Math.floor((az + bz + cz) / 3 / calmCell) * 104729 : seed;
+    out.tri(ax, y(ax, az), az, bx, y(bx, bz), bz, cx, y(cx, cz), cz, facetColour(s));
     return;
   }
   const s1 = seed * 2 + 1, s2 = seed * 2 + 2;
   if (m === ab) {
     const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-    facets(ax, az, mx, mz, cx, cz, y, maxLen, depth + 1, s1, out);
-    facets(mx, mz, bx, bz, cx, cz, y, maxLen, depth + 1, s2, out);
+    facets(ax, az, mx, mz, cx, cz, y, maxLen, depth + 1, s1, out, calmCell);
+    facets(mx, mz, bx, bz, cx, cz, y, maxLen, depth + 1, s2, out, calmCell);
   } else if (m === bc) {
     const mx = (bx + cx) / 2, mz = (bz + cz) / 2;
-    facets(ax, az, bx, bz, mx, mz, y, maxLen, depth + 1, s1, out);
-    facets(ax, az, mx, mz, cx, cz, y, maxLen, depth + 1, s2, out);
+    facets(ax, az, bx, bz, mx, mz, y, maxLen, depth + 1, s1, out, calmCell);
+    facets(ax, az, mx, mz, cx, cz, y, maxLen, depth + 1, s2, out, calmCell);
   } else {
     const mx = (cx + ax) / 2, mz = (cz + az) / 2;
-    facets(ax, az, bx, bz, mx, mz, y, maxLen, depth + 1, s1, out);
-    facets(mx, mz, bx, bz, cx, cz, y, maxLen, depth + 1, s2, out);
+    facets(ax, az, bx, bz, mx, mz, y, maxLen, depth + 1, s1, out, calmCell);
+    facets(mx, mz, bx, bz, cx, cz, y, maxLen, depth + 1, s2, out, calmCell);
   }
 }
 
@@ -94,9 +97,11 @@ export function waterLevels(list: AreaFeature[], g: GroundGrid): number[] {
 /** Water bodies and their shoreline bands for one tile. `levels` from waterLevels (NaN = drape). */
 /**
  * Water bodies and shore bands for one tile. Flat water is faceted into triangles no longer than
- * the tile width / `facetsAcross` (20 by default; far tiles, deep in the haze, use fewer).
+ * the tile width / `facetsAcross` (20 by default; far tiles, deep in the haze, use fewer). `calm`: the
+ * facets take one colour per broad patch (a sixth of the tile) rather than each its own (the landing
+ * card's region tiles, where earcut's long thin triangles would show as fans).
  */
-export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid, out: MeshBuilder, facetsAcross = 20): void {
+export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid, out: MeshBuilder, facetsAcross = 20, calm = false): void {
   const W = g.frame.widthM, H = g.frame.heightM;
   const onBorder = borderTest(g);
   const band = bandWidth(W);
@@ -132,7 +137,7 @@ export function buildWater(list: AreaFeature[], levels: number[], g: GroundGrid,
     const idx = earcut(flat, holes.length ? holes : null, 2);
     for (let t = 0; t < idx.length; t += 3) {
       const a = idx[t] * 2, b = idx[t + 1] * 2, c = idx[t + 2] * 2;
-      facets(flat[a], flat[a + 1], flat[b], flat[b + 1], flat[c], flat[c + 1], y, maxLen, 0, w * 65536 + t, out);
+      facets(flat[a], flat[a + 1], flat[b], flat[b + 1], flat[c], flat[c + 1], y, maxLen, 0, w * 65536 + t, out, calm ? W / 6 : 0);
     }
 
     // deep band along the true shore, inset into the water

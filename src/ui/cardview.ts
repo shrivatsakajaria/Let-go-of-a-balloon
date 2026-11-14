@@ -9,6 +9,13 @@
  */
 import { COPY } from './copy';
 import { canShareFiles, downloadBlob, openInBrowserHref, shareCard, type CardWords, type ShareEnv } from './card';
+import { REDUCED_FADE_S, revealAt, type RevealState } from './revealmath';
+
+/**
+ * The reveal (spec 6.5, design A) drawn into the card's frame: each frame `draw` paints the card at that
+ * point of the reveal onto a 1080 x 1350 context, its 3D view drawn w x h (the frame's own pixels).
+ */
+export type CardReveal = { draw(ctx: CanvasRenderingContext2D, st: RevealState, w: number, h: number): void; dispose(): void };
 
 
 export type CardViewOpts = {
@@ -29,6 +36,14 @@ export type CardViewOpts = {
    * opened by itself), so a keyboard user is not sent back to the top of the page.
    */
   fallbackFocus?(): HTMLElement | null;
+  /** Play the reveal in the card's frame before the still and its buttons show (none in an in-app browser). */
+  reveal?: CardReveal;
+  /** The reveal starts (true) and ends (false): the live view can stop drawing meanwhile. */
+  onRevealPlaying?(on: boolean): void;
+  /** Come in with the short cross-fade (the trip's end, when its reveal could not be got ready in time). */
+  fadeIn?: boolean;
+  /** The card is in: after the reveal ('played'), the reduced-motion cross-fade ('faded'), or straight away ('none'). */
+  onRevealed?(how: 'played' | 'faded' | 'none'): void;
 };
 
 export type CardView = { readonly el: HTMLElement; close(): void };
@@ -118,6 +133,9 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   img.width = 1080;
   img.height = 1350;
   img.decoding = 'async';
+  const frame = document.createElement('div');
+  frame.className = 'card-frame';
+  frame.append(img);
 
   const actions = document.createElement('div');
   actions.className = 'card-actions';
@@ -175,7 +193,7 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   status.className = 'sr';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  el.append(head, img, actions, status);
+  el.append(head, frame, actions, status);
   document.body.append(el);
   const inert = INERT.map((id) => document.getElementById(id)).filter((n): n is HTMLElement => !!n && !n.inert);
   for (const n of inert) n.inert = true;
@@ -189,11 +207,13 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   };
   document.addEventListener('keydown', onKey);
   let closed = false;
+  let stopReveal = () => {};
   const view: CardView = {
     el,
     close() {
       if (closed) return;
       closed = true;
+      stopReveal();
       document.removeEventListener('keydown', onKey);
       for (const n of inert) n.inert = false;
       document.documentElement.classList.remove('card-open');
@@ -210,6 +230,119 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   };
   close.addEventListener('click', () => view.close());
   current = view;
-  first.focus({ preventScroll: true });
+  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (o.reveal && !o.inApp && !reduced) {
+    o.onRevealPlaying?.(true);
+    const stop = playReveal(o.reveal, frame, img, actions, () => {
+      // focus moves to the main action as the buttons come, unless the visitor has moved it meanwhile
+      if (document.activeElement === el || document.activeElement === document.body) first.focus({ preventScroll: true });
+    }, () => {
+      o.onRevealPlaying?.(false);
+      o.onRevealed?.('played');
+    });
+    stopReveal = () => {
+      stop();
+      o.onRevealPlaying?.(false);
+    };
+    // the dialog itself has focus while the reveal plays (Tab reaches Close; Escape closes)
+    el.tabIndex = -1;
+    el.focus({ preventScroll: true });
+  } else if ((o.reveal || o.fadeIn) && !o.inApp) {
+    // reduced motion, or a reveal whose world was not ready in time: no camera move and no count-up, a
+    // short cross-fade to the finished card (the Web Animations API: the page's reduced-motion rule turns
+    // CSS animations off)
+    o.reveal?.dispose();
+    for (const n of [frame, actions]) n.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_FADE_S * 1000, easing: 'cubic-bezier(0.22,1,0.36,1)' });
+    first.focus({ preventScroll: true });
+    o.onRevealed?.('faded');
+  } else {
+    o.reveal?.dispose();
+    first.focus({ preventScroll: true });
+    o.onRevealed?.('none');
+  }
   return view;
+}
+
+/**
+ * The reveal in the card's frame: a canvas over the (hidden) still, painted every frame until the
+ * end, then the still itself; the buttons come at their moment. Returns a stop (closing mid-way).
+ */
+function playReveal(r: CardReveal, frame: HTMLElement, img: HTMLImageElement, actions: HTMLElement, onButtons: () => void, onDone: () => void): () => void {
+  const c = document.createElement('canvas');
+  c.className = 'card-reveal';
+  // the frame's own pixels (CSS size x device pixels, at most 1.5 a CSS pixel and the card's 1080):
+  // the card is painted in its 1080 x 1350 units, scaled down
+  const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  const box0 = img.getBoundingClientRect();
+  c.width = Math.max(108, Math.min(1080, Math.round((box0.width || 360) * dpr)));
+  c.height = Math.round((c.width * 1350) / 1080);
+  c.setAttribute('aria-hidden', 'true');
+  frame.append(c);
+  frame.classList.add('revealing');
+  img.style.visibility = 'hidden';
+  actions.style.visibility = 'hidden';
+  const ctx = c.getContext('2d');
+  let raf = 0;
+  let stopped = false;
+  let buttons = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    cancelAnimationFrame(raf);
+    r.dispose();
+    c.remove();
+    frame.classList.remove('revealing');
+    img.style.visibility = '';
+    actions.style.visibility = '';
+  };
+  if (!ctx) {
+    stop();
+    onButtons();
+    onDone();
+    return stop;
+  }
+  // a test page can step the reveal by hand (window.__revealAt = seconds)
+  const testClock = () => (window as unknown as { __revealAt?: number }).__revealAt;
+  let t0 = -1;
+  let lastHeld: number | undefined;
+  const tick = (now: number) => {
+    if (stopped) return;
+    if (t0 < 0) t0 = now;
+    const held = testClock();
+    const t = held ?? (now - t0) / 1000;
+    // a held test clock draws its frame once
+    if (held !== undefined && held === lastHeld) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    lastHeld = held;
+    const st = revealAt(t);
+    // the 3D view at the frame's own size, 1080:1000
+    const w = c.width;
+    const h = Math.round((w * 1000) / 1080);
+    try {
+      ctx.setTransform(c.width / 1080, 0, 0, c.width / 1080, 0, 0);
+      r.draw(ctx, st, w, h);
+    } catch (e) {
+      console.warn('the reveal could not be drawn', e);
+      stop();
+      onButtons();
+      onDone();
+      return;
+    }
+    if (st.buttons && !buttons) {
+      buttons = true;
+      actions.style.visibility = '';
+      actions.animate?.([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'cubic-bezier(0.22,1,0.36,1)' });
+      onButtons();
+    }
+    if (st.done) {
+      stop();
+      onDone();
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  return stop;
 }

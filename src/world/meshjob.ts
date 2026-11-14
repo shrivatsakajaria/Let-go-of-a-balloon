@@ -18,7 +18,7 @@ import { glowGrid, placeBoats, vertexGlow } from './glow';
 /** A circle (from a landmark) whose buildings the map should not draw. */
 export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
 
-export type Label = { name: string; kind: string; lat: number; lon: number; x: number; z: number; rank?: number };
+export type Label = { name: string; en?: string; kind: string; lat: number; lon: number; x: number; z: number; rank?: number };
 
 export type TileMeshes<B = MeshBuffers> = {
   ground: B;
@@ -56,6 +56,8 @@ export type Detail = {
   lamps: boolean;
   /** Flat water facets across the tile (water.ts buildWater); default 20. */
   waterFacets?: number;
+  /** Water in broad patches of one colour (the landing card's region tiles); default false. */
+  waterCalm?: boolean;
   /** The odd ship on open water (glow.ts placeBoats); default true. */
   boats?: boolean;
   /** Night glow per ground and road vertex (glow.ts); default true. */
@@ -115,7 +117,7 @@ export function buildTileMeshes(
   const ground = opts.skirtM ? withSkirts(g, flatGround, opts.skirtM) : flatGround;
 
   const water = new MeshBuilder(4096);
-  buildWater(features.water, levels, g, water, detail.waterFacets ?? 20);
+  buildWater(features.water, levels, g, water, detail.waterFacets ?? 20, detail.waterCalm ?? false);
 
   // landmark circles: their map buildings, gap-fill houses and bridges are left to the landmark
   const hidden: Circle[] = (opts.hiddenFootprints ?? []).map((h) => {
@@ -171,6 +173,7 @@ export function buildTileMeshes(
 
   const labels: Label[] = [...features.place, ...features.water_name].map((p) => ({
     name: p.name,
+    ...(p.en ? { en: p.en } : {}),
     kind: p.cls,
     lat: p.lat,
     lon: p.lon,

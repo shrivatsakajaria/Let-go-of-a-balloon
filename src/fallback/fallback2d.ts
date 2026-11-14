@@ -389,6 +389,29 @@ export class Fallback implements World {
     return c;
   }
 
+  /**
+   * The landing card's map (design A on the 2D map): land and sea only, the route fitted into `band`;
+   * the card draws the route, the markers and the words over it. The route's points on it, w x h px.
+   */
+  async cardMap(w: number, h: number, band: Band): Promise<{ image: HTMLCanvasElement; px: Float64Array } | null> {
+    const fl = this.flight;
+    if (!fl) return null;
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    const v = fitView(fl.route.points, band);
+    const z = pickZoom(v, { w, h });
+    const tiles = tilesFor(v, { w, h }, z);
+    const coasts = await Promise.all(tiles.map(coastTile));
+    // land where no coastline tile came in (the card has no sky to show through)
+    ctx.fillStyle = LAND;
+    ctx.fillRect(0, 0, w, h);
+    drawCoast(ctx, v, tiles.map((t, i) => ({ t, coast: coasts[i] })));
+    return { image: c, px: routePx(fl.route, v) };
+  }
+
   dispose(): void {
     this.opening++;
     this.launching++;
