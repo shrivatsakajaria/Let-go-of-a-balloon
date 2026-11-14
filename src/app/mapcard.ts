@@ -8,6 +8,7 @@ import type { Fallback } from '../fallback/fallback2d';
 import type { Route } from '../flight/route';
 import { landingPlace } from '../geo/facts';
 import type { CardScene } from '../ui/card';
+import { hudFocusTarget } from '../ui/focus';
 import { CONTOUR } from '../world/palette';
 import { presentCard } from './landingcard';
 import { savedFor } from './world';
@@ -48,6 +49,6 @@ export async function showMapCard(f: Fallback, route: Route): Promise<void> {
     isCurrent: () => t === ticket && f.shown?.route === route,
     // the card goes on being made while this balloon is on the map ("Show the card" meanwhile shares it)
     alive: () => f.shown?.route === route,
-    fallbackFocus: () => f.hud.el.querySelector<HTMLElement>('.show-card:not([hidden]), .trip:not([hidden]), .pause'),
+    fallbackFocus: () => hudFocusTarget(f.hud.el),
   });
 }

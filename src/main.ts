@@ -15,6 +15,7 @@ import { decodeBalloon, payloadFromLocation, type SavedBalloon } from './flight/
 import { COPY } from './ui/copy';
 import { showNotice, type Notice } from './ui/notice';
 import { mountStart, type StartChoice } from './ui/start';
+import { hudFocusTarget } from './ui/focus';
 import type { View } from './app/live';
 import { resumeAction, type Handover, type World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
@@ -32,15 +33,15 @@ const setView = (v: View) => {
 };
 
 /**
- * When the flight comes on screen (from a link, "Your balloons" or the launch), focus left on the start
- * screen (now hidden) or on nothing moves to the HUD's main action, so a keyboard user is not sent back
- * to the top of the page (2.4.3). Focus the visitor put somewhere else stays where it is.
+ * When the flight comes on screen (from "Your balloons" or the launch), focus left on the start screen
+ * (now hidden) moves to the HUD's main action, so a keyboard user is not sent back to the top of the page
+ * (2.4.3). Focus on nothing (a link just opened) stays there: no ring is drawn that nobody asked for.
  */
 function focusFlight(): void {
   requestAnimationFrame(() => {
     const a = document.activeElement;
-    if (a && a !== document.body && !appEl.contains(a)) return;
-    hudEl.querySelector<HTMLElement>('.trip:not([hidden]), .pause')?.focus({ preventScroll: true });
+    if (!a || !appEl.contains(a)) return;
+    hudFocusTarget(hudEl)?.focus({ preventScroll: true });
   });
 }
 

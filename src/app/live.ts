@@ -25,6 +25,7 @@ import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type A
 import { showNotice, type Notice } from '../ui/notice';
 import { playReplay, replayNames, type ReplayName } from '../ui/replay';
 import { replayLabel } from '../ui/replaymath';
+import { hudFocusTarget } from '../ui/focus';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
@@ -675,7 +676,7 @@ export class Live {
       onClose: opts.onClose,
       landed: opts.landed,
       // a card that opened by itself (a landed link, the landing) hands focus to its way back
-      fallbackFocus: () => this.hud.el.querySelector<HTMLElement>('.show-card:not([hidden]), .trip:not([hidden]), .pause'),
+      fallbackFocus: () => hudFocusTarget(this.hud.el),
     });
     return view !== null;
   }

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -186,7 +186,18 @@ test('a balloon opened from "Your balloons" with the keyboard: focus moves to th
   await mine.focus();
   await page.keyboard.press('Enter');
   await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
-  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('#hud')), { timeout: 5000 }).toBe(true);
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
+});
+
+test('a link opened by a tap or a click draws no focus ring: focus is not moved for it', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(14)));
+  await ready(page);
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => document.querySelectorAll(':focus-visible').length)).toBe(0);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 });
 
 test('the older ?b= link form opens too', async ({ context, page }) => {
@@ -400,24 +411,33 @@ test('the page keeps no test hook unless a test asks for one', async ({ context,
 });
 
 test('the live site\'s build does not read window.__lgoabStreaks (only test and preview builds do)', async () => {
-  test.setTimeout(120_000);
-  const read = (dir: string) =>
-    readdirSync(join(dir, 'assets'))
-      .filter((f) => f.endsWith('.js'))
-      .some((f) => readFileSync(join(dir, 'assets', f), 'utf8').includes('__lgoabStreaks'));
-  // the build these tests run on (DEBUG_PAGES=1) has the switch: the streak tests use it
-  expect(read('dist')).toBe(true);
-  // the live site's build (main, no proof pages) leaves it out
-  const out = mkdtempSync(join(tmpdir(), 'lgoab-live-'));
-  try {
+  test.setTimeout(240_000);
+  // both builds made here, each into its own folder (the one under test is not assumed to be either)
+  const build = (env: Record<string, string>) => {
+    const out = mkdtempSync(join(tmpdir(), 'lgoab-build-'));
     execFileSync('npx', ['vite', 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'error'], {
-      env: { ...process.env, DEBUG_PAGES: '0', BRANCH: 'main' },
+      env: { ...process.env, ...env },
       stdio: 'pipe',
       timeout: 110_000,
     });
-    expect(read(out)).toBe(false);
+    return out;
+  };
+  const reads = (dir: string) => {
+    const assets = join(dir, 'assets');
+    const js = existsSync(assets) ? readdirSync(assets).filter((f) => f.endsWith('.js')) : [];
+    expect(js.length).toBeGreaterThan(0);
+    return js.some((f) => readFileSync(join(assets, f), 'utf8').includes('__lgoabStreaks'));
+  };
+  const dirs: string[] = [];
+  try {
+    // a test build (DEBUG_PAGES=1) has the switch: the streak tests use it
+    dirs.push(build({ DEBUG_PAGES: '1', BRANCH: '' }));
+    expect(reads(dirs[0])).toBe(true);
+    // the live site's build (main, no proof pages) leaves it out
+    dirs.push(build({ DEBUG_PAGES: '0', BRANCH: 'main' }));
+    expect(reads(dirs[1])).toBe(false);
   } finally {
-    rmSync(out, { recursive: true, force: true });
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
   }
 });
 
