@@ -195,6 +195,7 @@ const CLAMP_CATCH_T_S = 0.35;
 const CLAMP_MAX_A = 2.4;
 const CLAMP_MAX_V = 8;
 const CLAMP_LAUNCH_A = 0.45;
+const CLAMP_V_T_S = 0.15;
 /** The camera keeps this far out of a tree's crown (outOfCrowns). */
 const CROWN_GAP_M = 0.5;
 /**
@@ -1604,27 +1605,33 @@ export class Director {
       // (and after it the cap comes back up over a few seconds: the hand-over is not a jolt either)
       if (this._shot === 'launch' && this.track.on && !this.wait) g.aMax = CLAMP_LAUNCH_A;
       else g.aMax = Math.min(CLAMP_MAX_A, g.aMax + 0.5 * dt);
-      const aMax = g.aMax;
       const n = Math.ceil(dt * 120 - 1e-9);
       const h = dt / n;
       const w = 2 / T;
       for (let i = 0; i < n; i++) {
-        // critically damped: a = w^2 (want - off) - 2 w v, capped
-        let ax = w * w * (want.x - g.off.x) - 2 * w * g.v.x;
-        let ay = w * w * (want.y - g.off.y) - 2 * w * g.v.y;
-        let az = w * w * (want.z - g.off.z) - 2 * w * g.v.z;
-        const a = Math.hypot(ax, ay, az);
-        if (a > aMax) {
-          ax *= aMax / a;
-          ay *= aMax / a;
-          az *= aMax / a;
+        // toward the clamp's correction at a speed it can always stop from (as followStep: never an overshoot,
+        // however the cap or the correction changes), reaching it over CLAMP_V_T_S, the acceleration capped;
+        // a speed it already has that the cap could not stop in time is stopped as gently as it can be
+        const ex = want.x - g.off.x, ey = want.y - g.off.y, ez = want.z - g.off.z;
+        const e = Math.hypot(ex, ey, ez);
+        const v = g.v.length();
+        const aMax = g.aMax + (e > 1e-6 ? Math.min(0.5, Math.max(0, (v * v) / (2 * e) - g.aMax)) : 0);
+        const close = e > 1e-9 ? Math.min(w * e, Math.sqrt(2 * 0.8 * aMax * e), CLAMP_MAX_V) / e : 0;
+        let ax = (ex * close - g.v.x) / CLAMP_V_T_S;
+        let ay = (ey * close - g.v.y) / CLAMP_V_T_S;
+        let az = (ez * close - g.v.z) / CLAMP_V_T_S;
+        const am = Math.hypot(ax, ay, az);
+        if (am > aMax) {
+          ax *= aMax / am;
+          ay *= aMax / am;
+          az *= aMax / am;
         }
+        g.off.x += (g.v.x + (ax * h) / 2) * h;
+        g.off.y += (g.v.y + (ay * h) / 2) * h;
+        g.off.z += (g.v.z + (az * h) / 2) * h;
         g.v.x += ax * h;
         g.v.y += ay * h;
         g.v.z += az * h;
-        const v = g.v.length();
-        if (v > CLAMP_MAX_V) g.v.multiplyScalar(CLAMP_MAX_V / v);
-        g.off.addScaledVector(g.v, h);
       }
     }
     out.copy(this.pos).add(g.off);
