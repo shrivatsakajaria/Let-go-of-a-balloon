@@ -443,11 +443,12 @@ export class LiveScene {
   private placePerson(): void {
     this.person?.dispose();
     // facing back toward the street camera, which stands upwind, a little turned
-    this.person = new Person(this.scene, this.start, (this.wind.headingDeg + 160) % 360);
+    this.person = new Person(this.scene, this.start, (this.wind.headingDeg + 160) % 360, undefined, { reducedMotion: this.reduced, wind: this.wind });
     this.placedAt = performance.now();
     this.feetS = Number.NaN;
     this.updatePerson(0);
-    this.balloon.hold(this.person.hand);
+    // the string's end stays in the hand until it has slipped out of the opening fingers
+    this.balloon.hold(this.person.hand, this.person);
   }
 
   /**
