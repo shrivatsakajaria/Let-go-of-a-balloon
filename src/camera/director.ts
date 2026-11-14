@@ -186,6 +186,15 @@ const STILL_LM_STEP_M = 5;
 const PERSON_OVER_M = 2.8;
 const PERSON_CLEAR_M = 1.2;
 const PERSON_EASE_M = 3.5;
+/**
+ * The clamp's correction is eased in (easeClamp): a critically damped spring of this smooth time (s), its
+ * acceleration capped (m/s/s) and its speed (m/s); inside a building, on a stiffer spring.
+ */
+const CLAMP_T_S = 0.6;
+const CLAMP_CATCH_T_S = 0.35;
+const CLAMP_MAX_A = 2.4;
+const CLAMP_MAX_V = 8;
+const CLAMP_LAUNCH_A = 0.45;
 /** The camera keeps this far out of a tree's crown (outOfCrowns). */
 const CROWN_GAP_M = 0.5;
 /**
@@ -363,6 +372,8 @@ export class Director {
    * What the camera did last frame, for the browser tests' smoothness probe (read through the page's test
    * hook): the target it was steering for, how far the clamp moved it, and the launch's choices.
    */
+  /** The clamp's correction as applied (eased: easeClamp), its rate, and whether it has started. */
+  private readonly guard = { on: false, aMax: CLAMP_MAX_A, off: new THREE.Vector3(), v: new THREE.Vector3(), want: new THREE.Vector3() };
   readonly probe = { target: [0, 0, 0], clampM: 0, lift: 0, pushAt: Number.NaN, low: 0 };
 
   constructor(private readonly camera: THREE.PerspectiveCamera, private readonly deps: DirectorDeps) {
@@ -670,6 +681,7 @@ export class Director {
       return;
     }
     if (!this.ready || tg.snap) {
+      this.guard.on = false; // a cut: the clamp's correction is taken as it is
       this.pos.copy(tg.pos);
       this.y0 = tg.y0;
       this.x0 = tg.x0 ?? 0;
@@ -703,6 +715,7 @@ export class Director {
   private apply(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
     const out = this.pos.clone();
     this.clamp(out, b, B, B0);
+    this.easeClamp(out, b, B0);
     const pr = this.probe;
     pr.clampM = out.distanceTo(this.pos);
     pr.lift = this.lift;
@@ -1503,6 +1516,23 @@ export class Director {
           if (n === 0) break;
         }
       }
+      // every one of those on or by a house, or in a crown (a yard or a street among houses, street trees):
+      // a ring search round the person, nearest first, so the camera stands at eye height on open ground
+      // rather than by a house, where the clamp would lift it over the roof
+      if (best >= 100) {
+        const a0 = Math.atan2(-u.x, -u.z);
+        for (const r of [3, 4, 5, 6.5, 8, 10, 2.2, 13, 17, 22, 28]) {
+          for (let k = 0; k < 24 && best > 0; k++) {
+            const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 15 * RAD;
+            const c = new THREE.Vector3(ps.x + Math.sin(a) * r, 0, ps.z + Math.cos(a) * r);
+            const n = blocked(c);
+            if (n < best) {
+              best = n;
+              pick = c;
+            }
+          }
+        }
+      }
       if (pick) pick.setY(this.deps.groundAt(this.fromScene(pick.x, pick.z, b, B0)) + HOLD_EYE_M);
       if (!pick || !finite3(pick)) pick = S.clone();
       this.wide = pick;
@@ -1531,6 +1561,66 @@ export class Director {
     const r = mix(ra, rb, wh);
     const az = aza + dAz * wh;
     return new THREE.Vector3(r * Math.sin(az), mix(a.y, b.y, wv), r * Math.cos(az));
+  }
+
+  /**
+   * The clamp never moves the camera at once (a building or a tree streaming in under or beside it, the
+   * balloon's sphere grazed on the push in): its correction (out - pos) is taken in through a critically
+   * damped spring (CLAMP_T_S) whose acceleration is capped at CLAMP_MAX_A and speed at CLAMP_MAX_V, so the
+   * camera rises over what arrived instead of jumping. Hard safety: a camera inside a building (below a roof
+   * within STREET_CLEAR_M) catches up on a stiffer spring (CLAMP_CATCH_T_S), still under the same caps: a
+   * second or two inside a wall that has just streamed in is less jarring than a jump of a storey or more,
+   * and the launch's planned path (launchPlan's lift, its own clamp before the follower) keeps clear of the
+   * buildings already there. A cut (the first frame, a still, a snap) takes the correction as it is.
+   * Writes the camera's place into out.
+   */
+  private easeClamp(out: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): void {
+    const g = this.guard;
+    const want = g.want.copy(out).sub(this.pos);
+    const dt = this.stepS;
+    if (!g.on || !finite3(want)) {
+      if (finite3(want)) g.off.copy(want);
+      else g.off.set(0, 0, 0);
+      g.v.set(0, 0, 0);
+      g.on = true;
+      return;
+    }
+    if (dt > 0) {
+      let T = CLAMP_T_S;
+      if (this.deps.buildingTopAt) {
+        const ll = this.fromScene(this.pos.x + g.off.x, this.pos.z + g.off.z, b, B0, this.ll);
+        const top = this.deps.buildingTopAt(ll, STREET_CLEAR_M);
+        if (top > this.deps.groundAt(ll) + 0.5 && this.pos.y + g.off.y < top) T = CLAMP_CATCH_T_S;
+      }
+      // (in the launch the follower already takes the planned move's clamp in at LAUNCH_MAX_A: the guard only
+      // covers what is left over, with what is left of the budget)
+      // (and after it the cap comes back up over a few seconds: the hand-over is not a jolt either)
+      if (this._shot === 'launch' && this.track.on && !this.wait) g.aMax = CLAMP_LAUNCH_A;
+      else g.aMax = Math.min(CLAMP_MAX_A, g.aMax + 0.5 * dt);
+      const aMax = g.aMax;
+      const n = Math.ceil(dt * 120 - 1e-9);
+      const h = dt / n;
+      const w = 2 / T;
+      for (let i = 0; i < n; i++) {
+        // critically damped: a = w^2 (want - off) - 2 w v, capped
+        let ax = w * w * (want.x - g.off.x) - 2 * w * g.v.x;
+        let ay = w * w * (want.y - g.off.y) - 2 * w * g.v.y;
+        let az = w * w * (want.z - g.off.z) - 2 * w * g.v.z;
+        const a = Math.hypot(ax, ay, az);
+        if (a > aMax) {
+          ax *= aMax / a;
+          ay *= aMax / a;
+          az *= aMax / a;
+        }
+        g.v.x += ax * h;
+        g.v.y += ay * h;
+        g.v.z += az * h;
+        const v = g.v.length();
+        if (v > CLAMP_MAX_V) g.v.multiplyScalar(CLAMP_MAX_V / v);
+        g.off.addScaledVector(g.v, h);
+      }
+    }
+    out.copy(this.pos).add(g.off);
   }
 
   /**
