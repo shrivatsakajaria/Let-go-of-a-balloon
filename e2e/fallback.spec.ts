@@ -142,11 +142,12 @@ test.describe('without WebGL', () => {
     await noWebGL(context);
     await page.goto(await linkTo(eastward(80)));
     await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
-    await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.locator('.hud .over')).toHaveText(/^(Landed near|Landed in|Came down in) /, { timeout: 20_000 });
     await expect(page.locator('.hud .day')).toHaveText('Landed · 72 h aloft');
-    // the landing card opens over the map (its own test is below); closed, the landed map is there
+    // the landing card opens over the map (its own test is below; the chrome steps back under it, and it can
+    // be up before anything here looks); closed, the landed map is there with its note
     await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click({ timeout: 30_000 });
+    await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeVisible();
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
   });
