@@ -51,7 +51,7 @@ const AIR_TAU_S = 0.6;
 const AIR_MAX_MS = 0.8;
 const AIR_MAX_UP_MS = 4;
 /** The let-go's ease onto the route: its rate (1/s); settled within about three seconds, a calm start even in a strong wind. */
-const RELEASE_W = 1.5;
+const RELEASE_W = 1.2;
 const RIBBON_DAY = new THREE.Color('#f2ebe2');
 /** The string's half-width is at least this many radians of view (its full width about 1.2 mrad, a pixel on a phone). */
 const MIN_RIBBON_RAD = 0.0006;
