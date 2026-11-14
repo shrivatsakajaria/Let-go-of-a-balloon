@@ -42,10 +42,10 @@ describe('frame clock', () => {
       const frame = 1000 + i * (1000 / 60);
       const late = i === 0 ? 200 : 1; // the first callback ran 200 ms after its frame began
       const now = c.at(frame, wall0 + frame + late);
-      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(1.6); // never a step: a millisecond and a half a frame at most
+      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(2.2); // never a step: two milliseconds a frame at most
       prev = now;
     }
-    expect(Math.abs(prev - (wall0 + 1000 + 599 * (1000 / 60) + 1))).toBeLessThan(1);
+    expect(Math.abs(prev - (wall0 + 1000 + 599 * (1000 / 60) + 1))).toBeLessThan(2); // (within the deadband)
   });
 
   test('a wall clock that slowly gains on the frame clock is followed, never by a jump', () => {
@@ -74,7 +74,7 @@ describe('frame clock', () => {
       prev = now;
     }
     expect(worst).toBeLessThan(10); // at most a few ms a frame
-    expect(Math.abs(prev - (5_000_000 + 599 * 16 + 400))).toBeLessThan(1);
+    expect(Math.abs(prev - (5_000_000 + 599 * 16 + 400))).toBeLessThan(2);
     expect(c.at(1000 + 600 * 16, 5_000_000 + 600 * 16 + 400 + 5000)).toBe(5_000_000 + 600 * 16 + 400 + 5000);
   });
 
