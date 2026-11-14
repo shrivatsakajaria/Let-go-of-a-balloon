@@ -803,6 +803,7 @@ describe('launch crane', () => {
       const ux = Math.sin(h), uz = -Math.cos(h);
       const sTop = (x: number, z: number, r: number) => top(fromScene(x, z), r);
       let hidden = 0, walled = 0;
+      let maxWalled = 0;
       for (let i = 1; i <= 45 / 0.05; i++) {
         const t = i * 0.05;
         const b = mk(t);
@@ -822,8 +823,10 @@ describe('launch crane', () => {
         const far = B.clone().sub(cam.position).setLength(10).add(cam.position);
         if (cam.position.distanceTo(B) < 9 && !clearLine(boxes, B.clone().lerp(far, 0.1), far)) walled++;
         else walled = 0;
+        maxWalled = Math.max(maxWalled, walled);
         expect(walled, `${heading} ${t.toFixed(2)} wall`).toBeLessThan(40); // gone round it within 2 s
       }
+      expect(maxWalled).toBeLessThan(32); // round it within about 1.5 s
     }
   });
 

@@ -103,6 +103,8 @@ const CRANE_SHARE_S = 0.8;
 const CRANE_CHECK_S = 0.25;
 /** ...and the spot must still see it this long on (the camera takes about a second to get round). */
 const CRANE_SEE_S = 2;
+/** ...and when no spot has a clear CRANE_WALL_M behind the balloon, it looks again only this much later. */
+const CRANE_RETRY_S = 1;
 const CRANE_AZ_TAU_S = 0.7;
 const CRANE_WALL_M = 12;
 const CRANE_SKY_M = 35;
@@ -268,6 +270,8 @@ export class Director {
   private craneOff = 0;
   private craneEl = 0;
   private craneCheckAt = -Infinity;
+  /** craneSpot's search, spread over frames: the elevation row it is on (-1: none) and the best spot so far. */
+  private readonly search = { row: -1, oi: 0, ei: 0, score: -1 };
   private craneMovedAt = -Infinity;
   /** The push's target last frame, likewise. */
   private readonly pushPrev = new THREE.Vector3(Number.NaN, 0, Number.NaN);
@@ -281,7 +285,6 @@ export class Director {
   /** fromScene's Jacobian and the base point it was worked out for. */
   private readonly jac = { lat: Number.NaN, lon: Number.NaN, bx: Number.NaN, bz: Number.NaN, a: 0, c: 0, e: 0, f: 0, det: 0 };
   private readonly v1 = new THREE.Vector3();
-  private readonly v2 = new THREE.Vector3();
   private readonly v3 = new THREE.Vector3();
   private readonly v4 = new THREE.Vector3();
   private afterLaunch: DirectorMode = 'film';
@@ -986,20 +989,26 @@ export class Director {
   }
 
   /**
-   * Can the crane stand at cam and see the balloon at B: not in a building or the ground, the line of sight
-   * clear, and no wall within CRANE_WALL_M of the camera behind the balloon (with `sky`: nothing within
-   * CRANE_SKY_M, the balloon against the sky or the far town)?
+   * How well the crane sees the balloon at B from cam: -1 if it cannot stand there (a building, a tree or
+   * the ground) or the line of sight is blocked; else how far from the camera the line on past the balloon
+   * runs clear (up to CRANE_SKY_M: the balloon against the sky or the far town), so a wall close behind the
+   * balloon scores low.
    */
-  private spotOk(cam: THREE.Vector3, B: THREE.Vector3, sky: boolean, b: RoutePoint, B0: THREE.Vector3): boolean {
+  private spotScore(cam: THREE.Vector3, B: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): number {
     const ll = this.fromScene(cam.x, cam.z, b, B0, this.ll);
     const g = this.deps.groundAt(ll);
-    if (Number.isFinite(g) && cam.y < g + 1) return false;
-    if (this.spotTop(ll, 1.2) > cam.y - 0.5) return false; // nor in a tree's crown
-    if (!this.sightClear(cam, B, 0.05, 0.85, b, B0)) return false;
+    if (Number.isFinite(g) && cam.y < g + 1) return -1;
+    if (this.spotTop(ll, 1.2) > cam.y - 0.5) return -1; // nor in a tree's crown
+    if (!this.sightClear(cam, B, 0.05, 0.85, b, B0)) return -1;
     const dist = cam.distanceTo(B);
-    const L = Math.max(sky ? CRANE_SKY_M : CRANE_WALL_M, dist + 2);
-    const E = this.v2.copy(B).sub(cam).multiplyScalar(L / Math.max(1e-6, dist)).add(cam);
-    return this.sightClear(cam, E, (dist + 1) / L, 1, b, B0);
+    const ux = (B.x - cam.x) / Math.max(1e-6, dist), uy = (B.y - cam.y) / Math.max(1e-6, dist), uz = (B.z - cam.z) / Math.max(1e-6, dist);
+    for (let r = dist + 1; r < CRANE_SKY_M; r += 2) {
+      const x = cam.x + ux * r, y = cam.y + uy * r, z = cam.z + uz * r;
+      const q = this.fromScene(x, z, b, B0, this.ll);
+      const T = Math.max(this.spotTop(q, 0.5), this.deps.groundAt(q));
+      if (Number.isFinite(T) && T > y - 0.3) return r;
+    }
+    return CRANE_SKY_M;
   }
 
   /** The crane's spot for azimuth az (bearing from the balloon), elevation el below it, distance d, written into out. */
@@ -1013,43 +1022,58 @@ export class Director {
   }
 
   /**
-   * Chooses where round the balloon the crane stands (craneOff, craneEl) every CRANE_CHECK_S: the present
-   * choice is kept while it sees the balloon now and CRANE_SEE_S on (and, if it has the sky behind the balloon,
-   * while it keeps it); otherwise the first clear spot in CRANE_OFFS x CRANE_ELS, with the sky behind the
-   * balloon if one has it. Nothing clear: it keeps what it has.
+   * Chooses where round the balloon the crane stands (craneOff, craneEl). Every CRANE_CHECK_S the present
+   * spot is scored (spotScore, now and CRANE_SEE_S on, the worse of the two); it is kept while it has the
+   * sky behind the balloon, or a clear CRANE_WALL_M and it moved lately. Otherwise a search over
+   * CRANE_OFFS x CRANE_ELS runs, one elevation a frame (no frame does it all), and the best spot wins: the
+   * one whose line past the balloon runs clear furthest, a wall nearer than CRANE_WALL_M only if nothing is
+   * better. Nothing better than that: it looks again only after CRANE_RETRY_S.
    */
   private craneSpot(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, dir: THREE.Vector3, d: number, lagY: number): void {
-    if (this.clock - this.craneCheckAt < CRANE_CHECK_S && this.clock >= this.craneCheckAt) return;
-    this.craneCheckAt = this.clock;
+    const S = this.search;
+    if (S.row < 0 && this.clock < this.craneCheckAt) return; // most frames: nothing to do
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
     const B1 = this.v3.set(B.x + dir.x * v * CRANE_SEE_S, B.y + CLIMB_RATE_MS * CRANE_SEE_S, B.z + dir.z * v * CRANE_SEE_S);
     // (held at a wall it is sliding up, it will not have moved on: R57b)
     if (this.deps.buildingTopAt && this.deps.buildingTopAt(this.fromScene(B1.x, B1.z, b, B0, this.ll), 1) > B1.y) B1.set(B.x, B1.y, B.z);
     const base = this.craneAxisAz;
-    const ok = (oi: number, ei: number, sky: boolean) => {
+    const score = (oi: number, ei: number) => {
       const az = base + CRANE_OFFS[oi], el = CRANE_ELS[ei];
-      return this.spotOk(this.craneAt(B, az, el, d, lagY, this.v4, b, B0), B, sky, b, B0) && this.spotOk(this.craneAt(B1, az, el, d, lagY, this.v4, b, B0), B1, sky, b, B0);
+      const a = this.spotScore(this.craneAt(B, az, el, d, lagY, this.v4, b, B0), B, b, B0);
+      if (a < 0) return -1;
+      return Math.min(a, this.spotScore(this.craneAt(B1, az, el, d, lagY, this.v4, b, B0), B1, b, B0));
     };
-    const [o0, e0] = [this.craneOff, this.craneEl];
-    const curSky = ok(o0, e0, true);
-    if (curSky) return;
-    const curOk = curSky || ok(o0, e0, false);
-    // a spot with the sky behind the balloon is worth a move only now and then (no hunting between spots)
-    const trySky = !curOk || this.clock - this.craneMovedAt > 3;
-    for (const sky of trySky ? [true, false] : [false]) {
-      if (!sky && curOk) return;
-      for (let ei = 0; ei < CRANE_ELS.length; ei++) {
-        for (let oi = 0; oi < CRANE_OFFS.length; oi++) {
-          if (oi === o0 && ei === e0) continue;
-          if (ok(oi, ei, sky)) {
-            this.craneOff = oi;
-            this.craneEl = ei;
-            this.craneMovedAt = this.clock;
-            return;
-          }
-        }
+    if (S.row < 0) {
+      this.craneCheckAt = this.clock + CRANE_CHECK_S;
+      const cur = score(this.craneOff, this.craneEl);
+      if (cur >= CRANE_SKY_M || (cur >= CRANE_WALL_M && this.clock - this.craneMovedAt < 3)) return;
+      S.row = 0;
+      S.oi = this.craneOff;
+      S.ei = this.craneEl;
+      S.score = cur;
+      return;
+    }
+    // one elevation's row of spots this frame
+    for (let oi = 0; oi < CRANE_OFFS.length; oi++) {
+      if (oi === this.craneOff && S.row === this.craneEl) continue;
+      const sc = score(oi, S.row);
+      // a move must be worth it (2 m more clear run), or see at all where the present spot does not
+      if (sc > S.score + 2 || (S.score < 0 && sc >= 0)) {
+        S.oi = oi;
+        S.ei = S.row;
+        S.score = sc;
       }
     }
+    S.row++;
+    if (S.row < CRANE_ELS.length && S.score < CRANE_SKY_M) return;
+    if (S.oi !== this.craneOff || S.ei !== this.craneEl) {
+      this.craneOff = S.oi;
+      this.craneEl = S.ei;
+      this.craneMovedAt = this.clock;
+    }
+    // nothing with a clear CRANE_WALL_M behind the balloon: look again a while later
+    this.craneCheckAt = this.clock + (S.score < CRANE_WALL_M ? CRANE_RETRY_S : CRANE_CHECK_S);
+    S.row = -1;
   }
 
   /**
@@ -1085,6 +1109,7 @@ export class Director {
       this.craneEl = 0;
       this.craneCheckAt = -Infinity;
       this.craneMovedAt = -Infinity;
+      this.search.row = -1;
     }
     this.craneSpot(b, B, B0, dir, d, lagY);
     const el = CRANE_ELS[this.craneEl];
