@@ -1453,7 +1453,9 @@ export class Director {
       const g = this.deps.groundAt(ll);
       if (!Number.isFinite(g)) return Infinity;
       if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return 0;
-      let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 ? 10 : 0;
+      // (on a building, within a crown, or anywhere the clamp would lift it off eye height: a spot looking
+      // down from a roof edge is no spot)
+      let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 || this.spotTop(ll, CROWN_GAP_M + 1) > g + 1.5 ? 10 : 0;
       // the sightline, and as wide as the frame is there (a tree crown beside the camera fills a portrait frame)
       const D = Math.hypot(ps.x - c.x, ps.z - c.z);
       for (const f of [0.1, 0.2, 0.35, 0.5, 0.65, 0.8]) {
@@ -1465,7 +1467,10 @@ export class Director {
       return n;
     };
     this.recheck++;
-    if (this.wide && this.recheck % 20 === 0 && blocked(this.wide) > this.wideBlocked) this.wide = null;
+    if (this.wide && this.recheck % 20 === 0) {
+      const n = blocked(this.wide);
+      if (n > this.wideBlocked || (n >= 10 && this.recheck % 60 === 0)) this.wide = null;
+    }
     if (this.wide) this.settle(this.wide, b, B0, false, HOLD_EYE_M);
     if (!this.wide) {
       const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
@@ -1479,10 +1484,10 @@ export class Director {
       // an aisle between them); nothing clear: the least blocked of them
       const up = new THREE.Vector3(0, 1, 0);
       const cands: THREE.Vector3[] = [];
-      for (const rot of [0, 12, -12, 25, -25, 40, -40]) {
+      for (const rot of [0, 12, -12, 25, -25, 40, -40, 60, -60, 90, -90, 135, -135, 180]) {
         for (const l of lines) {
           const lr = l.clone().applyAxisAngle(up, rot * RAD);
-          for (const k of [1, 0.85, 0.7, 0.55, 0.42]) cands.push(new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(lr, -want * k));
+          for (const k of [1, 0.85, 0.7, 0.55, 0.42, 1.25]) cands.push(new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(lr, -want * k));
         }
         if (rot === 0) cands.push(S.clone());
       }
