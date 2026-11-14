@@ -136,6 +136,8 @@ const STREET_CLEAR_M = 1.5;
 const WAIT_SUBJECT_M = 3;
 /** ...filling about a third of the screen's height (NDC), less on a short band. */
 const WAIT_FILL = 0.62;
+/** ...and its frame is about this wide (half, per metre out) for what may stand beside the sightline. */
+const WAIT_FRAME_W = 0.2;
 /**
  * Replay (spec 6.4, 8): the high, wide view sits this far from the balloon, this steeply above it, so
  * the land under a 2,600 km trip in 15 s moves past calmly enough to read coasts and names. Close (at
@@ -1210,16 +1212,21 @@ export class Director {
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const gP = this.deps.groundAt(o.personAt);
-    // how blocked a spot is: 0 clear; a building or a tree on the spot counts 10, each on the sightline 1
+    // how blocked a spot is: 0 clear; a building or a tree on the spot counts 10, on the sightline 2, beside it
+    // in the frame 1
     const blocked = (c: THREE.Vector3): number => {
       const ll = this.fromScene(c.x, c.z, b, B0);
       const g = this.deps.groundAt(ll);
       if (!Number.isFinite(g)) return Infinity;
       if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return 0;
       let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 ? 10 : 0;
-      for (const f of [0.2, 0.4, 0.6, 0.8]) {
+      // the sightline, and as wide as the frame is there (a tree crown beside the camera fills a portrait frame)
+      const D = Math.hypot(ps.x - c.x, ps.z - c.z);
+      for (const f of [0.1, 0.2, 0.35, 0.5, 0.65, 0.8]) {
         const q = this.fromScene(c.x + (ps.x - c.x) * f, c.z + (ps.z - c.z) * f, b, B0);
-        if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) n++;
+        const gq = this.deps.groundAt(q) + 1;
+        if (this.spotTop(q, 0.6) > gq) n += 2;
+        else if (this.spotTop(q, 0.3 + WAIT_FRAME_W * f * D) > gq) n++;
       }
       return n;
     };
