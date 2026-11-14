@@ -117,7 +117,7 @@ const RISE_Y0 = 0.75;
 const CRANE_ELEV = 22 * RAD;
 const CRANE_SOFT_M = 0.8;
 const FOLLOW_FROM_S = 1;
-const FOLLOW_SOON_S = 0.4;
+const FOLLOW_SOON_S = 0;
 const FOLLOW_S = 1.5;
 const FRAME_S = 3;
 const CRANE_Y0 = 0.22;
@@ -1184,12 +1184,14 @@ export class Director {
 
   /**
    * Where the balloon sits across the frame (NDC x) so that it and what lies along `bearing` from the camera at
-   * p share the frame, symmetrically about the middle; it saturates smoothly at 0.6, short of the edge, when
-   * they are too far apart.
+   * p share the frame (about symmetrically when they are close together); it saturates softly at 0.6, short
+   * of the edge, when they are too far apart.
    */
   private share(p: V3, B: V3, bearing: number, fovDeg: number): number {
     const d = wrapPi(Math.atan2(B.x - p.x, -(B.z - p.z)) - bearing);
-    return 0.6 * Math.tanh((0.5 * Math.tan(Math.max(-1.2, Math.min(1.2, d)))) / this.tanH(fovDeg) / 0.6);
+    // (a soft saturation: on a long lens the two part across the frame quickly, and the view must not swing
+    // to keep them, then swing back after the balloon)
+    return 0.6 * Math.tanh((0.5 * Math.tan(Math.max(-1.2, Math.min(1.2, d)))) / this.tanH(fovDeg) / 1.5);
   }
 
   /**

@@ -16,7 +16,7 @@ import { CLIMB_RATE_MS } from '../config';
  * would pass on.
  * No allocation per step.
  */
-export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 3, riseTauS: 0.5, maxRiseMs: 6, decayMs: 0.8, smoothLiftS: 0.3, smoothBackS: 0.5 } as const;
+export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 5, riseTauS: 0.8, maxRiseMs: 3, decayMs: 0.8, smoothLiftS: 0.5, smoothBackS: 0.5 } as const;
 
 /** Highest building or landmark top (absolute) within r of the scene point (x, z); ground or less where none. */
 export type TopAt = (x: number, z: number, r: number) => number;
