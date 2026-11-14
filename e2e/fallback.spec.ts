@@ -201,6 +201,12 @@ test.describe('without WebGL', () => {
     const href = await page.evaluate(() => location.href);
     expect(href).toMatch(/#b=/);
     expect(lines).toContain(`URL:${href}`);
+    // the HUD's one line of small print: "A simulation · About", and About opens the same sheet as the start screen's
+    await expect(page.locator('.hud .notice')).toHaveText('A simulation · About');
+    await page.locator('.hud').getByRole('button', { name: 'About' }).click();
+    await expect(page.getByRole('dialog', { name: 'About' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'About' })).toBeHidden();
   });
 
   test('the winds error still says so plainly, with Try again', async ({ context, page }) => {

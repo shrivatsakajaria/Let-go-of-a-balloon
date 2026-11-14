@@ -271,7 +271,8 @@ test.describe('town search', () => {
     await expect(box).toBeVisible();
     await page.keyboard.press('ArrowDown');
     await expect(box).toHaveAttribute('aria-expanded', 'true');
-    await page.keyboard.press('ArrowDown');
+    // the first option is the one in England for this visitor (ranked first)
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Enter');
     await expect(box).toBeHidden();
     await expect(fromButton(page)).toHaveText('From Windermere');

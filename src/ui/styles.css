@@ -319,6 +319,8 @@ a.link, .small a { color: var(--paper); }
   color: rgba(247, 243, 236, 0.88);
 }
 .fineprint .notice { flex: none; white-space: nowrap; }
+/* after .small, which zeroes margins: the small print sits clear of the controls above it */
+.start .fineprint { margin-top: 14px; }
 .map-credit { flex: 0 1 auto; min-width: 0; text-align: right; }
 .small a {
   /* each credit link is a 24 px target (WCAG 2.5.8): a line of links, not a sentence */
