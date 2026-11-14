@@ -285,7 +285,10 @@ a.link, .small a { color: var(--paper); }
   text-wrap: pretty;
 }
 .notice { flex: 1 1 0; min-width: 0; max-width: 62ch; text-align: left; }
-.map-credit { flex: 0 1 auto; min-width: min-content; max-width: 40%; text-align: right; line-height: 24px; } /* the 40% cap yields to the min-content floor (min-width beats max-width): never narrower than its longest link */
+/* wide enough on a phone that "OpenFreeMap © OpenMapTiles" share a line (three 24 px lines, not four), so the
+   row and the shading sized to it stay low; the cap yields to the min-content floor (min-width beats
+   max-width): never narrower than its longest link */
+.map-credit { flex: 0 1 auto; min-width: min-content; max-width: min(48%, 172px); text-align: right; line-height: 24px; }
 .small a {
   /* each credit link is a 24 px target (WCAG 2.5.8): a line of links, not a sentence */
   display: inline-block;
@@ -783,12 +786,26 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 }
 
 /*
+ * Short landscape screens (a phone on its side, 640 x 360 to 844 x 390): the bottom stack tightens (a
+ * one-line fact keeps one line, the main action is 44 px, as every other control), and the flight HUD
+ * scrolls rather than clips if it is still taller than the screen (the 2D map's narrow column).
+ */
+@media (max-height: 420px) and (orientation: landscape) {
+  .hud .fact { min-height: 1.35em; }
+  .hud .main-action { min-height: 44px; }
+  .hud .fineprint { margin-top: 4px; }
+  :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
+  .hud > * { flex-shrink: 0; }
+}
+
+/*
  * 200% zoom and small windows (WCAG 1.4.4, 1.4.10): rows wrap, the small print stacks, and the start screen
- * and the flight HUD scroll rather than clip. A 320 px phone and a landscape phone (844 x 390) keep their layout. The canvas
+ * and the flight HUD scroll rather than clip (a 1280 px window at 200% is 640 x 350 or so). A 320 px phone and
+ * landscape phones (844 x 390, 667 x 375, 640 x 360) keep their layout. The canvas
  * takes no pointer input, so a HUD that takes taps here blocks nothing; it does so only in the flight,
  * so it never covers the start screen's own controls.
  */
-@media (max-width: 300px), (max-height: 420px) and (max-width: 700px) {
+@media (max-width: 300px), (max-height: 359px) and (max-width: 700px) {
   .start, :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
   .start > *, .hud > * { flex-shrink: 0; }
   .hud-top, .go-row, .views, .actions, .day-row { flex-wrap: wrap; }
