@@ -142,8 +142,10 @@ export class LiveScene {
   private releaseY = Number.NaN;
   /** The drawn balloon's slide up a facade it meets (R57b). */
   private readonly slide = new FacadeSlide();
+  private readonly slideLL: LatLon = { lat: 0, lon: 0 };
+  private slideHeading = 0;
   private readonly slideTop = (x: number, z: number, r: number) => {
-    const p = this.stream.fromScene(x, z);
+    const p = this.stream.fromScene(x, z, this.slideLL);
     return Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r));
   };
   private placedAt = 0;
@@ -536,10 +538,13 @@ export class LiveScene {
     const s = this.stream.toScene(pt, this.tmp);
     // the drawn balloon slides up a facade it meets, never into it (R57b); well up, nothing is in its way
     let sx = s.x, sz = s.z;
-    if (this.released && !rp && !landed && route && y - this.groundS < SLIDE_ABOVE_M) {
-      const h = pt.headingDeg * (Math.PI / 180);
+    if (this.released && !rp && !landed && route) {
+      if (Number.isFinite(pt.headingDeg)) this.slideHeading = pt.headingDeg;
+      const h = this.slideHeading * (Math.PI / 180);
       const ux = Math.sin(h), uz = -Math.cos(h);
-      this.slide.step(s.x, y, s.z, ux, uz, pt.speedMs, dt, this.slideTop);
+      // (well up it only lets go of what lift it has, gently: no lookups)
+      if (y - this.groundS < SLIDE_ABOVE_M) this.slide.step(s.x, y, s.z, ux, uz, pt.speedMs, dt, this.slideTop);
+      else this.slide.ease(pt.speedMs, dt);
       sx -= ux * this.slide.back;
       sz -= uz * this.slide.back;
       y += this.slide.lift;

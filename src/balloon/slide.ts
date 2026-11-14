@@ -66,11 +66,23 @@ export class FacadeSlide {
     // pressed against a wall it has not yet cleared: held back along the drift (it slides up the wall);
     // let go again (catching up no faster than its own speed) once the way ahead is clear at its height
     const yNow = y + this.lift;
-    const blocked = (b: number) => top(x - ux * b + ux * SLIDE.radiusM, z - uz * b + uz * SLIDE.radiusM, SLIDE.radiusM * 0.5) > yNow - 0.3;
-    if (blocked(this.back)) this.back += v * dt;
+    if (blockedAt(x, z, ux, uz, this.back, yNow, top)) this.back += v * dt;
     else if (this.back > 0) {
       const nb = Math.max(0, this.back - v * dt);
-      if (!blocked(nb)) this.back = nb;
+      if (!blockedAt(x, z, ux, uz, nb, yNow, top)) this.back = nb;
     }
   }
+
+  /** Well up, with nothing to look up (no lookups): the lift goes as in step, the hold catches up. */
+  ease(speed: number, dt: number): void {
+    if (!(dt > 0)) return;
+    this.v = 0;
+    this.lift = Math.max(0, this.lift - SLIDE.decayMs * dt);
+    this.back = Math.max(0, this.back - (Number.isFinite(speed) ? Math.max(0, speed) : 0) * dt);
+  }
+}
+
+/** Is the way just ahead of the drawn balloon (held `back` m) walled at its height? */
+function blockedAt(x: number, z: number, ux: number, uz: number, back: number, yNow: number, top: TopAt): boolean {
+  return top(x - ux * back + ux * SLIDE.radiusM, z - uz * back + uz * SLIDE.radiusM, SLIDE.radiusM * 0.5) > yNow - 0.3;
 }

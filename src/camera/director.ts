@@ -19,7 +19,7 @@ export type DirectorMode = 'film' | 'ride' | 'above' | 'side' | 'launch' | 'repl
 export type ShotName = 'launch' | 'ride' | 'circling' | 'side' | 'down' | 'replay';
 export type DirectorEvent = 'coast' | 'sunset' | 'sunrise' | 'city' | 'landmark';
 
-/** A tree's crown: a cone from its foot (base) to its top, `radius` across at the foot, its trunk at (lat, lon). */
+/** A tree's crown: a cone from its foot (base) to its top, of `radius` at the foot, its trunk at (lat, lon). */
 export type Crown = { lat: number; lon: number; radius: number; base: number; top: number };
 
 export type DirectorDeps = {

@@ -52,6 +52,18 @@ describe('facade slide (R57b)', () => {
     for (let i = 1; i < track.length; i++) expect(track[i].lift - track[i - 1].lift).toBeLessThanOrEqual(SLIDE.maxRiseMs / 30 + 1e-9);
   });
 
+  test('well up (no lookups), what lift it has goes gently, never all at once', () => {
+    const s = new FacadeSlide();
+    s.lift = 25;
+    s.back = 3;
+    s.ease(3, 1 / 30);
+    expect(s.lift).toBeCloseTo(25 - SLIDE.decayMs / 30, 6);
+    expect(s.back).toBeCloseTo(3 - 3 / 30, 6);
+    for (let i = 0; i < 30 * 40; i++) s.ease(3, 1 / 30);
+    expect(s.lift).toBe(0);
+    expect(s.back).toBe(0);
+  });
+
   test('a tall tower beside its path, not across it: no lift', () => {
     const boxes: Box[] = [{ x0: 20, x1: 60, z0: 6, z1: 40, top: 100 }];
     for (const p of fly(boxes, 3, 30)) {

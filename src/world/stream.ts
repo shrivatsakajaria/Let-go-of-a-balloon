@@ -244,8 +244,12 @@ export class WorldStream {
     return out;
   }
 
-  fromScene(x: number, z: number): LatLon {
-    return { lat: this.origin.lat - z / M_PER_DEG, lon: wrapLon(this.origin.lon + x / (M_PER_DEG * this.cosO)) };
+  fromScene(x: number, z: number, out?: LatLon): LatLon {
+    const lat = this.origin.lat - z / M_PER_DEG, lon = wrapLon(this.origin.lon + x / (M_PER_DEG * this.cosO));
+    if (!out) return { lat, lon };
+    out.lat = lat;
+    out.lon = lon;
+    return out;
   }
 
   // ---- per frame ----
@@ -1051,7 +1055,7 @@ export class WorldStream {
   }
 }
 
-/** A drawn tree's crown (crownNear): a cone from its foot to its top, `radius` across at the foot. */
+/** A drawn tree's crown (crownNear): a cone from its foot to its top, of `radius` at the foot. */
 export type Crown = { lat: number; lon: number; radius: number; base: number; top: number };
 
 /** The drawn trees' crowns as [x, z, radius, top], and each one's foot (treeGeometry: a cone 11 m tall, of radius 3.4 m at its foot, scaled per tree). */
