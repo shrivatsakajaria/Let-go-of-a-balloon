@@ -96,11 +96,17 @@ export type Chrome = {
   /** The bottom shading covers only the stack's column (wide screens), not the full width. */
   narrowShade: boolean;
   /**
-   * Where the bottom shading turns dark (its top edge plus its faint first quarter): sized to the stack's
+   * Where the bottom shading turns dark (its top edge plus its faint top, SHADE_FAINT of it): sized to the stack's
    * text, it can reach well above the stack. Left out, the stack's top is the limit.
    */
   shadeBottomTop?: number;
 };
+
+/**
+ * The top 15% of the bottom shading is faint (a third of its strength or less: the 85% stop in styles.css
+ * .ink-bottom): the map may run under it, never under the darker part below.
+ */
+export const SHADE_FAINT = 0.15;
 
 const GAP = 16;
 const MIN_BAND = 160;

@@ -32,7 +32,7 @@ import { fetchVectorTile, vectorTileTemplate } from '../world/vector';
 import { landedAt, linkRoute, releaseRoute, warm } from '../app/data';
 import type { LiveDeps } from '../app/live';
 import type { Flight, World } from '../app/world';
-import { decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
+import { SHADE_FAINT, decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
 
 const LAND = CONTOUR.land[1];
 const SEA = CONTOUR.waterDeep;
@@ -42,8 +42,6 @@ const INK = '10, 14, 28';
 const DPR_CAP = 2;
 const TICK_MS = 1000;
 const PLACE_EVERY_MS = 6000;
-/** The bottom shading's first quarter is faint (under a third of its strength): the map may run under it. */
-const SHADE_FAINT = 0.25;
 
 export type FallbackDeps = LiveDeps;
 

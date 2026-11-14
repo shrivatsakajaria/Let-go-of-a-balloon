@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
 import { offline } from './net';
+import { SHADE_FAINT } from '../src/fallback/map2d';
 
 /**
  * The 2D fallback (spec 6.7: no WebGL, or a phone that keeps losing it) and the credits (the plan's
@@ -83,8 +84,8 @@ for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { 
     const top = await box('.hud-top');
     // below the dark part of the top shading and the clock
     expect(b.y).toBeGreaterThan(Math.max(top.y + top.height, shadeTop.y + shadeTop.height - 30));
-    // and not under the dark part of the bottom shading (below its faint first quarter) or the stack
-    const underBottom = b.y > shadeBottom.y + 0.25 * shadeBottom.height && b.x < shadeBottom.x + shadeBottom.width - 30;
+    // and not under the dark part of the bottom shading (below its faint top: SHADE_FAINT) or the stack
+    const underBottom = b.y > shadeBottom.y + SHADE_FAINT * shadeBottom.height && b.x < shadeBottom.x + shadeBottom.width - 30;
     expect(underBottom).toBe(false);
     expect(b.y < stack.y || b.x > stack.x + stack.width).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`fallback-${size.width}x${size.height}.png`) });
