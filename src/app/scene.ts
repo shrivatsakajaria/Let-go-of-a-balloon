@@ -14,7 +14,8 @@
  */
 import * as THREE from 'three';
 import { Balloon, displayScale } from '../balloon/balloon';
-import { MAX_HOLD_S, Person } from '../balloon/person';
+import { Person } from '../balloon/person';
+import { keepHolding, MAX_HOLD_MS } from './hold';
 import { Director, type DirectorMode, type WaitFrame } from '../camera/director';
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
@@ -24,9 +25,11 @@ import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
 import { aglOver, climbFloorFrom, nextFeet, standableGround, startLiftM, type GroundSources } from './standable';
 import { Clouds } from '../world/clouds';
+import { streakTarget, WindStreaks } from '../world/windstreaks';
 import { hazeFarM } from '../world/lod';
+import { FrameBudget } from '../world/framebudget';
 import { regionStyle } from '../world/palette';
-import { createRenderer } from '../world/render';
+import { createRenderer, isSoftwareRenderer } from '../world/render';
 import { Sky } from '../world/sky';
 import { WorldStream } from '../world/stream';
 import { routeGround } from '../world/terrainsrc';
@@ -102,6 +105,8 @@ export class LiveScene {
   private readonly ground: GroundSources = { groundAt: (p) => this.stream.groundAt(p), landmarkGroundAt: (p) => this.landmarks.groundAt(p) };
   readonly sky: Sky;
   readonly clouds: Clouds;
+  /** Wind streaks once the balloon is well up (owner's decision, 14 November 2026). */
+  readonly streaks: WindStreaks;
   readonly director: Director;
   balloon: Balloon;
   person: Person | null = null;
@@ -112,6 +117,10 @@ export class LiveScene {
   onLuminance: ((top: number, bottom: number) => void) | null = null;
   /** Skip measuring the brightness behind the text (the launch: only the clock shows). */
   measurePaused = false;
+  /** The frame budget (world/framebudget.ts): the view's tiles to their cap, the shadow pass to its share, the detail. */
+  private readonly budget: FrameBudget;
+  /** The last frame drawn redrew the shadow map (for the performance checks). */
+  shadowDrawn = false;
   /** The first frame has been drawn. */
   onFirstFrame: (() => void) | null = null;
 
@@ -156,6 +165,8 @@ export class LiveScene {
   private readonly trailFrame: TrailFrame = {
     route: null as unknown as Route, tSec: 0, toScene: (p, out) => this.stream.toScene(p, out), head: this.target, camera: this.camera, viewportH: 1, balloonRadiusM: 0, lower: 0,
   };
+  private readonly streakFrame = { focus: this.target, camera: this.camera, focusRadius: 0.15, groundM: 0, wind: { u: 0, v: 0 }, target: 0 };
+  private readonly streakState = { released: false, landed: false, replay: false, reduced: false, shot: '', aglM: 0, toLandS: Number.NaN };
   private readonly info: SceneFrame = {
     now: 0, point: this.point, aglM: 0, groundM: 0, feetM: 0, released: false, landed: false, settled: false, waiting: true, shot: '', sunElevationDeg: 0,
   };
@@ -165,6 +176,7 @@ export class LiveScene {
     this.reduced = opts.reducedMotion;
     this.start = { lat: start.lat, lon: start.lon };
     this.renderer = createRenderer(canvas);
+
     this.sky = new Sky(this.scene, { shadow: { radius: 700, mapSize: 2048, snap: 100, upM: 60, downM: 40 } });
     this.sky.update(Date.now(), start);
     this.pool = new WorkerPool<BuildRequest, BuildReply>(
@@ -180,8 +192,13 @@ export class LiveScene {
       hidden: hiddenFootprints(),
     });
     this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
+    this.budget = new FrameBudget(this.stream, this.sky.light, { frameTimes: !isSoftwareRenderer(this.renderer) });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
-    this.stream.onRecentre = (e) => this.clouds.shift(e.dx, e.dz);
+    this.streaks = new WindStreaks(this.scene, { haze: this.sky.haze, enabled: !this.reduced, pixelRatio: this.renderer.getPixelRatio() });
+    this.stream.onRecentre = (e) => {
+      this.clouds.shift(e.dx, e.dz);
+      this.streaks.shift(e.dx, e.dz);
+    };
     this.stream.onChange = this.landmarks.onChange = () => {
       this.shadowAsked = performance.now();
     };
@@ -213,6 +230,8 @@ export class LiveScene {
     this.newBalloon();
     this.placePerson();
     this.director.paused = false;
+    this.streaks.paused = false;
+    this.streaks.cut(); // none fade out over the start screen
     this.director.setLaunch({ personAt: this.start, landmarkHeadingDeg: this.landmark, startUtcMs: Date.now(), waiting: this.wait, cueRelease: true });
   }
 
@@ -231,9 +250,9 @@ export class LiveScene {
 
   /**
    * Let go: the camera moves in, the person opens their hand at max(1.2 s, route ready) and never
-   * after 6 s. `onRelease` gets the route once the balloon is free; `onTimeout` when it never was.
+   * after 6 s, unless `working` says the winds are in and the route is on its way (then up to 20 s). `onRelease` gets the route once the balloon is free; `onTimeout` when it never was.
    */
-  launch(route: Promise<Route>, onRelease: (r: Route) => void, onTimeout: () => void): void {
+  launch(route: Promise<Route>, onRelease: (r: Route) => void, onTimeout: () => void, working: () => boolean = () => false): void {
     if (!this.person) this.placePerson();
     const person = this.person!;
     this.director.go();
@@ -246,12 +265,19 @@ export class LiveScene {
       this.holdUntil = null;
       onTimeout();
     };
-    // the person counts the 6 s in frame time; a slow frame rate must not stretch the wait in real time,
-    // so the frame loop also checks the clock (performance.now, which a backgrounded tab does not skip)
+    // the hold is counted in real time by the frame loop (performance.now, which a backgrounded tab
+    // does not skip), not in the person's frame time (app/hold.ts: 6 s, or 20 s while the winds are in
+    // and the route is being worked out; never while a route that came waits for the next frame)
+    const t0 = performance.now();
     this.holdUntil = {
-      at: performance.now() + MAX_HOLD_S * 1000 + 100,
+      at: t0 + MAX_HOLD_MS,
       expire: () => {
         if (person.state !== 'holding') return;
+        const now = performance.now();
+        if (this.holdUntil && keepHolding(now - t0, { routeReady: ready !== null, windsIn: working() })) {
+          this.holdUntil.at = now + 250;
+          return;
+        }
         person.holdIdle();
         timeout();
       },
@@ -269,7 +295,9 @@ export class LiveScene {
         this.director.release(); // the crane starts as the hand opens
         onRelease(ready!);
       },
-      { readyAt: route, onTimeout: timeout },
+      // the 1.2 s before the hand opens is real time too: a phone at a frame or two a second lets go
+      // once the route is in, not after 1.2 s of its capped frame time (12 frames, so 12 s at 1 fps)
+      { readyAt: route, onTimeout: timeout, holdS: Infinity, now: () => performance.now() },
     );
   }
 
@@ -309,6 +337,7 @@ export class LiveScene {
 
   setPaused(p: boolean): void {
     this.director.paused = p;
+    this.streaks.paused = p; // they hold still, still shown (spec 7.3)
   }
 
   /** Map labels near p (for "Over ..."). */
@@ -325,6 +354,7 @@ export class LiveScene {
     if (this.person) this.person.root.visible = false;
     this.freshBalloon();
     this.clouds.mesh.visible = false;
+    this.streaks.cut();
     this.groundS = Number.NaN;
     this.skyAt = -Infinity;
     this.director.cut('replay');
@@ -373,6 +403,7 @@ export class LiveScene {
     this.person = null;
     this.balloon.dispose();
     this.clouds.dispose();
+    this.streaks.dispose();
     this.sky.dispose();
     this.landmarks.dispose();
     this.stream.dispose();
@@ -541,6 +572,10 @@ export class LiveScene {
       this.stream.materials.setGroundTint(L.groundTint);
     }
 
+    // the frame budget: what the view will draw of the tiles, the farthest buildings left out past the
+    // cap (none in the replay)
+    this.budget.fitView(this.camera, !rp);
+
     // live shadows round the balloon, a little ahead of it
     // over a landmark's terrace where it is higher than the drawn ground (in the hand on Corcovado:
     // 1.5 m, not 183 m); not by changing groundS, which sceneAltitude reads with the lifted route
@@ -562,7 +597,26 @@ export class LiveScene {
     if (redraw) {
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDrawnAt = t;
+      // the shadow pass's budget: trees cast near the balloon only, and a dense city gets a smaller disc
+      if (!rp) this.budget.fitShadows(this.scene, this.focus);
     }
+
+    // wind streaks flow past once the balloon is well up (never in the launch, the replay or reduced motion)
+    const sf = this.streakFrame;
+    sf.groundM = this.groundS;
+    sf.focusRadius = 0.15 * displayScale(dB);
+    sf.wind.u = pt.speedMs * Math.sin(h);
+    sf.wind.v = pt.speedMs * Math.cos(h);
+    const st = this.streakState;
+    st.released = this.released;
+    st.landed = landed;
+    st.replay = !!rp;
+    st.reduced = this.reduced;
+    st.shot = this.director.shot;
+    st.aglM = agl;
+    st.toLandS = route ? (route.release + FLIGHT_HOURS * H - now) / 1000 : Number.NaN;
+    sf.target = streakTarget(st);
+    this.streaks.update(dt, sf);
 
     if (rp && route) {
       const tf = this.trailFrame;
@@ -574,7 +628,11 @@ export class LiveScene {
       rp.trail.update(tf);
     }
 
+    this.shadowDrawn = this.renderer.shadowMap.needsUpdate;
     this.renderer.render(this.scene, this.camera);
+    // what the view drew; over budget in a dense city the buildings levels come nearer (the replay
+    // streams its own way)
+    this.budget.afterRender(this.renderer.info.render, this.shadowDrawn && !rp, t, dt * 1000, !rp);
     if (this.frames++ === 0) this.onFirstFrame?.();
     // reading pixels back stalls the pipeline: only when text sits over the scene and nothing is being
     // worked out (not during the launch, when only the clock shows)

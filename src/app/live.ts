@@ -26,7 +26,7 @@ import { showNotice, type Notice } from '../ui/notice';
 import { playReplay, replayNames, type ReplayName } from '../ui/replay';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
-import { landedAt, linkRoute, releaseRoute, surfaceWind, warm } from './data';
+import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
 import { LiveScene, type SceneFrame } from './scene';
 import { cardHook, homeFor, prepareCard, presentCard } from './landingcard';
 import { cardScene, farStats, isFarRoute, settledWorld } from './cardshot';
@@ -91,8 +91,17 @@ export type LiveHook = {
   /** What the last frame drew (renderer.info, shadow pass included): for the performance checks. */
   triangles: number;
   calls: number;
+  /**
+   * The most any frame drew since a test last zeroed it, apart for frames that redrew the shadow map
+   * (renderer.info, which a sample every 100 ms would mostly miss).
+   */
+  peak: { triangles: number; calls: number; shadowTriangles: number; shadowCalls: number };
   /** WebGL context losses so far. */
   contextLosses: number;
+  /** The wind streaks' opacity now (0: not drawn). */
+  streaks: number;
+  /** How many wind streaks are on screen now (0: not drawn). */
+  streaksOnScreen: number;
 };
 
 export class Live {
@@ -150,7 +159,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', launchS: 0, paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', launchS: 0, paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, streaks: 0, streaksOnScreen: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
   private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -184,6 +193,8 @@ export class Live {
     if (this.testing) {
       // read when asked, not per frame: a starved renderer can go seconds without one
       Object.defineProperty(this.hook, 'replay', { enumerable: true, get: () => this.replayRun !== null });
+      Object.defineProperty(this.hook, 'streaks', { enumerable: true, get: () => (this.scene.streaks.mesh.visible ? this.scene.streaks.opacity : 0) });
+      Object.defineProperty(this.hook, 'streaksOnScreen', { enumerable: true, get: () => this.scene.streaks.onScreen(this.scene.camera) });
       Object.defineProperty(this.hook, 'trail', { enumerable: true, get: () => !!this.scene.scene.getObjectByName('replay-trail') });
       (window as unknown as { __live: LiveHook }).__live = this.hook;
       // for the browser test of dispose: how many objects are left in the 3D scene afterwards
@@ -300,10 +311,12 @@ export class Live {
       throw e;
     });
     this.hud.setFlight({ release: t0 + HOLD_MS, ticks: [], own: true });
+    // the winds came: a route still being worked out after 6 s is a slow phone, not a wind failure
     this.scene.launch(
       ready,
       (r) => this.released(r, c),
       () => this.windError(),
+      () => windsIn(c, t0),
     );
   }
 
@@ -581,6 +594,14 @@ export class Live {
     const info = this.scene.renderer.info.render;
     h.triangles = info.triangles;
     h.calls = info.calls;
+    const pk = h.peak;
+    if (this.scene.shadowDrawn) {
+      pk.shadowTriangles = Math.max(pk.shadowTriangles, info.triangles);
+      pk.shadowCalls = Math.max(pk.shadowCalls, info.calls);
+    } else {
+      pk.triangles = Math.max(pk.triangles, info.triangles);
+      pk.calls = Math.max(pk.calls, info.calls);
+    }
   }
 
   private frame(f: SceneFrame): void {

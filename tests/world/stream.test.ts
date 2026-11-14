@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { destination, lonLatToTile, tileBounds, type LatLon } from '../../src/geo/coords';
 import { tileFrame } from '../../src/world/frame';
 import { DEFAULT_REGION } from '../../src/world/palette';
-import { levelFor, type LodCamera } from '../../src/world/lod';
-import { WorldStream, type BuildPool, type RecentreEvent } from '../../src/world/stream';
+import { levelFor, tilesFor, type LodCamera } from '../../src/world/lod';
+import { WorldStream, type BuildPool, type RecentreEvent, type StreamOptions } from '../../src/world/stream';
 import type { BuildReply, BuildRequest } from '../../src/world/worker';
 
 const MANCHESTER = { lat: 53.4794, lon: -2.2453 };
@@ -57,13 +57,14 @@ class FakePool implements BuildPool {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function setup(opts: { origin?: LatLon; fallback?: number } = {}) {
+function setup(opts: { origin?: LatLon; fallback?: number; want?: StreamOptions['want'] } = {}) {
   const scene = new THREE.Scene();
   const pool = new FakePool();
   const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, {
     vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf',
     origin: opts.origin ?? MANCHESTER,
     fallbackGround: () => opts.fallback,
+    want: opts.want,
   });
   return { scene, pool, stream };
 }
@@ -334,6 +335,77 @@ describe('WorldStream', () => {
 // ---- Task 10 review carries ----
 import { WIN_PERIOD_M } from '../../src/world/haze';
 
+/** A stream whose every tile has a building mesh of 1,000 triangles across it, and a camera 300 m up looking east. */
+async function buildingsEverywhere() {
+  const { pool, stream } = setup();
+  await start(stream, cam(MANCHESTER, 90, 300));
+  // every tile with a building mesh of 1,000 triangles spread over the tile
+  let t = 100;
+  for (let k = 0; k < 40 && pool.open().length; k++) {
+    for (const j of pool.open()) {
+      const real = j.resolve;
+      j.resolve = (r: BuildReply) => {
+        if (r.type === 'built') {
+          const f = tileFrame(r.z, r.x, r.y);
+          const n = 1000;
+          const position = new Float32Array(n * 9);
+          for (let i = 0; i < n; i++) position.set([(i / n) * f.widthM, 20, -f.heightM / 2, (i / n) * f.widthM + 1, 20, -f.heightM / 2, (i / n) * f.widthM, 25, -f.heightM / 2], i * 9);
+          r.meshes.buildings = { position, normal: new Float32Array(n * 9).fill(0.5), color: new Float32Array(n * 9).fill(0.5) };
+        }
+        real(r);
+      };
+      pool.answer(j);
+    }
+    await tick();
+    for (let i = 0; i < 6; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+  }
+  const camera = new THREE.PerspectiveCamera(60, 0.5, 1, 60000);
+  camera.position.set(0, 300, 0);
+  camera.lookAt(1000, 0, 0);
+  camera.updateMatrixWorld();
+  return { stream, camera };
+}
+
+/**
+ * A row of `n` z14 tiles running east from Manchester, each with a line of 1,000 building triangles
+ * along its middle; a camera at its west end looking along it, seeing 8 km. Returns the building
+ * meshes, west to east.
+ */
+async function buildingsInARow(n: number) {
+  const t0 = lonLatToTile(MANCHESTER.lat, MANCHESTER.lon, 14);
+  const keys = Array.from({ length: n }, (_, i) => ({ z: 14, x: Math.floor(t0.x) + i, y: Math.floor(t0.y) }));
+  const { pool, stream } = setup({ want: () => keys });
+  await start(stream, cam(MANCHESTER, 90, 300));
+  let t = 100;
+  for (let round = 0; round < 20 && pool.open().length; round++) {
+    for (const j of pool.open()) {
+      const real = j.resolve;
+      j.resolve = (r: BuildReply) => {
+        if (r.type === 'built') {
+          const f = tileFrame(r.z, r.x, r.y);
+          const k = 1000;
+          const position = new Float32Array(k * 9);
+          for (let i = 0; i < k; i++) position.set([(i / k) * f.widthM, 20, -f.heightM / 2, (i / k) * f.widthM + 1, 20, -f.heightM / 2, (i / k) * f.widthM, 25, -f.heightM / 2], i * 9);
+          r.meshes.buildings = { position, normal: new Float32Array(k * 9).fill(0.5), color: new Float32Array(k * 9).fill(0.5) };
+        }
+        real(r);
+      };
+      pool.answer(j);
+    }
+    await tick();
+    for (let i = 0; i < 6; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+  }
+  for (let i = 0; i < 40; i++) stream.update(cam(MANCHESTER, 90, 300), (t += 16));
+  const row = keys.map((k) => (stream.groupOf(`14/${k.x}/${k.y}`)!.children as THREE.Mesh[]).find((m) => (m.material as THREE.Material).name.includes('buildings'))!);
+  expect(row.every((m) => m && m.visible)).toBe(true);
+  const box = row[0].geometry.boundingBox!.clone().applyMatrix4(row[0].matrixWorld);
+  const camera = new THREE.PerspectiveCamera(60, 0.5, 1, 8000);
+  camera.position.set(box.min.x, 30, (box.min.z + box.max.z) / 2);
+  camera.lookAt(box.min.x + 1000, 30, (box.min.z + box.max.z) / 2);
+  camera.updateMatrixWorld();
+  return { stream, camera, row };
+}
+
 describe('WorldStream: review carries', () => {
   it('keeps the window shift small (modulo the window grid) over a long flight', () => {
     const { stream } = setup();
@@ -455,6 +527,128 @@ describe('WorldStream: review carries', () => {
     expect(live14()).toBe(2);
   });
 
+  it('coarse tiles too arrive a few a frame, by their triangles', async () => {
+    const { pool, stream } = setup();
+    await start(stream, cam(MANCHESTER));
+    const coarse = pool.open().filter((j) => j.msg.z < 14).slice(0, 3);
+    expect(coarse).toHaveLength(3);
+    // heavy coarse tiles: 9,000 tree instances each is about 63k triangles
+    for (const j of coarse) {
+      const real = j.resolve;
+      j.resolve = (r: BuildReply) => {
+        if (r.type === 'built') r.meshes.trees = new Float32Array(9000 * 16).map((_, i) => (i % 16 === 0 || i % 16 === 5 || i % 16 === 10 || i % 16 === 15 ? 1 : 0));
+        real(r);
+      };
+      pool.answer(j);
+    }
+    await tick();
+    const live = () => stream.tiles().filter((t) => t.state === 'live').length;
+    let t = 100;
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live()).toBe(1);
+    stream.update(cam(MANCHESTER), (t += 16));
+    stream.update(cam(MANCHESTER), (t += 16));
+    expect(live()).toBe(3);
+  });
+
+  it('an offscreen world drawn once (a fixed want list: the card\'s) takes every built tile at once, z14 too', async () => {
+    const { pool, stream } = setup({ want: (c, budget) => tilesFor(c, budget) });
+    await start(stream, cam(MANCHESTER));
+    const jobs = pool.open();
+    expect(jobs.some((j) => j.msg.z === 14)).toBe(true);
+    for (const j of jobs) pool.answer(j);
+    await tick();
+    stream.update(cam(MANCHESTER), 100);
+    expect(stream.tiles().filter((t) => t.state === 'live').length).toBe(jobs.length);
+  });
+
+  it('fitView: over budget, the farthest buildings in view are left out of this frame only; ground never', async () => {
+    const { stream, camera } = await buildingsEverywhere();
+    const full = stream.fitView(camera, Infinity);
+    expect(full).toBeGreaterThan(3000);
+    const meshes = () => stream.tiles().flatMap((x) => (stream.groupOf(x.key)?.children ?? []) as THREE.Mesh[]);
+    const hidden = () => meshes().filter((m) => !m.visible);
+    expect(hidden()).toHaveLength(0);
+    const budget = full - 2500;
+    const fitted = stream.fitView(camera, budget);
+    expect(fitted).toBeLessThanOrEqual(budget);
+    expect(hidden().length).toBeGreaterThan(0);
+    expect(hidden().every((m) => (m.material as THREE.Material).name.includes('buildings'))).toBe(true);
+    // the ones left out are the farthest from the camera
+    const dist = (m: THREE.Mesh) => m.geometry.boundingBox!.getCenter(new THREE.Vector3()).applyMatrix4(m.matrixWorld).distanceTo(camera.position);
+    const kept = meshes().filter((m) => m.visible && (m.material as THREE.Material).name.includes('buildings') && m.layers.isEnabled(0));
+    const nearestHidden = Math.min(...hidden().map(dist));
+    expect(kept.some((m) => dist(m) > nearestHidden + 1 && m.intersectsFrustum(new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))))).toBe(false);
+    // the next frame starts whole again
+    expect(stream.fitView(camera, Infinity)).toBe(full);
+    expect(hidden()).toHaveLength(0);
+  });
+
+  it('fitView at the cap: what was left out stays out for a while and comes back only with room to spare (no blinking)', async () => {
+    const { stream, camera } = await buildingsEverywhere();
+    const full = stream.fitView(camera, Infinity);
+    const meshes = () => stream.tiles().flatMap((x) => (stream.groupOf(x.key)?.children ?? []) as THREE.Mesh[]);
+    const shown = () => meshes().map((m) => m.visible).join('');
+    // a view sitting at its cap, the rest of the scene wobbling a little from frame to frame
+    const cap = full - 2500;
+    stream.fitView(camera, cap);
+    const first = shown();
+    for (let f = 0; f < 120; f++) {
+      expect(stream.fitView(camera, cap + (f % 2 ? 600 : -300))).toBeLessThanOrEqual(cap + 600);
+      expect(shown()).toBe(first);
+    }
+    // the view eases off well under the cap: the left-outs come back (after their minimum time out)
+    for (let f = 0; f < 40; f++) stream.fitView(camera, full + 30_000);
+    expect(meshes().every((m) => m.visible)).toBe(true);
+  });
+
+  it('fitView at the cap, the camera moving: a mesh left out while far comes back as the camera nears it (no hole by the camera)', async () => {
+    const { stream, camera, row } = await buildingsInARow(20);
+    const frustum = () => new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const inView = () => {
+      const f = frustum();
+      return row.filter((m) => m.intersectsFrustum(f));
+    };
+    const dist = (m: THREE.Mesh) => m.geometry.boundingBox!.getCenter(new THREE.Vector3()).applyMatrix4(m.matrixWorld).distanceTo(camera.position);
+    // the view sits at its cap: 2,500 under what it would draw with nothing left out (three of its building meshes go)
+    const capFor = () => {
+      const f = frustum();
+      let n = 0;
+      for (const x of stream.tiles()) for (const m of stream.groupOf(x.key)!.children as THREE.Mesh[]) if (m.layers.isEnabled(0) && m.intersectsFrustum(f)) n += m.geometry.getAttribute('position').count / 3;
+      return n - 2500;
+    };
+    stream.fitView(camera, capFor());
+    const out = row.filter((m) => !m.visible);
+    expect(out).toHaveLength(3);
+    // the left-outs are the farthest in view, 5-8 km ahead
+    expect(Math.min(...out.map(dist))).toBeGreaterThan(Math.max(...inView().filter((m) => m.visible).map(dist)));
+    // fly 7 km along the row in 300 frames, the view held at its cap all the way (new tiles come into view ahead)
+    const x0 = camera.position.x;
+    for (let f = 0; f <= 300; f++) {
+      camera.position.x = x0 + (7000 * f) / 300;
+      camera.lookAt(camera.position.x + 1000, camera.position.y, camera.position.z);
+      camera.updateMatrixWorld();
+      const cap = capFor();
+      expect(stream.fitView(camera, cap)).toBeLessThanOrEqual(cap);
+    }
+    // the ones left out back then are near now, and drawn: what is left out is the farthest ahead
+    for (const m of out) expect(dist(m)).toBeLessThan(2000);
+    expect(out.every((m) => m.visible)).toBe(true);
+    const view = inView();
+    const hidden = view.filter((m) => !m.visible), shown = view.filter((m) => m.visible);
+    expect(hidden).toHaveLength(3);
+    expect(Math.min(...hidden.map(dist))).toBeGreaterThan(0.75 * Math.max(...shown.map(dist)));
+    // standing still at the cap with the rest of the scene wobbling, nothing blinks
+    const hold = capFor();
+    const pattern = () => row.map((m) => m.visible).join('');
+    stream.fitView(camera, hold);
+    const first = pattern();
+    for (let f = 0; f < 120; f++) {
+      expect(stream.fitView(camera, hold + (f % 2 ? 600 : -300))).toBeLessThanOrEqual(hold + 600);
+      expect(pattern()).toBe(first);
+    }
+  });
+
   it('stats are read without building a new object each frame, and agree with the tiles', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER));
@@ -541,5 +735,48 @@ describe('WorldStream wanted tiles', () => {
     const stream = new WorldStream(scene, pool, () => DEFAULT_REGION, { vectorUrl: 'https://tiles.example/{z}/{x}/{y}.pbf', origin: MANCHESTER, want: () => want, maxTiles: 8 });
     await start(stream, cam(MANCHESTER, 90, 60000));
     expect(pool.open().map((j) => `${j.msg.z}/${j.msg.x}/${j.msg.y}`).sort()).toEqual(['7/63/41', '7/64/40', '7/64/41']);
+  });
+});
+
+describe('WorldStream settled (the detail budget waits for it between steps)', () => {
+  /** Answer every build, one frame at a time, until nothing is loading; returns the clock. */
+  async function loadAll(pool: FakePool, stream: WorldStream, c: LodCamera, t: number, fail?: string): Promise<number> {
+    for (let k = 0; k < 400; k++) {
+      for (const j of pool.open()) {
+        if (`${j.msg.z}/${j.msg.x}/${j.msg.y}` === fail) {
+          (j as { done?: boolean }).done = true;
+          j.resolve({ type: 'error', z: j.msg.z, x: j.msg.x, y: j.msg.y, message: 'no tile' });
+        } else pool.answer(j);
+      }
+      await tick();
+      stream.update(c, (t += 16));
+      if (pool.open().length === 0 && stream.tiles().every((x) => x.state === 'live')) return t;
+    }
+    throw new Error('never loaded');
+  }
+
+  it('is false while a tile is loading or still fading in, true once every wanted tile is in', async () => {
+    const { pool, stream } = setup();
+    const c = cam(MANCHESTER);
+    await start(stream, c);
+    expect(stream.settled).toBe(false); // loading
+    let t = await loadAll(pool, stream, c, 100);
+    // every tile is live, but the last ones in are still fading in
+    expect(stream.tiles().some((x) => !x.settled)).toBe(true);
+    expect(stream.settled).toBe(false);
+    stream.update(c, (t += 500));
+    expect(stream.tiles().every((x) => x.settled)).toBe(true);
+    expect(stream.settled).toBe(true);
+  });
+
+  it('a tile backing off after a failure does not hold it up', async () => {
+    const { pool, stream } = setup();
+    const c = cam(MANCHESTER);
+    await start(stream, c);
+    const bad = tileAt(MANCHESTER, 12);
+    let t = await loadAll(pool, stream, c, 100, bad);
+    stream.update(c, (t += 500));
+    expect(stream.stats().failed).toBe(1);
+    expect(stream.settled).toBe(true);
   });
 });

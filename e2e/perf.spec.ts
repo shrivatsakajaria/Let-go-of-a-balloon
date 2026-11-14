@@ -22,7 +22,8 @@ const TRIANGLE_CAP = 600_000;
 const CALL_CAP = 250;
 const BUDGET_MS = 2000;
 
-type Hook = { state: string; person: string | null; routeMs: number | null; routeError: string | null; triangles: number; calls: number; frames: number };
+type Peak = { triangles: number; calls: number; shadowTriangles: number; shadowCalls: number };
+type Hook = { state: string; person: string | null; routeMs: number | null; routeError: string | null; triangles: number; calls: number; frames: number; peak: Peak };
 const hook = (page: Page) => page.evaluate(() => (window as unknown as { __live?: Hook }).__live ?? null);
 
 /** A mid-range phone on 4G: CPU 4x slower, DevTools' "Fast 4G" (9 Mb/s down, 1.5 Mb/s up, 165 ms). */
@@ -105,6 +106,11 @@ test('the hard caps hold during 20 s of live flight (renderer.info)', async ({ c
   };
   await expect.poll(released, { timeout: 30_000 }).toBe('released');
   // from the hand opening: the street, the climb past the roofs, and the town opening out below
+  // (every frame counts through the hook's peaks, the rare shadow redraws included)
+  await page.evaluate(() => {
+    const p = (window as unknown as { __live: Hook }).__live.peak;
+    p.triangles = p.calls = p.shadowTriangles = p.shadowCalls = 0;
+  });
   const t0 = Date.now();
   let tris = 0, calls = 0, samples = 0;
   let last = (await hook(page))!.frames;
@@ -118,14 +124,15 @@ test('the hard caps hold during 20 s of live flight (renderer.info)', async ({ c
     }
     await page.waitForTimeout(100);
   }
+  const peak = (await hook(page))!.peak;
+  tris = Math.max(tris, peak.triangles, peak.shadowTriangles);
+  calls = Math.max(calls, peak.calls, peak.shadowCalls);
   record(info, 'frames sampled', samples);
   record(info, 'most triangles in a frame', tris);
   record(info, 'most draw calls in a frame', calls);
   expect(samples).toBeGreaterThan(5);
-  // On the fixtures (one dense z14 tile round Albert Square, open land elsewhere) the caps hold. The
-  // dense-city case (Westminster below cruise on a shadow redraw, ~770k triangles in Task 10) is tuned
-  // in Task 22b; if a fixture change makes these fail before then, mark the test test.fail() with a
-  // note pointing at 22b rather than tuning the world here.
+  // On the fixtures (one dense z14 tile round Albert Square, open land elsewhere). The dense cities on
+  // the real map are checked by e2e/perf-cities.spec.ts (opt-in: it needs the network).
   expect.soft(tris).toBeLessThan(TRIANGLE_CAP);
   expect.soft(calls).toBeLessThan(CALL_CAP);
 });

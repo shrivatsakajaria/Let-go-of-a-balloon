@@ -16,13 +16,14 @@ import { routeGround, type RouteGroundFn } from '../world/terrainsrc';
 const MANIFEST_TTL_MS = 20 * 60e3;
 const H = 3600e3;
 
-let field: { at: number; p: Promise<WindField> } | null = null;
+let field: { at: number; p: Promise<WindField>; w?: WindField } | null = null;
 
 /** The wind field of the newest usable run (cached; a failure is forgotten so Try again asks again). */
 export function windField(now = Date.now()): Promise<WindField> {
   if (!field || now - field.at > MANIFEST_TTL_MS) {
     const p = loadManifest(undefined, undefined, now).then((m) => new WindField(m));
-    const mine = { at: now, p };
+    const mine: { at: number; p: Promise<WindField>; w?: WindField } = { at: now, p };
+    p.then((w) => (mine.w = w), () => {});
     field = mine;
     p.catch(() => {
       if (field === mine) field = null;
@@ -31,12 +32,28 @@ export function windField(now = Date.now()): Promise<WindField> {
   return field.p;
 }
 
-/** Start loading what a release from p will need: the start's ground and the winds round it. */
+/**
+ * Start loading what a release from p will need: the start's ground, the winds round it, and the
+ * start's cruise winds for all three days.
+ */
 export function warm(p: LatLon, now = Date.now()): void {
   routeGround(p).catch(() => {});
   windField(now)
-    .then((w) => w.prepare(p, [now, now + 3 * H]))
+    .then(async (w) => {
+      await w.prepare(p, [now, now + 3 * H]);
+      // then the start's own cruise tile for the whole flight (a file per day): the route reads them
+      // one after another otherwise, a round trip each, after Let go
+      await w.prepare(p, [now, now + FLIGHT_HOURS * H], { radius: 0 });
+    })
     .catch(() => {});
+}
+
+/**
+ * Whether the winds at p for utcMs are in already (the launch then waits for the route, not the
+ * winds). Only reads what warm() and the route have loaded: it loads nothing itself.
+ */
+export function windsIn(p: LatLon, utcMs = Date.now()): boolean {
+  return !!field?.w?.has(p, utcMs);
 }
 
 /**

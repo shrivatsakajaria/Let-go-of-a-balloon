@@ -97,6 +97,12 @@ describe('TileView', () => {
     expect(inView.some((m) => m.castShadow)).toBe(false);
     expect(shadowOnly.every((m) => m.castShadow)).toBe(true);
     expect(v.triangles).toBe(2 + 3);
+    // a quarter left out of a frame (the frame budget) takes its own shadow-only cells with it, no others
+    v.show(inView[0], false);
+    expect(inView[0].visible).toBe(false);
+    expect(shadowOnly.map((m) => m.visible)).toEqual([false, false, true]);
+    v.show(inView[0], true);
+    expect(shadowOnly.every((m) => m.visible)).toBe(true);
     v.dispose();
     // a tile that casts no shadows gets no shadow-only meshes
     const quiet = new TileView({ ...buffers, roads: empty(), trees: new Float32Array(0), buildings: { ...walls, position: position.slice(), color: walls.color.slice() } }, mats, { zoom: 13, castShadow: false, clip: false });
@@ -110,6 +116,72 @@ describe('TileView: lamps, boats and failures (Task 11)', () => {
   const lamps = Float32Array.from([10, 30, -10, 20, 31, -20, 30, 32, -30]);
   const boats = Float32Array.from([100, 0, -100, 0.5, 60]);
   const withAll = { ground: quad(0), water: empty(), waterways: empty(), roads: empty(), buildings: empty(), roofs: empty(), trees: new Float32Array(0), lamps, boats };
+
+  it('trees cast shadows only near the shadow focus, from a shadow-only copy of the near ones', () => {
+    const t = new Float32Array(16 * 3);
+    [10, 400, 650].forEach((x, i) => {
+      for (const d of [0, 5, 10, 15]) t[i * 16 + d] = 1;
+      t[i * 16 + 12] = x;
+      t[i * 16 + 14] = -10;
+    });
+    const v = new TileView({ ...withAll, trees: t }, mats, { zoom: 14, castShadow: true, clip: false });
+    v.place(1000, 0, 2000, 1);
+    const shadowTrees = () => v.group.children.filter((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(SHADOW_LAYER)) as THREE.InstancedMesh[];
+    const trees = v.group.children.find((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(0)) as THREE.InstancedMesh;
+    expect(trees.count).toBe(3);
+    expect(trees.castShadow).toBe(false);
+    v.shadowTreesNear(1400, 1990, 300);
+    const [near] = shadowTrees();
+    expect(near.castShadow).toBe(true);
+    expect(near.layers.isEnabled(0)).toBe(false);
+    expect(near.count).toBe(2);
+    const m = new THREE.Matrix4();
+    near.getMatrixAt(0, m);
+    expect(m.elements[12]).toBe(400);
+    near.getMatrixAt(1, m);
+    expect(m.elements[12]).toBe(650);
+    // its bounds hold the trees it draws, in the tile's frame
+    const box = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(1400, 5, 1990), new THREE.Vector3(10, 10, 10));
+    expect(near.boundingSphere!.clone().applyMatrix4(near.matrixWorld).intersectsBox(box)).toBe(true);
+    v.shadowTreesNear(9000, 9000, 300);
+    expect(near.count).toBe(0);
+    expect(near.visible).toBe(false);
+    v.dispose();
+    // a tile that casts no shadows makes no copy
+    const quiet = new TileView({ ...withAll, trees: t }, mats, { zoom: 13, castShadow: false, clip: false });
+    quiet.shadowTreesNear(1400, 1990, 300);
+    expect(quiet.group.children.filter((c) => c.layers.isEnabled(SHADOW_LAYER))).toHaveLength(0);
+    quiet.dispose();
+  });
+
+  it('trees the frame budget leaves out (show) take their shadow-only copy with them, until they are shown again', () => {
+    const t = new Float32Array(16 * 2);
+    [400, 650].forEach((x, i) => {
+      for (const d of [0, 5, 10, 15]) t[i * 16 + d] = 1;
+      t[i * 16 + 12] = x;
+      t[i * 16 + 14] = -10;
+    });
+    const v = new TileView({ ...withAll, trees: t }, mats, { zoom: 14, castShadow: true, clip: false });
+    v.place(1000, 0, 2000, 1);
+    v.shadowTreesNear(1400, 1990, 300);
+    const trees = v.group.children.find((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(0)) as THREE.InstancedMesh;
+    const copy = v.group.children.find((m) => (m as THREE.InstancedMesh).isInstancedMesh && m.layers.isEnabled(SHADOW_LAYER)) as THREE.InstancedMesh;
+    expect(copy.visible).toBe(true);
+    v.show(trees, false);
+    expect(copy.visible).toBe(false);
+    // the shadow focus moving (a redraw) does not bring the copy back while the trees are out
+    v.shadowTreesNear(1450, 1990, 300);
+    expect(copy.count).toBe(2);
+    expect(copy.visible).toBe(false);
+    v.show(trees, true);
+    expect(copy.visible).toBe(true);
+    // shown again with no tree near the focus: the copy stays hidden (it has nothing to draw)
+    v.shadowTreesNear(9000, 9000, 300);
+    v.show(trees, false);
+    v.show(trees, true);
+    expect(copy.visible).toBe(false);
+    v.dispose();
+  });
 
   it('street lamps are one point each on the shared lamp material, shown only at night', () => {
     const v = new TileView(withAll, mats, { zoom: 14, castShadow: false, clip: false });

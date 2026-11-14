@@ -407,6 +407,9 @@ export function cardFrame(live: LiveScene, route: Route, w: number, h: number): 
     sky.fog.near = FOG_NEAR;
     sky.place(new THREE.Vector3(l.x, g, l.z));
     for (const o of hidden) o.visible = false;
+    // everything the live frame budget left out of the view comes back for the picture (the next live
+    // frame's budget leaves out what it must again)
+    stream.showAll();
     image = picture(renderer, scene, camera, w, h);
   } finally {
     for (const o of hidden) o.visible = true;

@@ -18,6 +18,11 @@
  * on never opens a hole, and the coverage map (coverage.ts) hides it where a finer tile is drawn.
  * Distances weigh where the camera looks: a point behind counts 2.5 times as far as one ahead, so
  * the budget goes to the view. Pure: no three.js.
+ *
+ * The frame budget (spec 12: under 600,000 triangles and 250 draw calls a frame) is held in three
+ * places: DetailBudget here pulls the buildings levels in while the view draws too much (or frames
+ * stay slow); stream.ts fitView leaves the farthest buildings out of a frame that would still be over
+ * VIEW_CAP; sunlight.ts SunLight.fit gives the shadow pass what the view leaves of FRAME_BUDGET.
  */
 import { lonLatToTile, tileBounds, wrapLon } from '../geo/coords';
 import { M_PER_DEG } from './frame';
@@ -87,12 +92,146 @@ export function hazeFarM(altM: number): number {
 
 type Scored = TileKey & { ratio: number };
 
+/** The levels with buildings (z14, z13) are the ones a detail scale pulls in. */
+const SCALED_FROM_Z = 13;
+
+/** The reach of the buildings levels, step by step, while the view draws more than its share. */
+export const DETAIL_STEPS = [1, 0.7, 0.5];
+/**
+ * Below full reach the buildings levels keep their tiles only this much past the reach (KEEP_SLACK
+ * otherwise), so a step down really sends tiles away: at x0.7 everything past 0.77 of the full reach.
+ */
+const SCALED_KEEP_SLACK = 1.1;
+/** The view (no shadow pass) should draw no more than this, leaving the shadow pass its share (sunlight.ts FRAME_BUDGET). */
+export const VIEW_TRIANGLES = 430_000;
+/**
+ * A step down waits DOWN_AFTER_MS after the last change and for the stream to settle (the tiles the
+ * last step sent away gone, its new ones in), or DOWN_FORCE_MS when it never settles (a flight keeps
+ * loading).
+ */
+const DOWN_AFTER_MS = 700;
+const DOWN_FORCE_MS = 4000;
+/**
+ * A step up when the view, as measured at the present step, has stayed under UP_SHARE of the limit
+ * for UP_AFTER_MS with the stream settled. A step up undone before its tiles are in, or within
+ * BOUNCE_MS of their coming in, doubles the next wait (up to UP_MAX_MS), so a view that sits between
+ * the two never flips back and forth, however long the tiles take to load (a slow phone).
+ */
+const UP_SHARE = 0.75;
+const UP_AFTER_MS = 4000;
+const UP_MAX_MS = 32000;
+const BOUNCE_MS = 10000;
+/** Frames slower than this (smoothed), for SLOW_FOR_MS, are over budget too (under 20 fps); a step up wants them under QUICK_FRAME_MS (a 30 Hz phone is quick enough). */
+const SLOW_FRAME_MS = 50;
+const SLOW_FOR_MS = 3000;
+export const QUICK_FRAME_MS = 40;
+const SLOW_SMOOTH_MS = 1000;
+
+/**
+ * Level of detail by budget (spec 12: lower the detail when the frame is over budget). Fed the
+ * triangles the view drew each frame, it gives the reach scale for the buildings levels (tilesFor
+ * `scale`): a step down at once when over (the next only once the stream has settled), a step back
+ * up after a quiet spell well under the limit. Frame times, where they mean something, count too:
+ * frames slower than 50 ms for 3 s step the detail down (spec 12: lower the detail when the frame
+ * time is over budget). Dense city centres get a nearer city; everywhere else full detail.
+ */
+export class DetailBudget {
+  private step = 0;
+  private changedAt = -Infinity;
+  /** A step up whose tiles are not all in yet, and when the last one's were. */
+  private upPending = false;
+  private upLandedAt = -Infinity;
+  private upWait = UP_AFTER_MS;
+  private settledSince = true;
+  private quietSince = NaN;
+  private frameMs = NaN;
+  private slowSince = NaN;
+  private readonly high: number;
+
+  constructor(opts: { high?: number } = {}) {
+    this.high = opts.high ?? VIEW_TRIANGLES;
+  }
+
+  get scale(): number {
+    return DETAIL_STEPS[this.step];
+  }
+
+  /** How long a step up now waits for quiet (doubled by each step up that had to be undone). */
+  get upWaitMs(): number {
+    return this.upWait;
+  }
+
+  /**
+   * Once a frame: what the view drew (the shadow pass left out), the clock, how long the frame took
+   * (ms; leave it out where frame times mean nothing, as on a software renderer), and whether the
+   * stream has settled (nothing loading or leaving). Returns the scale to stream with.
+   */
+  update(viewTriangles: number, nowMs: number, frameMs?: number, settled = true): number {
+    if (settled) {
+      this.settledSince = true;
+      if (this.upPending) {
+        this.upPending = false;
+        this.upLandedAt = nowMs;
+      }
+    }
+    // frame time, smoothed over about a second: a phone that stays slow is over budget too
+    if (frameMs !== undefined && Number.isFinite(frameMs)) {
+      const k = Math.min(1, Math.max(0, frameMs) / SLOW_SMOOTH_MS);
+      this.frameMs = Number.isNaN(this.frameMs) ? frameMs : this.frameMs + (frameMs - this.frameMs) * k;
+      if (this.frameMs > SLOW_FRAME_MS) {
+        if (Number.isNaN(this.slowSince)) this.slowSince = nowMs;
+      } else this.slowSince = NaN;
+    }
+    const slow = !Number.isNaN(this.slowSince) && nowMs - this.slowSince >= SLOW_FOR_MS;
+    const over = viewTriangles > this.high;
+    if (over || slow) {
+      this.quietSince = NaN;
+      const since = nowMs - this.changedAt;
+      // the last step has had its effect: its tiles gone and in (or it has had long enough)
+      const ready = since >= DOWN_AFTER_MS && (this.settledSince || since >= DOWN_FORCE_MS);
+      // a slow phone steps at most every SLOW_FOR_MS: the smoothing lags the change
+      if (!over && since < SLOW_FOR_MS) return this.scale;
+      if (this.step < DETAIL_STEPS.length - 1 && ready) {
+        // a step up undone before its tiles were in, or soon after: the next one waits twice as long
+        if (this.upPending || nowMs - this.upLandedAt < BOUNCE_MS) this.upWait = Math.min(UP_MAX_MS, this.upWait * 2);
+        this.upPending = false;
+        this.upLandedAt = -Infinity;
+        this.change(1, nowMs);
+      }
+      return this.scale;
+    }
+    if (this.step === 0) {
+      if (nowMs - this.changedAt > BOUNCE_MS * 3) this.upWait = UP_AFTER_MS; // calm for a while: forgiven
+      return 1;
+    }
+    const quick = Number.isNaN(this.frameMs) || this.frameMs <= QUICK_FRAME_MS;
+    if (viewTriangles > this.high * UP_SHARE || !quick || !this.settledSince) {
+      this.quietSince = NaN;
+      return this.scale;
+    }
+    if (Number.isNaN(this.quietSince)) this.quietSince = nowMs;
+    if (nowMs - this.quietSince >= this.upWait && nowMs - this.changedAt >= this.upWait) {
+      this.change(-1, nowMs);
+      this.upPending = true;
+    }
+    return this.scale;
+  }
+
+  private change(by: 1 | -1, nowMs: number): void {
+    this.step += by;
+    this.changedAt = nowMs;
+    this.quietSince = NaN;
+    this.settledSince = false;
+  }
+}
+
 /**
  * The tiles wanted for `camera`, most wanted first (nearest relative to its level's reach, finer
  * first on ties), at most `budget`. Tiles in `opts.keep` (alive already) are kept a little longer.
  * Over budget, the tiles furthest out for their level go first; the coarsest level goes last.
  */
-export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: Set<string> } = {}): TileKey[] {
+export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: Set<string>; scale?: number } = {}): TileKey[] {
+  const scale = Math.min(1, Math.max(0.1, opts.scale ?? 1));
   const lat = camera.lat;
   const lon = wrapLon(camera.lon);
   const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
@@ -104,8 +243,9 @@ export function tilesFor(camera: LodCamera, budget = MAX_TILES, opts: { keep?: S
   const out: Scored[] = [];
 
   for (const lvl of LOD_LEVELS) {
-    const reach = lvl.z === COARSEST ? far * 1.15 : Math.min(lvl.radiusM, far * 1.05);
-    const reachKeep = reach * KEEP_SLACK;
+    const radius = lvl.z >= SCALED_FROM_Z ? lvl.radiusM * scale : lvl.radiusM;
+    const reach = lvl.z === COARSEST ? far * 1.15 : Math.min(radius, far * 1.05);
+    const reachKeep = reach * (radius < lvl.radiusM ? SCALED_KEEP_SLACK : KEEP_SLACK);
     if (lift >= reachKeep) continue;
     const z = lvl.z, n = 2 ** z;
     const dLat = reachKeep / M_PER_DEG, dLon = Math.min(180, reachKeep / mLon);

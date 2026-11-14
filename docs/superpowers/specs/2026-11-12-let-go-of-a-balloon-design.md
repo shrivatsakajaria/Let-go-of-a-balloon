@@ -160,6 +160,7 @@ Agreed by SK after the panel. The prototype in `docs/reference/style-prototype/`
 - **Water:** faceted sea with occasional glinting facets; a deep blue edge (`#2b7fb0`) at the coast so coastlines read; shallows paler (`#8fd3cf`). Rivers and lakes from map data.
 - **Sky and light:** the sun and moon follow the real position for the balloon's place and time. Dawn, day, golden hour, dusk and night each have a defined palette. At night: ink-blue sky, stars, warm windows and street lamps, city glow where roads and buildings are densest.
 - **Distance:** the land runs to the horizon and fades into haze in the sky colour. No floating island, no edges.
+- **Wind streaks** (owner's decision, 14 November 2026): once the balloon is clearly up (from about 300 m above the ground, never in the launch's crane shot), thin, pale, off-white streaks fade in over a few seconds, all slanted along the wind and flowing with it, like rain blown sideways over the whole view (on any screen shape, portrait or landscape), varied in length and brightness and fading at both ends, with distance and into the haze. They live in world space round the balloon's height and are carried by the real wind at the balloon; since the balloon rides that wind (in its own frame the air is still), they flow past it at 5 m/s plus twice the wind's speed (three times the wind over the ground, plus 5 m/s), so they visibly flow in a light wind and faster in a strong one; in a calm they drift slowly the way the wind last blew, never stopping dead. Pause holds them still, still shown. More visible at night, subtle by day; never over the balloon (one in front of it fades out), and the land, the lights and the text read through them. They show in Ride, Above, Side-on and Film, fade out below that height and in the last minutes before landing, and are left out of the whole-trip replay. With reduced motion they are off. One draw call, a few thousand vertices, moved on the GPU.
 - **Balloon:** smooth, glossy, bright orange-red (`#ff5a12`), the one bright element. Physical: it squashes and stretches, leans into the wind, wobbles, slowly spins, and its string swings (a simple rope simulation).
 - **Signature detail:** the balloon's shadow stepping down the terraces as it drifts, visible in daylight.
 - **Hero shot for the post:** golden hour.
@@ -208,7 +209,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 ### 7.2 Waiting and loading
 
 - 0 to 2 s: the golden-hour (or current) sky gradient and the title paint first. Map tiles fade in from the haze outwards, never as grey squares.
-- If the route is not ready when the hand would open (at 1.2 s), the person keeps holding the balloon with an idle sway for up to 6 s, then the wind error appears.
+- If the route is not ready when the hand would open (at 1.2 s), the person keeps holding the balloon with an idle sway for up to 6 s, then the wind error appears. If the winds have arrived but the route is still being worked out, the person keeps holding for up to 20 s.
 - Search shows "Searching" inline in the dropdown. While location is being found, the location link reads "Finding you".
 
 ### 7.3 Accessibility

@@ -18,7 +18,8 @@
  *   (coverage.ts), and skirts close every edge.
  * - groundAt / buildingTopAt read the finest loaded tile, with no allocation per call. groundAt is
  *   the ground as drawn (coarse levels sit dropM lower).
- * - At most one z14 tile arrives per frame (its GPU upload is the costly part); the others wait.
+ * - Built tiles arrive about 60k triangles a frame (one z14 tile, or a few coarse ones): the GPU
+ *   upload is the costly part, so it is spread over frames; the others wait.
  * - At night (setNight) the tiles' street lamps show; windows and city glow read the shared haze
  *   uniform uNight directly.
  */
@@ -30,7 +31,7 @@ import { createHaze, WIN_PERIOD_M, type HazeUniforms } from './haze';
 import { ContourMaterials } from './materials';
 import { lightFor, type RegionStyle } from './palette';
 import { groundHeightAt, type GroundGrid } from './terrain';
-import { TileView } from './tileview';
+import { TileView, drawTriangles } from './tileview';
 import { MAX_IN_FLIGHT, MAX_TILES, levelFor, tileKey, tilesFor, type LodCamera, type LodLevel, type TileKey } from './lod';
 import type { BuildReply, BuildRequest } from './worker';
 import type { HiddenFootprint, Label } from './meshjob';
@@ -69,7 +70,10 @@ export type StreamOptions = {
   fallbackGround?: (p: LatLon) => number | undefined;
   /** Landmark footprints whose map buildings are not drawn. */
   hidden?: HiddenFootprint[];
-  /** The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's corridor). */
+  /**
+   * The tiles to draw, in place of the level-of-detail rings round the camera (the landing card's
+   * corridor: an offscreen world drawn once, so its built tiles all go in at once, not a few a frame).
+   */
   want?: (camera: LodCamera, budget: number) => TileKey[];
 };
 
@@ -113,6 +117,22 @@ export type StreamStats = {
   arriveMsMax: number;
 };
 
+/** A mesh the frame budget left out stays out this many frames at least, and comes back only with this many triangles (at most 4% of the budget) to spare. */
+const BENCH_FRAMES = 30;
+const BENCH_MARGIN = 20_000;
+/**
+ * Every SWAP_FRAMES frames a mesh left out that is now nearer than SWAP_NEARER of the distance of
+ * the farthest one drawn (the camera came to it) is swapped back in for the farthest, so a view
+ * sitting at its cap never keeps a hole by the camera; the margin keeps the two from swapping back.
+ */
+const SWAP_FRAMES = 10;
+const SWAP_NEARER = 0.8;
+/** What fitView may leave out of a frame: never the ground or the water. */
+const BENCHABLE = new Set(['buildings', 'roofs', 'roads', 'trees', 'waterways', 'boats']);
+
+/** Triangles of arriving tiles taken into the scene per frame (at least one tile). */
+const ARRIVE_TRIANGLES = 60_000;
+
 const ease = (x: number) => 1 - Math.pow(2, -10 * Math.min(1, Math.max(0, x)));
 const mod = (a: number, m: number) => ((a % m) + m) % m;
 const D2R = Math.PI / 180;
@@ -138,6 +158,7 @@ export class WorldStream {
   private readonly maxInFlight: number;
   private readonly recentreM: number;
   private readonly fadeMs: number;
+  private readonly arriveTriangles: number;
   private readonly fallbackGround: (p: LatLon) => number | undefined;
   private readonly hidden: HiddenFootprint[];
   private readonly want: StreamOptions['want'];
@@ -149,7 +170,7 @@ export class WorldStream {
   private wantedKeys: TileKey[] = [];
   /** tileKey of each wanted key, worked out once per retarget (not per frame). */
   private wantedStr: string[] = [];
-  /** z14 replies waiting for their frame (at most one z14 arrival per frame). */
+  /** Built replies waiting for their frame (takeArrival). */
   private arrivals: { e: Entry; reply: Extract<BuildReply, { type: 'built' }> }[] = [];
   private readonly statsOut: StreamStats = { alive: 0, loading: 0, live: 0, leaving: 0, settled: 0, hidden: 0, failed: 0, built: 0, cancelled: 0, triangles: 0, recentres: 0, wanted: 0, ready: false, arriveMsMax: 0 };
   private night = 0;
@@ -160,6 +181,30 @@ export class WorldStream {
   private disposed = false;
   private arriveMsMax = 0;
   private started = false;
+  private readonly shadowFocus = { x: 0, z: 0, r: -1 };
+  private scale = 1;
+  /** Meshes the frame budget has left out (fitView), their tiles, and the frame each went. */
+  private readonly benchMesh: THREE.Mesh[] = [];
+  private readonly benchView: TileView[] = [];
+  private readonly benchFrame: number[] = [];
+  /** fitView's working lists, kept between frames (parallel arrays: no object per mesh). */
+  private readonly candMesh: THREE.Mesh[] = [];
+  private readonly candView: TileView[] = [];
+  private readonly candTris: number[] = [];
+  private readonly candD2: number[] = [];
+  private readonly candIdx: number[] = [];
+  /** The left-outs in view a swap weighs (indices into benchMesh), their distances and triangles. */
+  private readonly swapIdx: number[] = [];
+  private readonly swapD2: number[] = [];
+  private readonly swapTris: number[] = [];
+  private readonly swapOrder: number[] = [];
+  private readonly swapBack: THREE.Mesh[] = [];
+  private fitFrame = 0;
+  private swapFrame = -Infinity;
+  private readonly fitFrustum = new THREE.Frustum();
+  private readonly fitMatrix = new THREE.Matrix4();
+  private readonly fitV = new THREE.Vector3();
+  private readonly fitCam = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, pool: BuildPool, region: (p: LatLon) => RegionStyle, opts: StreamOptions = {}) {
     this.scene = scene;
@@ -170,6 +215,7 @@ export class WorldStream {
     this.maxInFlight = opts.maxInFlight ?? MAX_IN_FLIGHT;
     this.recentreM = opts.recentreM ?? 5000;
     this.fadeMs = opts.fadeMs ?? 400;
+    this.arriveTriangles = opts.want ? Infinity : ARRIVE_TRIANGLES;
     this.hidden = opts.hidden ?? [];
     this.want = opts.want;
     this.fallbackGround = opts.fallbackGround ?? (() => undefined);
@@ -223,6 +269,236 @@ export class WorldStream {
     this.animate();
     if (this.coverageDirty) this.refreshCoverage();
   }
+
+  /**
+   * The reach of the buildings levels (lod.ts tilesFor `scale`, from DetailBudget): below 1 in a
+   * dense city whose view is over budget. A change takes effect on the next update.
+   */
+  set detailScale(s: number) {
+    if (s === this.scale) return;
+    this.scale = s;
+    this.lastWant.at = -Infinity;
+  }
+
+  get detailScale(): number {
+    return this.scale;
+  }
+
+  /**
+   * The tiles wanted are in: nothing loading, leaving or still fading in, and every wanted tile alive
+   * (but one backing off after a failure). An unwanted tile kept until the coarser land under it is in
+   * holds this up while that land is wanted and on its way. The detail budget waits for this between
+   * steps.
+   */
+  get settled(): boolean {
+    for (const e of this.entries.values()) if (e.state !== 'live' || !e.settled) return false;
+    for (let i = 0; i < this.wantedStr.length; i++) {
+      const key = this.wantedStr[i];
+      if (this.entries.has(key)) continue;
+      const f = this.failed.get(key);
+      if (!f || f.until <= this.time) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The frame budget, before a frame is drawn: what `camera` will draw of the tiles (the renderer's own
+   * test: visible, layers, box in frustum). Over `budget`, the farthest buildings, roofs, roads and
+   * trees in view are left out (with their shadow-only cells), until it fits; the ground and water
+   * always stay, so nothing opens. A mesh left out stays out for at least BENCH_FRAMES frames and comes
+   * back, nearest first, only when it fits with BENCH_MARGIN to spare, so a view sitting at the cap
+   * never blinks. A view that stays at the cap while the camera moves (or cuts to another shot) swaps:
+   * every SWAP_FRAMES frames, a left-out clearly nearer than the farthest drawn (SWAP_NEARER) comes back
+   * in its place, so what is left out is always the far land, never a hole by the camera. The detail
+   * budget (lod.ts DetailBudget) brings the tiles themselves nearer meanwhile.
+   * `budget` Infinity shows everything again at once (the replay, the card's picture). Returns the
+   * triangles drawn. Call once a frame; nothing is allocated when the view fits.
+   */
+  fitView(camera: THREE.Camera, budget: number): number {
+    const frame = ++this.fitFrame;
+    // left-outs whose tile has gone are forgotten; with no budget, everything is shown again
+    const bm = this.benchMesh, bv = this.benchView;
+    for (let i = bm.length - 1; i >= 0; i--) {
+      if (!bv[i].gone && budget !== Infinity) continue;
+      if (!bv[i].gone) bv[i].show(bm[i], true);
+      this.unbenchAt(i);
+    }
+    camera.updateMatrixWorld();
+    const frustum = this.fitFrustum.setFromProjectionMatrix(this.fitMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const layers = camera.layers;
+    // what is drawn now
+    let total = 0;
+    for (const e of this.entries.values()) {
+      const view = e.view;
+      if (!view || !view.group.visible) continue;
+      const parts = view.parts;
+      for (let k = 0; k < parts.length; k++) {
+        const mesh = parts[k].mesh;
+        if (!mesh.visible || !mesh.layers.test(layers)) continue;
+        if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+        total += drawTriangles(mesh);
+      }
+    }
+    if (total <= budget && bm.length === 0) return total;
+    this.fitCam.setFromMatrixPosition(camera.matrixWorld);
+    if (total > budget) total = this.benchFarthest(total, budget, frame, frustum, layers);
+    else total = this.bringBack(total, budget, frame, frustum, layers);
+    if (bm.length > 0 && frame - this.swapFrame >= SWAP_FRAMES) {
+      this.swapFrame = frame;
+      total = this.swapNearer(total, budget, frame, frustum, layers);
+    }
+    return total;
+  }
+
+  /** The benchable meshes drawn in view (into the cand lists), sorted farthest first in candIdx. */
+  private collectDrawn(frustum: THREE.Frustum, layers: THREE.Layers): void {
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
+    cm.length = cv.length = ct.length = cd.length = idx.length = 0;
+    for (const e of this.entries.values()) {
+      const view = e.view;
+      if (!view || !view.group.visible) continue;
+      const parts = view.parts;
+      for (let k = 0; k < parts.length; k++) {
+        const mesh = parts[k].mesh;
+        if (!BENCHABLE.has(parts[k].bucket) || !mesh.visible || !mesh.layers.test(layers)) continue;
+        if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+        const tris = drawTriangles(mesh);
+        if (tris === 0) continue;
+        idx.push(cm.length);
+        cm.push(mesh);
+        cv.push(view);
+        ct.push(tris);
+        cd.push(this.d2Of(mesh));
+      }
+    }
+    idx.sort(this.farthestFirst);
+  }
+
+  private bench(mesh: THREE.Mesh, view: TileView, frame: number): void {
+    view.show(mesh, false);
+    this.benchMesh.push(mesh);
+    this.benchView.push(view);
+    this.benchFrame.push(frame);
+  }
+
+  /** Over: the farthest drawn buildings, roofs, roads and trees go, until it fits. */
+  private benchFarthest(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    this.collectDrawn(frustum, layers);
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, idx = this.candIdx;
+    for (let k = 0; k < idx.length && total > budget; k++) {
+      const i = idx[k];
+      this.bench(cm[i], cv[i], frame);
+      total -= ct[i];
+    }
+    return total;
+  }
+
+  /** Under: left-outs come back, nearest first, once they have sat out a while and fit with room to spare. */
+  private bringBack(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    const bm = this.benchMesh, bv = this.benchView, bf = this.benchFrame;
+    const idx = this.candIdx, cd = this.candD2;
+    idx.length = cd.length = 0;
+    for (let i = 0; i < bm.length; i++) {
+      idx.push(i);
+      cd.push(this.d2Of(bm[i]));
+    }
+    idx.sort(this.nearestFirst);
+    const back = this.candMesh;
+    back.length = 0;
+    for (const i of idx) {
+      if (frame - bf[i] < BENCH_FRAMES) continue;
+      const mesh = bm[i];
+      const inView = !mesh.frustumCulled || mesh.intersectsFrustum(frustum);
+      const tris = inView && mesh.layers.test(layers) ? drawTriangles(mesh) : 0;
+      if (total + tris > budget - Math.min(BENCH_MARGIN, budget * 0.04)) continue;
+      total += tris;
+      back.push(mesh);
+    }
+    for (const mesh of back) {
+      const i = bm.indexOf(mesh);
+      bv[i].show(mesh, true);
+      this.unbenchAt(i);
+    }
+    return total;
+  }
+
+  /**
+   * At the cap with the camera moving: a left-out in view clearly nearer than the farthest drawn
+   * (SWAP_NEARER) comes back, nearest first, and the farthest drawn go in its place, as many as make
+   * room for it. Only meshes that much farther than it are taken, so the two never swap back.
+   */
+  private swapNearer(total: number, budget: number, frame: number, frustum: THREE.Frustum, layers: THREE.Layers): number {
+    const bm = this.benchMesh, bv = this.benchView;
+    const si = this.swapIdx, sd = this.swapD2, st = this.swapTris;
+    si.length = sd.length = st.length = 0;
+    for (let i = 0; i < bm.length; i++) {
+      const mesh = bm[i];
+      if (bv[i].gone || !bv[i].group.visible || !mesh.layers.test(layers)) continue;
+      if (mesh.frustumCulled && !mesh.intersectsFrustum(frustum)) continue;
+      const tris = drawTriangles(mesh);
+      if (tris === 0) continue;
+      si.push(i);
+      sd.push(this.d2Of(mesh));
+      st.push(tris);
+    }
+    if (si.length === 0) return total;
+    // the left-outs nearest first, and the meshes drawn farthest first
+    const near = this.swapOrder;
+    near.length = 0;
+    for (let k = 0; k < si.length; k++) near.push(k);
+    near.sort(this.swapNearestFirst);
+    const back = this.swapBack;
+    back.length = 0;
+    this.collectDrawn(frustum, layers);
+    const cm = this.candMesh, cv = this.candView, ct = this.candTris, cd = this.candD2, idx = this.candIdx;
+    const k2 = SWAP_NEARER * SWAP_NEARER;
+    let far = 0;
+    for (const k of near) {
+      if (far >= idx.length || sd[k] >= k2 * cd[idx[far]]) break; // nearer ones all tried; the rest are farther
+      // the drawn meshes clearly farther than it, farthest first, until it fits
+      const need = total + st[k] - budget;
+      let freed = 0, end = far;
+      while (freed < need && end < idx.length && sd[k] < k2 * cd[idx[end]]) freed += ct[idx[end++]];
+      if (freed < need) continue;
+      back.push(bm[si[k]]);
+      for (let j = far; j < end; j++) this.bench(cm[idx[j]], cv[idx[j]], frame);
+      far = end;
+      total += st[k] - freed;
+    }
+    for (const mesh of back) {
+      const i = bm.indexOf(mesh);
+      bv[i].show(mesh, true);
+      this.unbenchAt(i);
+    }
+    return total;
+  }
+
+  /** Show every mesh the frame budget left out (before a picture that must have everything). */
+  showAll(): void {
+    for (let i = this.benchMesh.length - 1; i >= 0; i--) {
+      if (!this.benchView[i].gone) this.benchView[i].show(this.benchMesh[i], true);
+      this.unbenchAt(i);
+    }
+  }
+
+  private unbenchAt(i: number): void {
+    const last = this.benchMesh.length - 1;
+    this.benchMesh[i] = this.benchMesh[last];
+    this.benchView[i] = this.benchView[last];
+    this.benchFrame[i] = this.benchFrame[last];
+    this.benchMesh.length = this.benchView.length = this.benchFrame.length = last;
+  }
+
+  /** Squared distance from the camera (fitCam) to the middle of a mesh's bounds. */
+  private readonly d2Of = (mesh: THREE.Mesh): number => {
+    const g = mesh.geometry;
+    const c = g.boundingBox ? g.boundingBox.getCenter(this.fitV) : g.boundingSphere ? this.fitV.copy(g.boundingSphere.center) : this.fitV.set(0, 0, 0);
+    return c.applyMatrix4(mesh.matrixWorld).distanceToSquared(this.fitCam);
+  };
+
+  private readonly farthestFirst = (a: number, b: number): number => this.candD2[b] - this.candD2[a];
+  private readonly nearestFirst = (a: number, b: number): number => this.candD2[a] - this.candD2[b];
+  private readonly swapNearestFirst = (a: number, b: number): number => this.swapD2[a] - this.swapD2[b];
 
   // ---- queries ----
 
@@ -320,6 +596,18 @@ export class WorldStream {
     for (const e of this.entries.values()) e.view?.setNight(night);
   }
 
+  /**
+   * Trees cast shadows only within `r` metres of scene point (x, z) (TileView.shadowTreesNear): call
+   * with the shadow focus when the shadow map is about to be redrawn. Tiles arriving later take it too.
+   */
+  setShadowFocus(x: number, z: number, r: number): void {
+    const f = this.shadowFocus;
+    f.x = x;
+    f.z = z;
+    f.r = r;
+    for (const e of this.entries.values()) e.view?.shadowTreesNear(x, z, r);
+  }
+
   /** Keys of the tiles alive, by state (for debugging and tests). */
   tiles(): { key: string; state: Entry['state']; settled: boolean; visible: boolean; wanted: boolean }[] {
     return [...this.entries.values()].map((e) => ({ key: e.key, state: e.state, settled: e.settled, visible: !!e.view?.group.visible, wanted: e.wanted }));
@@ -403,7 +691,7 @@ export class WorldStream {
   private retarget(camera: LodCamera): void {
     const keep = new Set<string>();
     for (const e of this.entries.values()) if (e.state !== 'leaving') keep.add(e.key);
-    this.wantedKeys = this.want ? this.want(camera, this.maxTiles) : tilesFor(camera, this.maxTiles, { keep });
+    this.wantedKeys = this.want ? this.want(camera, this.maxTiles) : tilesFor(camera, this.maxTiles, { keep, scale: this.scale });
     this.wantedStr = this.wantedKeys.map(tileKey);
     const wanted = new Set(this.wantedStr);
     for (const e of [...this.entries.values()]) {
@@ -510,8 +798,7 @@ export class WorldStream {
         (reply) => {
           if (this.entries.get(key) !== e || e.state !== 'loading' || this.disposed) return; // cancelled meanwhile
           if (reply.type !== 'built') this.fail(e, reply.message);
-          else if (e.t.z === 14) this.arrivals.push({ e, reply });
-          else this.arrive(e, reply);
+          else this.arrivals.push({ e, reply });
         },
         (err: Error) => {
           if (err?.name === 'AbortError' || this.entries.get(key) !== e || this.disposed) return;
@@ -540,13 +827,19 @@ export class WorldStream {
     console.warn(`tile ${e.key}: ${message}`);
   }
 
-  /** The first z14 reply still wanted, if any, arrives this frame. */
+  /**
+   * Built tiles join the scene a few at a time: one z14 tile a frame, or coarse ones up to about
+   * ARRIVE_TRIANGLES, so their GPU uploads are spread over frames instead of landing on one.
+   */
   private takeArrival(): void {
-    while (this.arrivals.length > 0) {
+    let taken = 0;
+    const all = this.arriveTriangles === Infinity;
+    while (this.arrivals.length > 0 && taken < this.arriveTriangles) {
       const { e, reply } = this.arrivals.shift()!;
       if (this.entries.get(e.key) !== e || e.state !== 'loading') continue; // cancelled meanwhile
       this.arrive(e, reply);
-      return;
+      taken += e.view?.triangles ?? 0;
+      if (e.t.z === 14 && !all) return; // a z14 tile is a frame's upload on its own
     }
   }
 
@@ -566,6 +859,7 @@ export class WorldStream {
     }
     e.view.setNight(this.night);
     this.place(e);
+    if (this.shadowFocus.r >= 0) e.view.shadowTreesNear(this.shadowFocus.x, this.shadowFocus.z, this.shadowFocus.r);
     this.scene.add(e.view.group);
     e.state = 'live';
     e.born = NaN; // the fade starts on the next frame

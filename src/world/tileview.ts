@@ -29,6 +29,15 @@ export type TileBuffers = {
   boats?: Float32Array;
 };
 
+/** Triangles one draw of `o` makes (renderer.info counts the same way): its draw range, times its instances. */
+export function drawTriangles(o: THREE.Mesh): number {
+  const g = o.geometry;
+  const n = g.index ? g.index.count : g.getAttribute('position')?.count ?? 0;
+  const count = Math.max(0, Math.min(g.drawRange.count, n - g.drawRange.start));
+  const per = Math.floor(count / 3);
+  return (o as THREE.InstancedMesh).isInstancedMesh ? per * (o as THREE.InstancedMesh).count : per;
+}
+
 /** Mesh buckets in draw order, and whether they cast shadows (when the tile casts at all). */
 const MESH_BUCKETS: [Exclude<Bucket, 'trees' | 'boats'>, boolean][] = [
   ['ground', false],
@@ -83,13 +92,13 @@ function boxInFrustum(this: THREE.Mesh, frustum: THREE.Frustum): boolean {
   return frustum.intersectsBox(worldBox.copy(b).applyMatrix4(this.matrixWorld));
 }
 
-/** Geometries over the non-empty ranges of a parts list taken `step` cells at a time. */
-function ranges(g: THREE.BufferGeometry, parts: Uint32Array, step: number, bounds?: Float32Array): THREE.BufferGeometry[] {
-  const out: THREE.BufferGeometry[] = [];
+/** Geometries over the non-empty ranges of a parts list taken `step` cells at a time, with the first cell of each. */
+function ranges(g: THREE.BufferGeometry, parts: Uint32Array, step: number, bounds?: Float32Array): { geo: THREE.BufferGeometry; cell: number }[] {
+  const out: { geo: THREE.BufferGeometry; cell: number }[] = [];
   for (let i = 0; i + step < parts.length; i += step) {
     if (parts[i + step] <= parts[i]) continue;
     const box = bounds && bounds.length === (parts.length - 1) * 6 ? unionBox(bounds, i, i + step) : undefined;
-    out.push(rangeOf(g, parts[i], parts[i + step] - parts[i], box));
+    out.push({ geo: rangeOf(g, parts[i], parts[i + step] - parts[i], box), cell: i });
   }
   return out;
 }
@@ -113,6 +122,15 @@ export class TileView {
   private readonly meshes: { mesh: THREE.Mesh; bucket: Bucket }[] = [];
   private readonly materials: ContourMaterials;
   private lamps: THREE.Points | null = null;
+  /** Tree instance matrices (tile frame), kept for the shadow-only copy of the trees near the focus. */
+  private treeData: Float32Array | null = null;
+  private treeShadow: THREE.InstancedMesh | null = null;
+  /** The tile's trees as drawn, and whether the frame budget has left them out (their shadow copy goes too). */
+  private trees: THREE.InstancedMesh | null = null;
+  private treesOut = false;
+  private readonly casts: boolean;
+  /** A quarter mesh's shadow-only cell meshes (they show and hide with it). */
+  private readonly casters = new Map<THREE.Mesh, THREE.Mesh[]>();
   private clipped: boolean;
   private disposed = false;
 
@@ -122,6 +140,7 @@ export class TileView {
     if (slot < 0) throw new Error('no free tile slot');
     this.slot = slot;
     this.clipped = o.clip;
+    this.casts = o.castShadow;
     try {
       this.triangles = this.build(b, o);
     } catch (e) {
@@ -145,11 +164,21 @@ export class TileView {
       const parts = (b[bucket] as Quartered).parts;
       const bounds = (b[bucket] as Partial<PackedBuffers>).bounds;
       const shadows = o.castShadow && casts;
-      const quarterGeos = parts?.length === 17 ? ranges(g, parts, 4, bounds) : [g];
+      const quarterGeos = parts?.length === 17 ? ranges(g, parts, 4, bounds) : [{ geo: g, cell: 0 }];
       const shadowGeos = parts?.length === 17 && shadows ? ranges(g, parts, 1, bounds) : [];
       if (o.freeArrays) freeAfterUpload(g);
-      for (const geo of quarterGeos) this.add(geo, set[bucket], bucket, shadows && shadowGeos.length === 0);
-      for (const geo of shadowGeos) this.add(geo, set[bucket], bucket, true).layers.set(SHADOW_LAYER);
+      const quarters = quarterGeos.map(({ geo, cell }) => ({ mesh: this.add(geo, set[bucket], bucket, shadows && shadowGeos.length === 0), quarter: cell >> 2 }));
+      for (const { geo, cell } of shadowGeos) {
+        const caster = this.add(geo, set[bucket], bucket, true);
+        caster.layers.set(SHADOW_LAYER);
+        // a quarter left out of a frame (show) takes its shadow-only cells with it
+        const q = quarters.find((x) => x.quarter === cell >> 2);
+        if (q) {
+          const list = this.casters.get(q.mesh) ?? [];
+          list.push(caster);
+          this.casters.set(q.mesh, list);
+        }
+      }
     }
     const count = b.trees.length / 16;
     if (count > 0) {
@@ -164,12 +193,16 @@ export class TileView {
         trees.setColorAt(i, treeColours[Math.floor(h * treeColours.length)]);
       }
       trees.computeBoundingSphere();
-      trees.castShadow = o.castShadow;
+      // a whole tile of trees is tens of thousands of triangles in the shadow pass: only the ones
+      // near the balloon cast (shadowTreesNear), from a copy on the shadow layer
+      trees.castShadow = false;
+      if (o.castShadow) this.treeData = b.trees;
       trees.receiveShadow = true;
       trees.matrixAutoUpdate = false;
       tris += count * (sharedTree.getAttribute('position').count / 3);
       this.group.add(trees);
       this.meshes.push({ mesh: trees, bucket: 'trees' });
+      this.trees = trees;
     }
     const boats = b.boats && b.boats.length >= 5 ? b.boats : null;
     if (boats) {
@@ -227,6 +260,79 @@ export class TileView {
     return mesh;
   }
 
+  /**
+   * Trees within `r` metres of scene point (x, z) cast shadows (a shadow-only copy of just those, on
+   * SHADOW_LAYER); the rest of the tile's trees cast none. For tiles that cast shadows; call when the
+   * shadow focus moves and after `place`.
+   */
+  shadowTreesNear(x: number, z: number, r: number): void {
+    const data = this.treeData;
+    if (!this.casts || !data || this.disposed) return;
+    const n = data.length / 16;
+    let mesh = this.treeShadow;
+    if (!mesh) {
+      sharedTree ??= treeGeometry();
+      const geo = sharedTree.clone();
+      geo.setAttribute('aSlot', new THREE.InstancedBufferAttribute(new Uint8Array(n).fill(this.slot), 1));
+      mesh = new THREE.InstancedMesh(geo, (this.clipped ? this.materials.clip : this.materials.solid).trees, n);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.layers.set(SHADOW_LAYER);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.boundingSphere = new THREE.Sphere();
+      this.group.add(mesh);
+      mesh.updateMatrixWorld(true);
+      this.meshes.push({ mesh, bucket: 'trees' });
+      this.treeShadow = mesh;
+    }
+    // the focus in the tile's frame (tiles are only moved and scaled along x)
+    const g = this.group;
+    const lx = (x - g.position.x) / g.scale.x, lz = z - g.position.z;
+    const rx = r / g.scale.x, r2 = r * r;
+    const out = mesh.instanceMatrix.array as Float32Array;
+    let k = 0, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const dx = (data[i * 16 + 12] - lx) * g.scale.x, dz = data[i * 16 + 14] - lz;
+      if (dx * dx + dz * dz > r2) continue;
+      for (let j = 0; j < 16; j++) out[k * 16 + j] = data[i * 16 + j];
+      y0 = Math.min(y0, data[i * 16 + 13]);
+      y1 = Math.max(y1, data[i * 16 + 13]);
+      k++;
+    }
+    mesh.count = k;
+    mesh.visible = k > 0 && !this.treesOut;
+    mesh.instanceMatrix.clearUpdateRanges();
+    mesh.instanceMatrix.addUpdateRange(0, k * 16);
+    mesh.instanceMatrix.needsUpdate = true;
+    // trees stand up to ~15 m tall and ~5 m wide round their point
+    mesh.boundingSphere!.center.set(lx, k ? (y0 + y1) / 2 : 0, lz);
+    mesh.boundingSphere!.radius = Math.max(rx, r) + (k ? (y1 - y0) / 2 : 0) + 20;
+  }
+
+  /**
+   * Show or hide one of the tile's meshes for the frame budget (stream.ts fitView), its shadow-only
+   * cells with it (for the trees, the shadow-only copy of the near ones).
+   */
+  show(mesh: THREE.Mesh, visible: boolean): void {
+    mesh.visible = visible;
+    const cells = this.casters.get(mesh);
+    if (cells) for (const c of cells) c.visible = visible;
+    if (mesh === this.trees) {
+      this.treesOut = !visible;
+      if (this.treeShadow) this.treeShadow.visible = visible && this.treeShadow.count > 0;
+    }
+  }
+
+  get gone(): boolean {
+    return this.disposed;
+  }
+
+  /** The tile's meshes with their buckets (the frame budget walks them; stream.ts fitView). */
+  get parts(): readonly { readonly mesh: THREE.Mesh; readonly bucket: Bucket }[] {
+    return this.meshes;
+  }
+
   /** Switch between the clip and the solid material variants. */
   setClip(clip: boolean): void {
     if (clip === this.clipped) return;
@@ -261,6 +367,7 @@ export class TileView {
       if (bucket === 'trees' || bucket === 'boats') (mesh as THREE.InstancedMesh).dispose(); // instance matrices and colours
     }
     this.meshes.length = 0;
+    this.casters.clear();
     this.lamps?.geometry.dispose();
     this.lamps = null;
     this.materials.slots.release(this.slot);
