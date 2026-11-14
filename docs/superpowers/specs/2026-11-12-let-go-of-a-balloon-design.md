@@ -101,6 +101,7 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
   - The slow climb is the physics, not a camera trick: the first few minutes look storybook because the balloon really is still low. The camera stays close during this phase.
   - The route uses the real wind at the balloon's actual height at every step (see section 11), so the low early drift and the higher cruise both come from real data.
 - In featured cities the landmark is in view during the launch (Big Ben behind the person in London, the Eiffel Tower in Paris).
+- The route knows nothing of buildings. A balloon that meets a facade slides up it and over the roof, as a real one would (ruling R57b): the drawn balloon is eased up ahead of the wall, held against it while it rises, and carries on once clear. This is a small visual nudge to where it is drawn; the route's winds, timing and the HUD's height are unchanged.
 
 ### 6.3 The live flight (72 hours, real time, at true height after the climb)
 - The route is worked out once, at the moment of release, from the latest wind data, and never changes after that.
@@ -218,7 +219,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - The fact line is `aria-live="off"`. A separate polite status area announces only the launch, a change of country, and the landing.
 - The 3D canvas has `role="img"` and a label that updates during the flight, for example "Your balloon is over the North Sea, 412 km from Manchester".
 - Reduced motion:
-  - The launch has no crane: a still wide frame of the person and the rising balloon, then a cut to the settled view.
+  - The launch has no crane: a still wide frame of the person (a small figure, from at least 16 m), the landmark behind them and the rising balloon, then a cut to the settled view.
   - Ride with fixed framing and half the wobble.
   - The replay becomes the route drawing in place over 2 s.
 
@@ -275,9 +276,9 @@ Fully directed, like a film. People can choose a view with buttons, but cannot d
 - Launch timing:
   - On tap, the button scales to 0.97 and all chrome except the clock fades out over 300 ms, giving a clean frame for recordings.
   - At 1.2 s the hand opens and the balloon squashes for 120 ms.
-  - Then the crane shot (ruling R51): in one eased move with no cuts the camera dollies back from the person and cranes up, keeping the balloon at about the upper third, so the person shrinks and the balloon rises out of the street between the buildings, the rooftops dropping below it, the landmark kept in frame where possible.
-  - Once the balloon has cleared the rooftops round it (with a margin), not at a fixed time, the camera pushes back in and Ride settles on the balloon; the HUD fades in over 600 ms when Ride settles, no sooner than about 12 s and no later than about 40 s.
-  - Film's rotation starts after that. While the balloon is below the rooftops (a link opened in the first minutes), Film circles instead of riding.
+  - Then the crane shot (rulings R51, R57): in one eased move with no cuts the camera opens with the hand and rises with the balloon, close to it (the balloon about 6-9% of the frame's height), a little below it and to the side, the featured landmark beyond it where there is one. Facades and windows slide down the frame and the sky opens above; the camera eases back a little as it rises. It keeps the balloon in sight every frame, going round or over a building in the way, and never faces a wall close by.
+  - Once the balloon has cleared the rooftops round it (with a margin), not at a fixed time, the camera pushes in on the balloon over the roofs and Ride settles; the HUD fades in over 600 ms when Ride settles, no sooner than about 12 s and no later than about 40 s. If the 40 s comes first (a tall landmark beside the balloon's path), the last crane frame is the balloon against the sky with the landmark beside it, and the camera eases into Ride from there.
+  - Film's rotation starts after that. While Ride would film a wall (the balloon below the tops of buildings within a few metres of it or just ahead, as down a narrow street in a link opened in the first minutes), Film circles instead of riding.
 - Replay timing:
   - 2 s climb to the wide view.
   - 15 s of travel with eased speed.
