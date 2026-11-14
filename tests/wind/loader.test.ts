@@ -1,4 +1,4 @@
-import { test, expect, vi, afterEach } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 import { WindField, WindUnavailableError, loadManifest } from '../../src/wind/loader';
 import { ISSUED, HOUR, BASE, addCruise, manifestJson, mockFetch, ghOf, CRUISE_LEVELS, type Files } from './helpers';
 
@@ -18,17 +18,82 @@ const twoRuns = () => ({
   [`${BASE}/climb/${NEW}/tiles.json`]: '[]',
 });
 
-test('newest run older than 24 h throws WindUnavailableError', async () => {
+test('a run that cannot cover the whole 72 h flight is dropped: a f096 run 25 h old', async () => {
   const m = mockFetch({ [`${BASE}/manifest.json`]: manifestJson([{ id: NEW, issued: '2026-11-12T18:00:00Z' }]) });
   await expect(loadManifest(BASE, m.fn, ISSUED + 25 * HOUR)).rejects.toBeInstanceOf(WindUnavailableError);
 });
 
-test('only runs under 24 h old are kept, newest first', async () => {
+test('f096 runs: only runs that still cover the flight (under ~24 h old) are kept, newest first', async () => {
   const m = mockFetch(twoRuns());
   const man = await loadManifest(BASE, m.fn, ISSUED + 10 * HOUR); // OLD is 16 h old, NEW 10 h
   expect(man.runs.map((r) => r.id)).toEqual([NEW, OLD]);
   const man2 = await loadManifest(BASE, m.fn, ISSUED + 20 * HOUR); // OLD is 26 h old
   expect(man2.runs.map((r) => r.id)).toEqual([NEW]);
+});
+
+describe('f120 runs (R59): a run is usable up to 48 h old, while it covers the whole flight', () => {
+  const f120 = (runs: { id: string; issued: string; lastHour?: number }[]) =>
+    mockFetch({ [`${BASE}/manifest.json`]: manifestJson(runs.map((r) => ({ lastHour: 120, ...r }))) });
+
+  test('a f120 run 40 h old is kept (it covers 40 + 72 = 112 h)', async () => {
+    const m = f120([{ id: NEW, issued: '2026-11-12T18:00:00Z' }]);
+    const man = await loadManifest(BASE, m.fn, ISSUED + 40 * HOUR);
+    expect(man.runs.map((r) => r.id)).toEqual([NEW]);
+  });
+
+  test('a f120 run 47 h old is kept; at 48 h it is not (its winds end before the landing)', async () => {
+    const m = f120([{ id: NEW, issued: '2026-11-12T18:00:00Z' }]);
+    expect((await loadManifest(BASE, m.fn, ISSUED + 47 * HOUR)).runs).toHaveLength(1);
+    await expect(loadManifest(BASE, m.fn, ISSUED + 48 * HOUR)).rejects.toBeInstanceOf(WindUnavailableError);
+  });
+
+  test('a run is never used past 48 h, even if it had more hours', async () => {
+    const m = f120([{ id: NEW, issued: '2026-11-12T18:00:00Z', lastHour: 168 }]);
+    expect((await loadManifest(BASE, m.fn, ISSUED + 47 * HOUR)).runs).toHaveLength(1);
+    await expect(loadManifest(BASE, m.fn, ISSUED + 49 * HOUR)).rejects.toThrow(/48 h/);
+  });
+
+  test('mixed manifest (after the switch to f120): an old f096 run that no longer covers is dropped', async () => {
+    const m = f120([
+      { id: NEW, issued: '2026-11-12T18:00:00Z' },
+      { id: OLD, issued: '2026-11-12T12:00:00Z', lastHour: 96 },
+    ]);
+    // OLD is 30 h old: under 48 h, but its winds end at 96 h, before the landing at 30 + 72 = 102 h
+    const man = await loadManifest(BASE, m.fn, ISSUED + 24 * HOUR);
+    expect(man.runs.map((r) => r.id)).toEqual([NEW]);
+  });
+
+  test('a newer run that does not reach the landing is skipped for an older one that does', async () => {
+    const m = f120([
+      { id: NEW, issued: '2026-11-12T18:00:00Z', lastHour: 72 },
+      { id: OLD, issued: '2026-11-12T12:00:00Z' },
+    ]);
+    const man = await loadManifest(BASE, m.fn, ISSUED + 2 * HOUR);
+    expect(man.runs.map((r) => r.id)).toEqual([OLD]);
+  });
+
+  test('a 40 h old run: the flight reads cruise windows 1 to 4 and samples the landing hour', async () => {
+    const files: Files = {
+      [`${BASE}/manifest.json`]: manifestJson([{ id: NEW, issued: '2026-11-12T18:00:00Z', lastHour: 120 }]),
+      [`${BASE}/climb/${NEW}/tiles.json`]: '[]',
+    };
+    await addCruise(files, NEW, LATS, LONS, [1, 2, 3, 4], cell(9));
+    const m = mockFetch(files);
+    const now = ISSUED + 40 * HOUR;
+    const w = new WindField(await loadManifest(BASE, m.fn, now), m.fn, BASE);
+    await w.prepare(AROUND, [now, now + 72 * HOUR], { radius: 0 });
+    const tiles = m.requests.filter((r) => r.endsWith('.bin.gz')).map((r) => r.replace(/.*_(\d)\.bin\.gz$/, '$1'));
+    expect(tiles.sort()).toEqual(['1', '2', '3', '4']);
+    expect(w.sample(AROUND, 1500, now + 72 * HOUR).u).toBeCloseTo(9, 5);
+    expect(w.has(AROUND, now + 72 * HOUR)).toBe(true);
+  });
+});
+
+test('a manifest that is JSON null, or not an object, is unavailable', async () => {
+  for (const body of ['null', '42', '"runs"']) {
+    const m = mockFetch({ [`${BASE}/manifest.json`]: body });
+    await expect(loadManifest(BASE, m.fn, ISSUED)).rejects.toBeInstanceOf(WindUnavailableError);
+  }
 });
 
 test('manifest served as HTML (Pages fallback) is unavailable', async () => {

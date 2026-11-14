@@ -7,7 +7,7 @@ Output (inside --out):
     manifest.json                                  newest four complete runs, newest first
     climb/<run>/<lat0>_<lon0>.bin.gz               5 deg tiles at 0.25 deg, hours 3..24, land only
     climb/<run>/tiles.json                         names of the climb tiles that exist
-    cruise/<run>/<lat0>_<lon0>_<window>.bin.gz     20 deg tiles at 1 deg, 24 h windows 0..3
+    cruise/<run>/<lat0>_<lon0>_<window>.bin.gz     20 deg tiles at 1 deg, 24 h windows 0..4 (to f120)
 
 Runs are built into --store (kept between workflow runs by actions/cache) and copied to
 --out. A run directory in the store is complete only once its run.json exists. If the new
@@ -46,11 +46,11 @@ HEADER = struct.Struct('<4sBBBHHffff')  # 27 bytes, packed
 
 CLIMB_LEVELS = [1000, 975, 950, 925, 900, 850]
 CRUISE_LEVELS = [850, 800, 750, 700, 600, 500]
-RUN_HOURS = list(range(0, 97, 3))
+RUN_HOURS = list(range(0, gfs_fetch.LAST_HOUR + 1, 3))  # 0..120: a run carries a whole flight for 48 h
 CLIMB_HOURS = list(range(3, 25, 3))
 CLIMB = {'tileDeg': 5, 'res': 0.25, 'hours': CLIMB_HOURS, 'scale': 0.5}
 CRUISE = {'tileDeg': 20, 'res': 1.0, 'windowHours': 24, 'scale': 1.0}
-N_WINDOWS = 4
+N_WINDOWS = gfs_fetch.LAST_HOUR // 24
 KEEP_RUNS = 4
 RUN_ID = re.compile(r'^\d{10}$')
 

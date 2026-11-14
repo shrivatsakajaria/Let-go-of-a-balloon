@@ -128,4 +128,4 @@ Because you bought the address from Cloudflare, it sets everything else up by it
 
 ### Then tell me
 
-Tell me in chat which address you bought. I will change the address printed on the landing card and in the link preview that LinkedIn and X show, and check that the site works on the new address. You never need to send me a password or a code for any of this.
+Tell me in chat which address you bought. I will change the address printed on the landing card and in the link preview that LinkedIn and X show (`SITE_URL` in `src/config.ts`, see `go-live.md`), and check that the site works on the new address. You never need to send me a password or a code for any of this.

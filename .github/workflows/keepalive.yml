@@ -2,6 +2,11 @@ name: Keep alive
 
 # GitHub switches off scheduled workflows in public repositories after 60 days
 # with no activity. This makes one small commit to main each month.
+#
+# It pushes straight to main with the workflow's own token (a push made with that token does not
+# start Deploy). If main is ever protected by a rule that blocks direct pushes, add GitHub Actions
+# to the rule's bypass list, or this job fails (docs/for-sk/03-keep-it-running.md). Before copying
+# approved work to main, Claude merges main back into the work branch, which picks these commits up.
 
 on:
   schedule:
@@ -27,7 +32,7 @@ jobs:
             echo "No main branch yet. Nothing to do." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, the same as deploy.yml
         if: steps.main.outputs.exists == 'true'
         with:
           ref: main

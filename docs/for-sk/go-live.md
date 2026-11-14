@@ -1,6 +1,6 @@
 # Going live
 
-This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: you only need to say yes. There is one setting you might be asked to change yourself, and it takes about a minute.
+This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: say yes, then switch one job off and on and check one email setting (about two minutes). There is one more setting you might be asked to change yourself, also about a minute.
 
 Written 14 November 2026.
 
@@ -21,8 +21,8 @@ The GitHub project has only one branch so far: my work branch, `claude/new-sessi
 
 There are two automatic jobs.
 
-1. **Deploy.** It runs every time I send a change to GitHub, and publishes it to the preview address. It also runs on a timer, about once an hour, to fetch the newest wind forecast. The timer run always publishes to the **live** address.
-2. **Keep alive.** On the 1st of each month it makes one tiny change to `main`, so GitHub keeps the timer switched on. Until `main` exists, it does nothing.
+1. **Deploy.** It runs every time I send a change to GitHub, and publishes it to the preview address. It also runs on two timers, each about once an hour, to fetch the newest wind forecast. The timer runs always publish to the **live** address.
+2. **Keep alive.** On the 1st of each month it makes one tiny change to `main`, so GitHub keeps the timers switched on. Until `main` exists, it does nothing.
 
 The wind job does not write anything into the GitHub project itself. It keeps the downloaded winds in GitHub's own storage and publishes them straight to Cloudflare, together with the site.
 
@@ -44,18 +44,32 @@ This change is on my work branch, in its own commit: "ci: the hourly wind refres
 
 1. Check everything one last time: all the automatic tests, and the preview on a phone-sized screen.
 2. Send the finished work to GitHub, so the preview shows exactly what will go live.
-3. Create the `main` branch from my work branch. GitHub then runs the Deploy job for `main`. It runs every check first, and only publishes if they all pass. This takes a few minutes.
-4. Watch that run until it shows a green tick. Then open https://let-go-of-a-balloon.pages.dev and check that the page loads with today's winds.
-5. Make `main` the project's default branch, so GitHub's timers, the **Run workflow** button and the project's front page all use `main`. My GitHub access should let me do this. If GitHub refuses, I will ask you to do it (see below).
-6. Start the Keep alive job once by hand, to check it can write to `main`.
-7. Ask you to do the 5-minute phone test in `phone-test.md`, on the live address.
-8. Fill in the live link in `handback.md`.
+3. In one go: create the `main` branch from my work branch, and make `main` the project's default branch. The default branch is the one GitHub's timers, the **Run workflow** button and the project's front page use. Doing both together means there is no gap where they point at the wrong branch. My GitHub access should let me do this. If GitHub refuses the second half, I stop and ask you to do it straight away (see below).
+4. Creating `main` starts the Deploy job for `main`. It runs every check first, and only publishes if they all pass. This takes a few minutes. I watch it until it shows a green tick. If it says "cancelled" instead, that is harmless (a timer run took its place), and step 5 covers it.
+5. Run Deploy once more by hand, on `main` (**Actions**, **Deploy**, **Run workflow**, branch `main`). Why: GitHub keeps the downloaded winds in a store that belongs to each branch, and `main` starts with an empty one. This run fills `main`'s store, and its last step checks that the live site's newest forecast is fresh. I wait for the green tick and read that line in the run's summary.
+6. Open https://let-go-of-a-balloon.pages.dev and check that the page loads and lets a balloon go with today's winds.
+7. Start the Keep alive job once by hand, to check it can write to `main`.
+8. Ask you to do the 5-minute phone test in `phone-test.md`, on the live address.
+9. Fill in the live link in `handback.md`.
+10. Ask you to make the timer emails yours (below).
 
-After that, my changes go to a preview first, as now. Only when you have said OK do I copy them to `main`, which updates the live site.
+After that, my changes go to a preview first, as now. Only when you have said OK do I copy them to `main`, which updates the live site. Before copying, I bring the monthly Keep alive changes on `main` back into my work branch, so the copy is a simple step forward.
+
+## What you should click
+
+One thing, about two minutes, just after go-live: make sure GitHub's "run failed" emails reach you. Those emails are how you would hear that the winds are getting old. GitHub sends them to whoever last switched the Deploy job on, which may be a robot account today, so:
+
+1. Open https://github.com/shrivatsakajaria/Let-go-of-a-balloon and click the **Actions** tab.
+2. In the left-hand list, click **Deploy**.
+3. Near the top right, click the **...** button, then **Disable workflow**.
+4. In the grey box that appears, click **Enable workflow**.
+5. Open https://github.com/settings/notifications, scroll to **System**, then **Actions**, and make sure **Email** is ticked under **Notify me**.
+
+The same steps, with a little more explanation, are under "Make sure the emails reach you" in `03-keep-it-running.md`.
 
 ## What you might have to click
 
-Only if I tell you GitHub refused me in step 5. It takes about a minute.
+Only if I tell you GitHub refused me in step 3. It takes about a minute.
 
 1. Open https://github.com/shrivatsakajaria/Let-go-of-a-balloon and sign in.
 2. Click **Settings**. It is in the row of tabs near the top. On a phone, it may be under a **...** menu.
@@ -72,8 +86,18 @@ You never need to copy, paste or send me a password or token for any of this.
 
 - **The Deploy run shows a red cross.** The live site stays as it was. Nothing broken goes out, because the checks run before anything is published. Tell me and I will fix it.
 - **The live site looks different from the preview.** Tell me which address you opened and what you saw.
-- **GitHub emails you that a timer has been switched off.** Follow `03-keep-it-running.md`. It is one click.
+- **GitHub emails you that a timer has been switched off, or that a Deploy run failed.** This one is urgent. Follow `03-keep-it-running.md`.
 
-## A note on the hourly timer
+## A note on the hourly timers
 
-GitHub runs timers when it has spare capacity, not to the minute. In the 30 hours before I wrote this, the wind job ran 5 times. That is enough, because the US weather service only publishes a new forecast every 6 hours, and the site happily uses a forecast up to 24 hours old.
+GitHub runs timers when it has spare capacity, not to the minute. In the 30 hours before I wrote this, the wind job ran only 5 times, and on 13 November a gap and a failed run together left the site without usable winds for a while. So there are now two timers, half an hour apart. The US weather service publishes a new forecast every 6 hours, and the site now keeps using a forecast for up to 48 hours (each one reaches 5 days ahead, enough for a whole 3-day flight even when it is 2 days old).
+
+If the newest forecast on the live site is ever more than 18 hours old, the Deploy run shows a red cross and GitHub emails you. That leaves more than a day before "Let go" stops working. `03-keep-it-running.md` says what to do.
+
+## Rules on `main` (only if you add them)
+
+GitHub lets you protect a branch, for example so that nobody can change `main` directly. Nothing like that is switched on, and you do not need it. If you ever turn on such a rule for `main`, the Keep alive job will fail, because it changes `main` directly. In the rule's settings, add **GitHub Actions** to the list of those allowed to bypass it, or ask me to.
+
+## If you get your own web address
+
+`handback.md` says how to buy one. Once it works, tell me. The site's address is written in one place in the code (`SITE_URL` in `src/config.ts`), which feeds the link preview LinkedIn and X show and the Deploy job's checks. I change that line and the address printed on the landing card, and check the site on the new address. The `pages.dev` address keeps working too.

@@ -1,17 +1,18 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BALLOON_HEX, CLIMB_RATE_MS } from '../config';
 import type { RoutePoint } from '../flight/route';
 import { parseHex, type Light } from '../world/palette';
-import { Rope, ROPE_SEGMENTS, ROPE_SEG_M } from './rope';
+import { Rope, ROPE_SEGMENTS, ROPE_SEG_M, type RopeStepOpts } from './rope';
 
 /**
  * The balloon (spec 6.2 and 7): a real 30 cm party balloon in glossy #ff5a12, the one bright thing.
  *
  * API (positions are the caller's; the world owns the floating origin):
  *   const b = new Balloon(scene);
- *   b.hold(hand)                    // while the person holds it; `hand` is read live every frame
- *   b.release()                     // the hand opens: the string comes free and the balloon squashes
+ *   b.hold(hand, grip?)             // while the person holds it; `hand` is read live every frame
+ *   b.release()                     // the hand opens: the balloon is free and squashes; the string's
+ *                                   // end slips out of the fingers (grip.releaseT, person.ts StringGrip)
  *   b.setState(point, dt, light, { pos, camera })   // every frame
  *
  * `pos` is where the route puts the balloon's centre in scene metres (x east, y up, z = -north);
@@ -34,11 +35,22 @@ export const FULL_SCALE_AT_M = 2000;
 /** Release squash (spec 8: "the balloon squashes for 120 ms"). */
 export const RELEASE_SQUASH_S = 0.12;
 
-/** String anchor below the centre, in balloon radii (the bottom of the knot). */
-const KNOT_DROP = 1.3;
+/** After the release the string's end follows the grip at most this long (s), whatever the grip says. */
+export const SLIP_MAX_S = 0.5;
+/** String anchor below the centre, in balloon radii (the bottom of the knot, under the neck's rolled lip). */
+export const KNOT_DROP = 1.44;
 const LN_SPAN = Math.log(FULL_SCALE_AT_M / REAL_SIZE_WITHIN_M);
 const LN_MAX = Math.log(MAX_DISPLAY_SCALE);
 const RAD = Math.PI / 180;
+/** The knot's velocity is smoothed over this long (s) for the air going past it. */
+const KNOT_V_TAU_S = 0.2;
+/** The air the string feels is eased over this long (s): gusts sway it, never flick it. */
+const AIR_TAU_S = 0.6;
+/** The crosswind past the knot is capped here (m/s); and the climb's air from below at AIR_MAX_UP_MS. */
+const AIR_MAX_MS = 0.8;
+const AIR_MAX_UP_MS = 4;
+/** A slow, small sway in the air (m/s; periods of 7 to 22 s). */
+const AIR_SWAY_MS = 0.25;
 /** Ribbon vertices per rope segment (a smooth curve through the rope points, no visible corners). */
 const RIBBON_SUB = 3;
 const RIBBON_DAY = new THREE.Color('#f2ebe2');
@@ -68,7 +80,12 @@ export function squashScale(s: number): { y: number; xz: number } {
 
 type V3 = { x: number; y: number; z: number };
 export type BalloonOpts = { reducedMotion?: boolean };
-export type BalloonAt = { pos: V3; camera?: V3 };
+/**
+ * pos and camera: see the class comment. elapsedS: the time that really went by since the last frame
+ * (s), when the frame's dt is capped (the scene counts at most 0.25 s, while the route follows the
+ * clock); the string and the release ease follow it, so a stalled frame does not fling the string.
+ */
+export type BalloonAt = { pos: V3; camera?: V3; elapsedS?: number };
 
 /** Exact critically damped spring step toward 0 (offset x, velocity v, angular frequency w). */
 function damp(x: number, v: number, w: number, dt: number): [number, number] {
@@ -100,6 +117,9 @@ export class Balloon {
   private envKey: number[] = [];
   private readonly rimUniform = { value: 0 };
   private hand: V3 | null = null;
+  private grip: { readonly releaseT: number } | null = null;
+  /** After the release, while the string's end is still slipping out of the fingers: the hand it follows. */
+  private slip: V3 | null = null;
   private started = false;
   private clock = 0;
   private sinceRelease = Infinity;
@@ -114,15 +134,31 @@ export class Balloon {
   private tiltV = new THREE.Vector2();
   private spin = 0;
   private lastPos = new THREE.Vector3();
+  /** Set at the release: the next frame starts the balloon at rest where it was drawn. */
+  private restAt = false;
+  /** The knot as drawn, and where the string's simulation (real size) hangs from it. */
+  private knotDrawn = new THREE.Vector3();
+  private knotReal = new THREE.Vector3();
+  private knotPrev = new THREE.Vector3();
+  /** The knot's velocity, smoothed, and the air going past it (filtered), m/s. */
+  private knotV = new THREE.Vector3();
+  private airRel = new THREE.Vector3();
+  // scratch, so the string's part of a frame allocates nothing
+  private tmpV = new THREE.Vector3();
+  private drop = new THREE.Vector3();
+  private airWant = new THREE.Vector3();
+  private endReal = new THREE.Vector3();
+  private ropeOpts: RopeStepOpts = {};
   private ribbonPts = Array.from({ length: ROPE_SEGMENTS + 1 }, () => new THREE.Vector3());
 
   constructor(scene: THREE.Object3D, opts: BalloonOpts = {}) {
     this.scene = scene;
     this.reduced = !!opts.reducedMotion;
 
-    // Party-balloon teardrop: the prototype's shape (0.68 wide at the knot, 1.04 at the crown, 1.16
-    // tall), with a smooth profile so no crease shows at the equator, and the UV seam welded so the
-    // normals are continuous all round.
+    // Party-balloon teardrop: the prototype's shape (1.04 wide at the crown, 1.16 tall), with a smooth
+    // profile so no crease shows at the equator, drawn in at the bottom into the neck, and the UV seam
+    // welded so the normals are continuous all round (smooth shading: the balloon reads round and
+    // glossy in the flat-shaded world).
     const sphere = new THREE.SphereGeometry(1, 48, 32);
     sphere.deleteAttribute('uv');
     sphere.deleteAttribute('normal');
@@ -131,8 +167,10 @@ export class Balloon {
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const k = 1 + 0.18 * y - 0.14 * y * y;
-      p.setXYZ(i, x * k, y * 1.16, z * k);
+      // the lower fifth tucks in toward the neck, smoothly (no crease where it starts)
+      const tuck = y < -0.74 ? ((-0.74 - y) / 0.26) ** 2 : 0;
+      const k = (1 + 0.18 * y - 0.14 * y * y) * (1 - 0.55 * tuck);
+      p.setXYZ(i, x * k, y * 1.16 - 0.02 * tuck, z * k);
     }
     g.computeVertexNormals();
     this.envTex = makeSkyEnv(null);
@@ -149,6 +187,7 @@ export class Balloon {
       envMapIntensity: 1,
       emissive: new THREE.Color(BALLOON_HEX),
       emissiveIntensity: 0.06,
+      vertexColors: true, // white on the skin, a shade deeper on the neck and knot
     });
     // a faint warm rim at night (city light catching the edge), added to the emissive term
     const rim = this.rimUniform;
@@ -162,11 +201,15 @@ export class Balloon {
         );
     };
     this.material.customProgramCacheKey = () => 'balloon-rim';
-    const skin = new THREE.Mesh(g, this.material);
-    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.2, 12), this.material);
-    knot.position.set(0.02, -1.2, 0); // real knots sit a little off-centre, which lets the slow spin read
-    knot.rotation.x = Math.PI;
-    this.body.add(skin, knot);
+    // the neck, its lip and the knot: the same latex a shade deeper, in the skin's own mesh and material
+    // (one draw call)
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+    const neckGeo = makeNeck();
+    const skinGeo = mergeGeometries([g, neckGeo], false)!;
+    g.dispose();
+    neckGeo.dispose();
+    const skin = new THREE.Mesh(skinGeo, this.material);
+    this.body.add(skin);
     this.mesh.add(this.body);
 
     // the string: a thin camera-facing ribbon along the rope points
@@ -212,23 +255,46 @@ export class Balloon {
     return this.shadowMat.opacity;
   }
 
-  /** Pin the string's end to the hand; the vector is read every frame, so pass the live hand position. */
-  hold(hand: V3): void {
+  /**
+   * Point i of the string as drawn (0 at the knot), in scene metres: the simulated (real-size)
+   * string magnified about the knot by the display scale.
+   */
+  stringPoint(i: number, out: THREE.Vector3): THREE.Vector3 {
+    if (i <= 0) return out.copy(this.knotDrawn);
+    const x0 = this.rope.point(0, this.tmpV);
+    return this.rope.point(i, out).sub(x0).multiplyScalar(this.scale).add(this.knotDrawn);
+  }
+
+  /**
+   * Pin the string's end to the hand; the vector is read every frame, so pass the live hand position.
+   * With a grip (person.ts StringGrip: the person), the end stays with `hand` after release() until
+   * grip.releaseT reaches 1, sliding out of the opening fingers instead of jumping free.
+   */
+  hold(hand: V3, grip?: { readonly releaseT: number }): void {
     this.hand = hand;
+    this.grip = grip ?? null;
+    this.slip = null;
     this.sinceRelease = Infinity;
   }
 
   /** The hand opens: the string comes free, the balloon squashes for 120 ms and starts to rise. */
   release(): void {
     if (!this.hand) return;
+    this.slip = this.grip && this.grip.releaseT < 1 ? this.hand : null;
     this.hand = null;
     this.sinceRelease = 0;
     this.offsetV.set(0, -CLIMB_RATE_MS, 0); // start at rest while the route already climbs
+    // (and drifts: setState's next frame sets the whole start from the route's own speed and heading,
+    // which this call does not have; see restAt there)
+    this.restAt = true;
     this.squashV -= 1.2; // a small kick into the squash
   }
 
   setState(p: RoutePoint, dtSec: number, light: Light, at: BalloonAt): void {
-    const dt = Number.isFinite(dtSec) ? Math.min(Math.max(dtSec, 0), 0.1) : 0;
+    const frameDt = Number.isFinite(dtSec) ? Math.max(dtSec, 0) : 0;
+    // the time that really went by (the route moved by it), at least the frame's own
+    const rawDt = at.elapsedS !== undefined && Number.isFinite(at.elapsedS) ? Math.max(frameDt, at.elapsedS) : frameDt;
+    const dt = Math.min(frameDt, 0.1);
     const pos = at.pos;
     if (!Number.isFinite(pos.x + pos.y + pos.z)) return;
     this.clock += dt;
@@ -260,9 +326,22 @@ export class Balloon {
       this.tiltV.set(0, 0);
     } else {
       this.sinceRelease += dt;
-      // ease the release offset away: critically damped, about 0.7 s
+      const de = Math.min(rawDt, 10);
+      if (this.restAt && this.started) {
+        // the hand has just opened (as this frame began): the balloon starts at rest where it was drawn,
+        // and eases onto the route, which already drifts with the wind and climbs. (release() is called
+        // between frames, with no route point to hand: it sets restAt, and the first frame without the
+        // hand does this, from that frame's speed and heading. Before any frame, started is false, and
+        // release() leaves the climb's offsetV alone to ease from.)
+        this.restAt = false;
+        const vx = Math.sin(hd) * sp, vz = -Math.cos(hd) * sp;
+        this.offset.set(cur.x - pos.x + vx * de, cur.y - pos.y + CLIMB_RATE_MS * de, cur.z - pos.z + vz * de);
+        this.offsetV.set(-vx, -CLIMB_RATE_MS, -vz);
+      }
+      // ease the release offset away: critically damped, about 0.7 s (an exact step, so in real time
+      // even at a few frames a second)
       for (const k of ['x', 'y', 'z'] as const) {
-        [this.offset[k], this.offsetV[k]] = damp(this.offset[k], this.offsetV[k], 3, dt);
+        [this.offset[k], this.offsetV[k]] = damp(this.offset[k], this.offsetV[k], 3, de);
       }
       cur.set(pos.x + this.offset.x, pos.y + this.offset.y, pos.z + this.offset.z);
       this.scale = displayScale(Math.hypot(cur.x - cam.x, cur.y - cam.y, cur.z - cam.z));
@@ -317,19 +396,52 @@ export class Balloon {
     const s = this.scale * BALLOON_RADIUS_M;
     this.body.scale.set(s * k.xz, s * k.y, s * k.xz);
 
-    // the string: pinned at the knot, and at the hand while held
-    const knot = new THREE.Vector3(0, -KNOT_DROP * k.y * s, 0).applyQuaternion(this.mesh.quaternion).add(cur);
-    this.rope.segLen = ROPE_SEG_M * this.scale;
-    if (!this.started) this.rope.reset(knot);
-    // the air moves with the route's wind; the balloon rides it, so the string mostly hangs and swings in small gusts
-    const gust = 0.6 * w;
-    const wind = {
-      x: Math.sin(hd) * sp + gust * Math.sin(t * 1.3 + 0.4) + 0.5 * gust * Math.sin(t * 3.7),
-      y: 0,
-      z: -Math.cos(hd) * sp + gust * Math.sin(t * 1.1 + 2.1) + 0.5 * gust * Math.sin(t * 2.9 + 1),
-    };
-    if (jumped) this.rope.reset(knot);
-    this.rope.step(dt, knot, { wind, end: this.hand });
+    // the string: pinned at the knot, and at the hand while held. It is simulated at real size, hung
+    // from where the knot of a real-size balloon would be, and drawn magnified about the drawn knot,
+    // so the display scale (the camera's distance) never moves it
+    const drop = this.drop.set(0, -KNOT_DROP * k.y * BALLOON_RADIUS_M, 0).applyQuaternion(this.mesh.quaternion);
+    this.knotReal.copy(cur).add(drop);
+    this.knotDrawn.copy(cur).addScaledVector(drop, this.scale);
+    const knot = this.knotReal;
+    if (!this.started) {
+      this.rope.reset(knot);
+      this.knotPrev.copy(knot);
+      this.knotV.set(0, 0, 0);
+    }
+    // the air going past the knot: the route's wind less the knot's own motion (smoothed; nothing
+    // from a jump), so the string trails below a climbing balloon and a crosswind leans it gently.
+    // Capped, and eased over most of a second, plus a slow sway: no flicks
+    if (this.started && !jumped && rawDt > 0) {
+      const kv = this.tmpV.subVectors(knot, this.knotPrev).divideScalar(rawDt);
+      if (kv.length() < 200) this.knotV.lerp(kv, 1 - Math.exp(-rawDt / KNOT_V_TAU_S));
+    }
+    this.knotPrev.copy(knot);
+    const sway = AIR_SWAY_MS * w;
+    const want = this.airWant.set(
+      Math.sin(hd) * sp - this.knotV.x + sway * (Math.sin(t * 0.37 + 0.4) + 0.5 * Math.sin(t * 0.83)),
+      Math.max(-AIR_MAX_UP_MS, Math.min(0, -this.knotV.y)),
+      -Math.cos(hd) * sp - this.knotV.z + sway * (Math.sin(t * 0.29 + 2.1) + 0.5 * Math.sin(t * 0.71 + 1)),
+    );
+    const across = Math.hypot(want.x, want.z);
+    if (across > AIR_MAX_MS) {
+      want.x *= AIR_MAX_MS / across;
+      want.z *= AIR_MAX_MS / across;
+    }
+    if (!this.started) this.airRel.copy(want);
+    else this.airRel.lerp(want, 1 - Math.exp(-rawDt / AIR_TAU_S));
+    // the string's end: at the hand while held, then with the opening fingers until it has slipped out
+    // (and never past half a second, whatever the grip says: a person disposed mid-slip lets it go)
+    if (this.slip && (!(this.grip && this.grip.releaseT < 1) || this.sinceRelease > SLIP_MAX_S)) this.slip = null;
+    const pin = this.hand ?? this.slip;
+    const end = pin ? this.endReal.set(pin.x, pin.y, pin.z).sub(this.knotDrawn).divideScalar(this.scale).add(knot) : null;
+    if (end && !this.hand) {
+      // slipping out: the rising balloon draws the string through the fingers, never stretching it
+      const d = end.distanceTo(knot), L = this.rope.length;
+      if (d > L) end.sub(knot).multiplyScalar(L / d).add(knot);
+    }
+    this.ropeOpts.air = this.airRel;
+    this.ropeOpts.end = end;
+    this.rope.step(rawDt, knot, this.ropeOpts);
     this.started = true;
     this.updateRibbon(cam);
 
@@ -369,7 +481,7 @@ export class Balloon {
     const m = n * RIBBON_SUB;
     const pos = this.ribbonGeo.getAttribute('position') as THREE.BufferAttribute;
     const pts = this.ribbonPts;
-    for (let i = 0; i <= n; i++) this.rope.point(i, pts[i]);
+    for (let i = 0; i <= n; i++) this.stringPoint(i, pts[i]);
     const c = new THREE.Vector3(), prev = new THREE.Vector3(), next = new THREE.Vector3();
     const tan = new THREE.Vector3(), view = new THREE.Vector3(), side = new THREE.Vector3();
     const half = 0.0025 * this.scale;
@@ -408,6 +520,43 @@ export class Balloon {
     this.shadowMat.dispose();
     this.envTex.dispose();
   }
+}
+
+/**
+ * The balloon's neck in balloon radii (y down from the centre): pinched where it leaves the skin,
+ * flaring into a small rolled lip (a ring), and the tied knot below it, a little off-centre as real
+ * knots sit (which lets the slow spin read). The string is tied at the bottom of the knot, KNOT_DROP
+ * below the centre. Smooth normals, about 600 triangles.
+ */
+export function makeNeck(): THREE.BufferGeometry {
+  const lathe = (prof: [number, number][], segs: number) => {
+    const g = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), segs);
+    g.deleteAttribute('uv');
+    return g;
+  };
+  // the neck: out of the skin's tuck, pinched, then flaring to the lip
+  const neck = lathe([[0.12, -1.1], [0.088, -1.14], [0.068, -1.17], [0.056, -1.205], [0.054, -1.24], [0.062, -1.27], [0.07, -1.285]], 16);
+  // the rolled lip: a soft ring
+  const lip = new THREE.TorusGeometry(0.06, 0.022, 8, 18);
+  lip.deleteAttribute('uv');
+  lip.rotateX(Math.PI / 2);
+  lip.translate(0, -1.293, 0);
+  // the knot: a squashed, slightly lumpy bulb under the lip, tied a little to one side
+  const knot = lathe([[0.04, -1.29], [0.07, -1.305], [0.082, -1.34], [0.075, -1.38], [0.052, -1.418], [0.018, -1.437], [0.001, -1.44]], 14);
+  knot.scale(1, 1, 0.82);
+  const pos = knot.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const a = Math.atan2(z, x);
+    const lump = 1 + 0.11 * Math.sin(3 * a + 0.6) * Math.sin(Math.PI * Math.min(1, Math.max(0, (-1.3 - y) / 0.14)));
+    pos.setXYZ(i, x * lump + 0.014 * Math.sin(Math.PI * Math.min(1, Math.max(0, (-1.3 - y) / 0.14))), y, z * lump);
+  }
+  knot.computeVertexNormals();
+  const merged = mergeGeometries([neck, lip, knot], false)!;
+  for (const g of [neck, lip, knot]) g.dispose();
+  // a shade deeper than the skin (vertex colour, multiplied with the balloon's colour)
+  merged.setAttribute('color', new THREE.BufferAttribute(new Float32Array(merged.attributes.position.count * 3).fill(0.5), 3));
+  return merged;
 }
 
 /** Soft radial falloff in the alpha channel, white elsewhere: the shadow's shape. */
