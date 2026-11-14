@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createSearcher, parsePlaces, placeLabel, placeLabels, searchPlaces, searchUrl, type Place, type SearchState } from '../../src/ui/search';
+import { createSearcher, parsePlaces, placeLabel, placeLabels, rankPlaces, searchPlaces, searchUrl, visitorHints, type Place, type SearchState } from '../../src/ui/search';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../fixtures/geocoding/${name}.json`, import.meta.url), 'utf8'));
 
@@ -130,5 +130,51 @@ describe('createSearcher', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(calls).toHaveLength(0);
     expect(states.at(-1)).toEqual({ kind: 'idle' });
+  });
+});
+
+describe('ranking (owner\'s decision, 14 November 2026: the visitor\'s own country first, then by population)', () => {
+  const windermere = () => parsePlaces(fixture('windermere'));
+  const where = (ps: Place[]) => ps.map((p) => `${p.admin1}`);
+
+  test('the region of the browser language and the time zone are the hints, read from the visitor\'s own browser', () => {
+    expect(visitorHints({ languages: ['en-GB', 'en'], timeZone: 'Europe/London' })).toEqual({ regions: ['GB'], timeZone: 'Europe/London' });
+    expect(visitorHints({ languages: ['fr', 'en-us'], timeZone: 'Europe/Paris' })).toEqual({ regions: ['US'], timeZone: 'Europe/Paris' });
+    // a language without a region (or a numeric one, "es-419") gives none
+    expect(visitorHints({ languages: ['de', 'es-419'], timeZone: undefined })).toEqual({ regions: [], timeZone: undefined });
+    // script subtags are skipped: zh-Hant-TW is Taiwan
+    expect(visitorHints({ languages: ['zh-Hant-TW'], timeZone: 'Asia/Taipei' }).regions).toEqual(['TW']);
+  });
+
+  test('parsePlaces keeps the country code, the time zone and the population', () => {
+    const uk = windermere().find((p) => p.admin1 === 'England')!;
+    expect(uk).toMatchObject({ countryCode: 'GB', timeZone: 'Europe/London', population: 7765 });
+  });
+
+  test('a British visitor gets Windermere in England first', () => {
+    const ranked = rankPlaces(windermere(), { regions: ['GB'], timeZone: 'Europe/London' });
+    expect(where(ranked)[0]).toBe('England');
+  });
+
+  test('the time zone alone is enough (a browser set to plain "en")', () => {
+    expect(where(rankPlaces(windermere(), { regions: [], timeZone: 'Europe/London' }))[0]).toBe('England');
+    expect(where(rankPlaces(windermere(), { regions: [], timeZone: 'Australia/Brisbane' }))[0]).toBe('Queensland');
+  });
+
+  test('a visitor in Florida gets their own Windermere first, then the other American ones by population', () => {
+    const ranked = where(rankPlaces(windermere(), { regions: ['US'], timeZone: 'America/New_York' }));
+    expect(ranked.slice(0, 3)).toEqual(['Florida', 'Connecticut', 'Tennessee']);
+  });
+
+  test('with no hint that matches, bigger places come first and unknown populations last, in the order given', () => {
+    const ranked = where(rankPlaces(windermere(), { regions: ['JP'], timeZone: 'Asia/Tokyo' }));
+    expect(ranked).toEqual(['England', 'Florida', 'Queensland', 'Tasmania', 'Victoria', 'Canterbury', 'Tennessee', 'Connecticut']);
+  });
+
+  test('the list given is not changed', () => {
+    const ps = windermere();
+    const before = ps.map((p) => p.admin1);
+    rankPlaces(ps, { regions: ['GB'], timeZone: 'Europe/London' });
+    expect(ps.map((p) => p.admin1)).toEqual(before);
   });
 });

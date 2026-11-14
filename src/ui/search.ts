@@ -6,7 +6,18 @@
 import { GEOCODING_URL } from '../config';
 import { COPY } from './copy';
 
-export type Place = { name: string; admin1?: string; admin2?: string; country: string; lat: number; lon: number };
+export type Place = {
+  name: string;
+  admin1?: string;
+  admin2?: string;
+  country: string;
+  lat: number;
+  lon: number;
+  /** For ranking only (Open-Meteo's ISO country code, IANA time zone and population, where given). */
+  countryCode?: string;
+  timeZone?: string;
+  population?: number;
+};
 
 export const SEARCH_DEBOUNCE_MS = 250;
 const MIN_CHARS = 2;
@@ -26,9 +37,54 @@ export function parsePlaces(json: unknown): Place[] {
     const name = text(r?.name);
     const lat = r?.latitude, lon = r?.longitude;
     if (!name || typeof lat !== 'number' || typeof lon !== 'number' || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) continue;
-    out.push({ name, admin1: text(r.admin1), admin2: text(r.admin2), country: text(r.country) ?? '', lat, lon });
+    const p: Place = { name, admin1: text(r.admin1), admin2: text(r.admin2), country: text(r.country) ?? '', lat, lon };
+    const cc = text(r.country_code), tz = text(r.timezone);
+    if (cc) p.countryCode = cc.toUpperCase();
+    if (tz) p.timeZone = tz;
+    if (typeof r.population === 'number' && Number.isFinite(r.population)) p.population = r.population;
+    out.push(p);
   }
   return out;
+}
+
+/** What the visitor's own browser says about where they are: the regions of its languages and its time zone. */
+export type VisitorHints = { regions: string[]; timeZone: string | undefined };
+
+/**
+ * The hints, from navigator.languages ("en-GB" is Great Britain) and the time zone. Read in the browser and
+ * used there only: nothing new goes to the place search (owner's decision, 14 November 2026, panel review).
+ */
+export function visitorHints(env?: { languages: readonly string[]; timeZone: string | undefined }): VisitorHints {
+  const e = env ?? {
+    languages: typeof navigator !== 'undefined' ? (navigator.languages?.length ? navigator.languages : [navigator.language ?? '']) : [],
+    timeZone: (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        return undefined;
+      }
+    })(),
+  };
+  const regions: string[] = [];
+  for (const tag of e.languages) {
+    // the region is the first two-letter subtag after the language ("en-GB", "zh-Hant-TW"); "es-419" has none
+    const r = String(tag).split(/[-_]/).slice(1).find((t) => /^[a-z]{2}$/i.test(t))?.toUpperCase();
+    if (r && !regions.includes(r)) regions.push(r);
+  }
+  return { regions, timeZone: e.timeZone || undefined };
+}
+
+/**
+ * The visitor's own country first ("Windermere" is in England for a British visitor, in Florida for one in
+ * Florida), then bigger places before smaller ones; Open-Meteo's order breaks ties. A copy; the input is kept.
+ */
+export function rankPlaces(places: Place[], hints: VisitorHints): Place[] {
+  const score = (p: Place) =>
+    (p.countryCode && hints.regions.includes(p.countryCode) ? 1 : 0) + (p.timeZone && p.timeZone === hints.timeZone ? 1 : 0);
+  return places
+    .map((p, i) => ({ p, i, s: score(p), pop: p.population ?? -1 }))
+    .sort((a, b) => b.s - a.s || b.pop - a.pop || a.i - b.i)
+    .map((x) => x.p);
 }
 
 function join(parts: (string | undefined)[]): string {
@@ -55,7 +111,7 @@ export function placeLabels(ps: Place[]): string[] {
 export async function searchPlaces(q: string, signal: AbortSignal): Promise<Place[]> {
   const res = await fetch(searchUrl(q), { signal });
   if (!res.ok) throw new Error(`place search ${res.status}`);
-  return parsePlaces(await res.json());
+  return rankPlaces(parsePlaces(await res.json()), visitorHints());
 }
 
 export type SearchState =
