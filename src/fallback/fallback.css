@@ -48,3 +48,18 @@
   line-height: 1.35;
   text-wrap: pretty;
 }
+
+/*
+ * Short landscape screens (640 x 360 to 844 x 390): the column is too narrow for the notice and the credit
+ * side by side (the credit was four lines tall and the HUD scrolled), so the credit runs on from the notice's
+ * last line, as wide as the column; each credit link keeps its 24 px line. The fact keeps clear of "Over ..."
+ * just above it.
+ */
+@media (max-height: 420px) and (orientation: landscape) {
+  :root[data-map='2d'] .hud .fineprint { display: block; font-size: 11px; line-height: 1.35; }
+  :root[data-map='2d'] .hud .notice { display: inline; }
+  /* a little more than a space after the notice, and none before a credit that starts its own line */
+  :root[data-map='2d'] .hud .notice::after { content: ''; margin-right: 6px; }
+  :root[data-map='2d'] .hud .map-credit { display: inline; max-width: none; text-align: left; }
+  :root[data-map='2d'] .hud .fact { margin-top: 4px; }
+}

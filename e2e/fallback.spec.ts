@@ -92,6 +92,29 @@ for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { 
   });
 }
 
+test('at 640x360 the HUD fits without scrolling: the credit runs as wide as the column, its links 24 px, the fact clear of "Over ..."', async ({ context, page }) => {
+  await page.setViewportSize({ width: 640, height: 360 });
+  await liveWorld(context);
+  await coast(context);
+  await noWebGL(context);
+  await page.goto(await linkTo(eastward(30)));
+  await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
+  await page.waitForTimeout(800);
+  const m = await page.evaluate(() => {
+    const hud = document.getElementById('hud')!;
+    const box = (s: string) => hud.querySelector(s)!.getBoundingClientRect();
+    return {
+      scroll: hud.scrollHeight - hud.clientHeight,
+      links: [...hud.querySelectorAll('.map-credit a')].map((a) => a.getBoundingClientRect().height),
+      gap: box('.fact').top - box('.over').bottom,
+    };
+  });
+  expect(m.scroll).toBeLessThanOrEqual(0);
+  expect(m.links).toHaveLength(4);
+  for (const h of m.links) expect(h).toBeGreaterThanOrEqual(24);
+  expect(m.gap).toBeGreaterThanOrEqual(4);
+});
+
 test.describe('without WebGL', () => {
   test('Let go draws the route on a 2D map with the coastline, under the live HUD and facts', async ({ context, page }) => {
     const { external } = await liveWorld(context);
