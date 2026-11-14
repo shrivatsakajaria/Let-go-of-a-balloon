@@ -155,8 +155,6 @@ const liftLater = (need: number, inS: number) => need - LIFT_EASY_MS * Math.max(
 const PLAN_S = 40;
 const PLAN_STEP_S = 0.5;
 const PLAN_AHEAD_S = 6;
-/** The crane stays at least this far off the balloon across (m), along the plan's bearing from it. */
-const PLAN_MIN_H_M = 1.5;
 /** Ride's bearing (rideYaw) comes round to the wind's over this smooth time (s), at most RIDE_YAW_MAX rad/s. */
 const RIDE_YAW_T_S = 8;
 const RIDE_YAW_MAX = 6 * RAD;
@@ -198,12 +196,6 @@ const CLAMP_MAX_A = 2.4;
 const CLAMP_MAX_V = 8;
 const CLAMP_LAUNCH_A = 0.45;
 const CLAMP_V_T_S = 0.15;
-/** ...and, whatever the easing, never lower than this over the ground, nor than this over a roof within HARD_ROOF_R_M (m). */
-const HARD_GROUND_M = 0.2;
-const HARD_ROOF_M = 0.2;
-const HARD_ROOF_R_M = 0.3;
-/** The look turns no faster than this about the vertical (rad/s): passing under the balloon is not a spin. */
-const AIM_YAW_MAX = 90 * RAD;
 /** The camera keeps this far out of a tree's crown (outOfCrowns). */
 const CROWN_GAP_M = 0.5;
 /**
@@ -341,7 +333,7 @@ export class Director {
    * The launch's plan, made as the hand opens: the route's balloon then, the smooth maximum's value then,
    * and the lift the predicted path needs (every PLAN_STEP_S).
    */
-  private plan: { B: THREE.Vector3; d0: number; sm0: number; need: Float64Array; from: number; ux: number; uz: number } | null = null;
+  private plan: { B: THREE.Vector3; d0: number; sm0: number; need: Float64Array; from: number } | null = null;
   /** The launch camera's lift over buildings (m) and its rate. */
   private lift = 0;
   private liftV = 0;
@@ -383,9 +375,6 @@ export class Director {
    * feet (scene).
    */
   /** The clamp's correction as applied (eased: easeClamp), its rate, and whether it has started. */
-  /** The look's last yaw (aim), and whether it carries on from it (false after a cut). */
-  private aimYaw = Number.NaN;
-  private aimYawOn = false;
   private readonly guard = { on: false, aMax: CLAMP_MAX_A, off: new THREE.Vector3(), v: new THREE.Vector3(), want: new THREE.Vector3() };
   readonly probe = { target: [0, 0, 0], clampM: 0, lift: 0, pushAt: Number.NaN, low: 0, person: [0, 0, 0] };
 
@@ -695,7 +684,6 @@ export class Director {
     }
     if (!this.ready || tg.snap) {
       this.guard.on = false; // a cut: the clamp's correction is taken as it is
-      this.aimYawOn = false; // ...and the look as it is
       this.pos.copy(tg.pos);
       this.y0 = tg.y0;
       this.x0 = tg.x0 ?? 0;
@@ -770,14 +758,7 @@ export class Director {
     const v = B.clone().sub(pos);
     const dist = v.length();
     if (!(dist > 1e-6)) return B.clone().add(new THREE.Vector3(0, -1, -1));
-    let yaw = Math.atan2(v.x, -v.z) - Math.atan(x0 * this.tanH(fovDeg));
-    // (at most AIM_YAW_MAX from last frame's, except on a cut)
-    if (this.aimYawOn && Number.isFinite(this.aimYaw)) {
-      const m = AIM_YAW_MAX * this.stepS;
-      yaw = this.aimYaw + Math.max(-m, Math.min(m, wrapPi(yaw - this.aimYaw)));
-    }
-    this.aimYaw = yaw;
-    this.aimYawOn = true;
+    const yaw = Math.atan2(v.x, -v.z) - Math.atan(x0 * this.tanH(fovDeg));
     const pitchB = Math.atan2(v.y, Math.hypot(v.x, v.z));
     // keep off the pole so lookAt's up vector stays defined
     const pitch = Math.min(1.45, Math.max(-1.45, pitchB - Math.atan(y0 * Math.tan((fovDeg * RAD) / 2))));
@@ -1157,16 +1138,6 @@ export class Director {
     const k = smoother((u - pl.from) / FOLLOW_S);
     out.x = H.x + k * (B.x - pl.B.x);
     out.z = H.z + k * (B.z - pl.B.z);
-    // never right under the balloon (looking straight up, the frame spins): PLAN_MIN_H_M off it at least,
-    // along the plan's bearing from it (a smooth maximum, so the move has no corner)
-    const dx = out.x - B.x, dz = out.z - B.z;
-    const along = dx * pl.ux + dz * pl.uz;
-    const want = (along + Math.sqrt(along * along + 0.25)) / 2;
-    if (want < PLAN_MIN_H_M) {
-      const push = (PLAN_MIN_H_M - want) * smoother(1 - want / PLAN_MIN_H_M);
-      out.x += pl.ux * push;
-      out.z += pl.uz * push;
-    }
     // (at the distance it holds from the balloon: it never sinks while the balloon gets ahead of it)
     out.y = H.y + softMax(B.y - pl.d0 * Math.tan(CRANE_ELEV) - H.y) - pl.sm0;
     return out;
@@ -1181,9 +1152,7 @@ export class Director {
     // (the follow starts sooner in a strong wind: the balloon is soon well clear of the person anyway)
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
     const from = Math.min(FOLLOW_FROM_S, Math.max(FOLLOW_SOON_S, FOLLOW_FROM_S + 0.3 - 0.1 * v));
-    const hx = H.x - B0.x, hz = H.z - B0.z, hl = Math.hypot(hx, hz);
-    const ux = hl > 1e-6 ? hx / hl : 0, uz = hl > 1e-6 ? hz / hl : 1;
-    this.plan = { B: B0.clone(), d0, sm0, need, from, ux, uz };
+    this.plan = { B: B0.clone(), d0, sm0, need, from };
     // the predicted path: on with the wind, climbing
     const raw = new Float64Array(n);
     const Bp = new THREE.Vector3(), C = new THREE.Vector3();
@@ -1603,7 +1572,7 @@ export class Director {
   }
 
   /**
-   * The clamp never moves the camera at once (a building or a tree streaming in under or beside it, the
+   * In the launch the clamp never moves the camera at once (a building or a tree streaming in under or beside it, the
    * balloon's sphere grazed on the push in): its correction (out - pos) is taken in through a critically
    * damped spring (CLAMP_T_S) whose acceleration is capped at CLAMP_MAX_A and speed at CLAMP_MAX_V, so the
    * camera rises over what arrived instead of jumping. Hard safety: a camera inside a building (below a roof
@@ -1615,15 +1584,13 @@ export class Director {
    */
   private easeClamp(out: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): void {
     const g = this.guard;
-    // only the launch eases: elsewhere (Ride, Above, Side-on, circling, replay) and while paused the
-    // correction is taken at once, so no view ever sits in a building or the ground
-    // (what is left of the launch's eased correction at the hand-over is still eased out, so the hand-over
-    // is not a jump; once it has met the correction, the correction is taken at once)
-    const launch = this._shot === 'launch';
     const want = g.want.copy(out).sub(this.pos);
-    if (this.paused || (!launch && (!g.on || (want.distanceTo(g.off) < 0.02 && g.v.length() < 0.05)))) {
+    // only the launch eases: elsewhere (Ride, Above, Side-on, circling, replay) and while paused the
+    // correction is taken at once, so no view sits in a building or the ground; what is left of the
+    // launch's eased correction at the hand-over is still eased out (the hand-over is not a jump), until it
+    // has met the correction
+    if (this.paused || (this._shot !== 'launch' && (!g.on || (want.distanceTo(g.off) < 0.02 && g.v.length() < 0.05)))) {
       g.on = false;
-      this.hardFloor(out, b, B0);
       return;
     }
     const dt = this.stepS;
@@ -1676,25 +1643,6 @@ export class Director {
       }
     }
     out.copy(this.pos).add(g.off);
-    this.hardFloor(out, b, B0);
-  }
-
-  /**
-   * Hard safety after the easing: never below ground + 0.5 m, never inside a building (a footprint within
-   * HARD_ROOF_R_M of the camera's ground point, about its near plane: just over its roof). Not the clamp's
-   * own STREET_CLEAR_M: a wall a metre off is not inside, and the eased correction takes the camera up over
-   * that margin without a jump. This only ever acts for a frame, when something streams in round the camera.
-   */
-  private hardFloor(out: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): void {
-    const ll = this.fromScene(out.x, out.z, b, B0, this.ll);
-    const g = this.deps.groundAt(ll);
-    if (!Number.isFinite(g)) return;
-    let floor = g + HARD_GROUND_M;
-    if (this.deps.buildingTopAt) {
-      const top = this.deps.buildingTopAt(ll, HARD_ROOF_R_M);
-      if (top > g + 0.5) floor = Math.max(floor, top + HARD_ROOF_M);
-    }
-    if (out.y < floor) out.y = floor;
   }
 
   /**

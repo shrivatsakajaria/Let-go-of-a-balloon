@@ -73,20 +73,15 @@ function ndc(cam: THREE.PerspectiveCamera, p: THREE.Vector3) {
   return p.clone().project(cam);
 }
 describe('Director', () => {
-  test('Ride with a building streaming in under it: the clamp takes the camera over the roof at once', () => {
+  test('Ride, Above and Side-on with a building streaming in under them: the clamp takes the camera over the roof at once', () => {
     const cam = mkCam();
     let tall = false;
     const d = new Director(cam, deps({ buildingTopAt: () => (tall ? 1500 + 40 : -Infinity) }));
-    d.set('ride');
-    let t = run(d, 0, 20, 0.1);
-    tall = true;
-    t = run(d, t, 0.1, 0.1);
-    expect(cam.position.y).toBeGreaterThanOrEqual(1500 + 40 + 3 - 1e-6);
-    // and in Above, Side-on and circling the same
-    for (const mode of ['above', 'side'] as const) {
+    let t = 0;
+    for (const mode of ['ride', 'above', 'side'] as const) {
       tall = false;
       d.set(mode);
-      t = run(d, t, 10, 0.1);
+      t = run(d, t, 20, 0.1);
       tall = true;
       t = run(d, t, 0.1, 0.1);
       expect(cam.position.y, mode).toBeGreaterThanOrEqual(1500 + 40 + 3 - 1e-6);
@@ -1106,7 +1101,7 @@ describe('launch: one smooth move', () => {
     for (const b of boxes) if (s.x + r > b.x0 && s.x - r < b.x1 && s.z + r > b.z0 && s.z - r < b.z1) best = Math.max(best, b.top);
     return best;
   };
-  type Opts = { boxes?: Box[]; heading?: number; speed?: number; landmark?: number; hz?: number; jitterMs?: number; stallAt?: number; wait?: boolean; appear?: { at: number; top: number; half: number; dx?: number }; pause?: [number, number] };
+  type Opts = { boxes?: Box[]; heading?: number; speed?: number; landmark?: number; hz?: number; jitterMs?: number; stallAt?: number; wait?: boolean; appear?: { at: number; top: number; half: number }; pause?: [number, number] };
   function fly(o: Opts) {
     const ground = 10;
     const cam = mkPhone(50);
@@ -1149,9 +1144,8 @@ describe('launch: one smooth move', () => {
     const start = cam.position.clone();
     while (t < 45 && !(t > settled + 3)) {
       if (o.appear && t >= o.appear.at && t - 1 / hz < o.appear.at) {
-        const c = cam.position, w = o.appear.half, dx = o.appear.dx ?? 0;
-        // (dx: off to one side of the camera, its near wall dx - w from it)
-        boxes.push({ x0: c.x + dx - w, x1: c.x + dx + w, z0: c.z - w, z1: c.z + w, top: o.appear.top });
+        const c = cam.position, w = o.appear.half;
+        boxes.push({ x0: c.x - w, x1: c.x + w, z0: c.z - w, z1: c.z + w, top: o.appear.top });
       }
       if (o.pause) d.paused = t >= o.pause[0] && t < o.pause[1];
       let dt = 1 / hz + (o.jitterMs ? ((rnd() - 0.5) * o.jitterMs) / 1000 : 0);
@@ -1276,68 +1270,31 @@ describe('launch: one smooth move', () => {
     }
   });
 
-  /** The longest run of frames with the camera inside a building, from the time the last one appeared. */
-  const inside = (rec: ReturnType<typeof fly>['rec'], boxes: Box[], from: number) => {
-    let run = 0, worstRun = 0;
-    for (const q of rec) {
-      if (q.t < from) continue;
-      const c = q.cam;
-      const inB = boxes.some((b) => c.x > b.x0 && c.x < b.x1 && c.z > b.z0 && c.z < b.z1 && c.y < b.top);
-      run = inB ? run + 1 : 0;
-      worstRun = Math.max(worstRun, run);
-    }
-    return worstRun;
-  };
-
-  test('a building streaming in under the camera mid-launch: the camera is out of it at once (hard safety) and stays over it', () => {
+  test('a building streaming in under the camera mid-launch: the camera rises over it gently, it never jumps', () => {
     for (const at of [0.5, 2, 4]) {
-      const { rec, boxes } = fly({ appear: { at, top: 10 + 6, half: 6 }, hz: 30, jitterMs: 6 });
-      expect(inside(rec, boxes, at), `building at ${at} s`).toBeLessThanOrEqual(1);
+      const { rec } = fly({ appear: { at, top: 10 + 6, half: 6 }, hz: 30, jitterMs: 6 });
+      const r = worst(rec);
+      // (the guard caps the clamp's correction at 3 m/s/s: no frame-to-frame jump)
+      const step = Math.max(...rec.slice(1).map((q, i) => q.cam.distanceTo(rec[i].cam) / q.dt));
+      expect(step, `building at ${at} s: speed`).toBeLessThan(8);
+      expect(r.acc, `building at ${at} s: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(3.2);
+      expect(r.a, `building at ${at} s: turn acceleration at ${r.at.a.toFixed(2)} s`).toBeLessThan(60);
+      // and it does end up over the roof
       const after = rec.filter((q) => q.t > at + 4 && q.shot === 'launch');
       if (after.length) expect(Math.min(...after.map((q) => q.cam.y)), `building at ${at} s`).toBeGreaterThan(16);
     }
   });
 
-  // (beside it and behind, out of the way the crane goes: one it runs into is the hard safety's, above)
-  test('a building streaming in beside the camera mid-launch: no jump, the acceleration capped', () => {
-    for (const at of [0.5, 2]) {
-      for (const dx of [-7.2, -8.5]) {
-        const { rec, boxes } = fly({ appear: { at, top: 10 + 6, half: 6, dx }, hz: 30, jitterMs: 6 });
-        const r = worst(rec);
-        const step = Math.max(...rec.slice(1).map((q, i) => q.cam.distanceTo(rec[i].cam) / q.dt));
-        expect(step, `building at ${at} s, ${dx} m: speed`).toBeLessThan(12);
-        expect(r.acc, `building at ${at} s, ${dx} m: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(3.2);
-        expect(inside(rec, boxes, at), `building at ${at} s, ${dx} m`).toBeLessThanOrEqual(1);
-      }
-    }
-  });
-
-  test('paused mid-launch while a building streams in under the camera: it never stays inside', () => {
+  test('paused mid-launch while a building streams in under the camera: the paused frame is never inside it', () => {
     for (const at of [1, 3]) {
       const { rec, boxes } = fly({ appear: { at: at + 0.5, top: 10 + 6, half: 6 }, pause: [at, at + 3], hz: 30 });
-      expect(inside(rec, boxes, at + 0.5), `paused at ${at} s`).toBeLessThanOrEqual(1);
+      const b = boxes[boxes.length - 1];
+      for (const q of rec.filter((r) => r.t > at + 0.6 && r.t < at + 3)) {
+        const c = q.cam;
+        const inB = c.x > b.x0 && c.x < b.x1 && c.z > b.z0 && c.z < b.z1 && c.y < b.top;
+        expect(inB, `paused at ${at} s, ${q.t.toFixed(2)} s: ${c.toArray().map((x) => x.toFixed(2))}`).toBe(false);
+      }
     }
-  });
-
-  test('the look turns at most 90 deg/s about the vertical, even passing right under the balloon', () => {
-    const cam = mkPhone(50);
-    const d = new Director(cam, deps({ balloonRadius: REAL }));
-    d.set('ride');
-    // the balloon swings straight over the camera's head and away: the bearing to it flips in a frame
-    let prevYaw = Number.NaN, worstRate = 0;
-    const dt = 1 / 30;
-    for (let i = 0; i < 300; i++) {
-      const t = i * dt;
-      const b: RoutePoint = { tSec: t, lat: 50, lon: 0, altM: 300, groundM: 0, speedMs: 8, headingDeg: 90 };
-      const target = new THREE.Vector3(-20 + 40 * (i / 300), 312, 0.01);
-      d.update(b, dt, target);
-      const look = new THREE.Vector3();
-      cam.getWorldDirection(look);
-      const yaw = Math.atan2(look.x, -look.z);
-      if (i > 1 && Number.isFinite(prevYaw)) worstRate = Math.max(worstRate, Math.abs(Math.atan2(Math.sin(yaw - prevYaw), Math.cos(yaw - prevYaw))) / dt);
-      prevYaw = yaw;
-    }
-    expect((worstRate * 180) / Math.PI).toBeLessThan(91);
   });
 
   test('a start spot beside low buildings (a small yard among houses): the camera starts at eye height, not lifted over a roof', () => {
