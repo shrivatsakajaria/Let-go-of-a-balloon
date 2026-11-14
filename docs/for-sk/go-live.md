@@ -67,6 +67,10 @@ One thing, about two minutes, just after go-live: make sure GitHub's "run failed
 
 The same steps, with a little more explanation, are under "Make sure the emails reach you" in `03-keep-it-running.md`.
 
+## Visitor numbers
+
+The site counts visits and a few presses anonymously (no cookies, nothing that identifies anyone). It starts by itself on the live site: there is nothing to click. Later, ask me "how many people let go yesterday?" in any session. The first time, I show you a secure form for a read-only key; you never paste it in chat. `analytics.md` has the details.
+
 ## What you might have to click
 
 Only if I tell you GitHub refused me in step 3. It takes about a minute.

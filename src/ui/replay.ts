@@ -25,6 +25,7 @@ import type { Route } from '../flight/route';
 import { lonDelta } from '../geo/coords';
 import { nearestPlace, townsNear } from '../geo/gazetteer';
 import { COPY } from './copy';
+import { track } from '../analytics/track';
 import type { Hud } from './hud';
 import {
   easeOut,
@@ -225,6 +226,7 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       map?.draw(1);
       // the frame that shows the landing may not have come yet on a slow device: it is on screen at the end
       if (!still && landing) write(landing.name, landing.line, 1);
+      track({ e: 'replay_done' });
       onEnd();
       resolve(); // still on screen, holding on the landing, until Back to live
     };

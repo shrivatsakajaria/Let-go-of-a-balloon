@@ -207,9 +207,30 @@ jobs:
             exit "$rc"
           fi
 
+      # wrangler.toml binds the anonymous event counter's dataset (spec 16). Analytics must never stop
+      # the winds being published: if this deploy fails, the next two steps set wrangler.toml aside
+      # and deploy once more without it (the counter then stores nothing, and the site works as ever).
       - name: Deploy to Cloudflare Pages
         id: deploy
         if: steps.cf.outputs.has_cf == 'true' && (github.event_name != 'schedule' || steps.newrun.outputs.new == 'true')
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@2ef9f398b9175c68f953e40d679493850d640a85 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.161.0' # keep equal to the exact "wrangler" devDependency in package.json
+          command: pages deploy dist --project-name let-go-of-a-balloon --branch ${{ env.BRANCH }}
+
+      - name: Set the analytics settings aside after a failed deploy
+        if: steps.deploy.outcome == 'failure'
+        run: |
+          if [ -f wrangler.toml ]; then mv wrangler.toml wrangler.toml.off; fi
+          echo "::warning title=Deployed without analytics::The deploy failed with wrangler.toml (the event counter's settings), so it is retried without them. The site works; the event counter stores nothing until this is fixed."
+          echo "Deploy retried without wrangler.toml: the event counter stores nothing until this is fixed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to Cloudflare Pages without analytics
+        id: deploy_plain
+        if: steps.deploy.outcome == 'failure'
         uses: cloudflare/wrangler-action@2ef9f398b9175c68f953e40d679493850d640a85 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -218,9 +239,9 @@ jobs:
           command: pages deploy dist --project-name let-go-of-a-balloon --branch ${{ env.BRANCH }}
 
       - name: Show deployment URL
-        if: steps.deploy.outcome == 'success'
+        if: steps.deploy.outcome == 'success' || steps.deploy_plain.outcome == 'success'
         env:
-          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url || steps.deploy_plain.outputs.deployment-url }}
         run: |
           {
             echo "## Deployed"
@@ -237,5 +258,5 @@ jobs:
       - name: Check the live winds are fresh
         if: steps.cf.outputs.has_cf == 'true' && env.BRANCH == 'main'
         env:
-          MANIFEST: ${{ steps.deploy.outcome == 'success' && 'dist/winds/manifest.json' || '' }}
+          MANIFEST: ${{ (steps.deploy.outcome == 'success' || steps.deploy_plain.outcome == 'success') && 'dist/winds/manifest.json' || '' }}
         run: ./scripts/check-wind-age.sh

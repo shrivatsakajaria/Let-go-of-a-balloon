@@ -187,6 +187,7 @@ export function mountStart(
       </div>
       <p class="about-text">${esc(COPY.notice)}</p>
       <p class="about-text">${esc(COPY.next)}</p>
+      <p class="about-text">${esc(COPY.privacy)}</p>
       <h3 class="about-sub">${COPY.credits}</h3>
       <footer>
         <ul>${CREDITS.map((c) => `<li>${creditHtml(c)}</li>`).join('')}</ul>

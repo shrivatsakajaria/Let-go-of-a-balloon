@@ -125,6 +125,41 @@ describe('deploy.yml', () => {
     expect(deploy.indexOf('Check the live winds are fresh')).toBeGreaterThan(deploy.indexOf('Deploy to Cloudflare Pages'));
   });
 
+  test('analytics never stops a deploy: a failed deploy is retried once without wrangler.toml', () => {
+    const first = step(deploy, 'Deploy to Cloudflare Pages');
+    expect(first).toContain('id: deploy\n');
+    expect(first).toContain('continue-on-error: true');
+    const aside = step(deploy, 'Set the analytics settings aside after a failed deploy');
+    expect(aside).toContain("if: steps.deploy.outcome == 'failure'");
+    const retry = step(deploy, 'Deploy to Cloudflare Pages without analytics');
+    expect(retry).toContain("if: steps.deploy.outcome == 'failure'");
+    expect(retry).toContain('id: deploy_plain');
+    // the retry itself may fail the run: then the site really could not be published
+    expect(retry).not.toContain('continue-on-error');
+    const cmd = (s: string) => s.match(/command: (.*)/)![1];
+    expect(cmd(retry)).toBe(cmd(first));
+    expect(deploy.indexOf('Deploy to Cloudflare Pages without analytics')).toBeGreaterThan(deploy.indexOf('Set the analytics settings aside'));
+    // what comes after treats either deploy as published
+    expect(step(deploy, 'Show deployment URL')).toContain("steps.deploy.outcome == 'success' || steps.deploy_plain.outcome == 'success'");
+    expect(step(deploy, 'Check the live winds are fresh')).toContain("(steps.deploy.outcome == 'success' || steps.deploy_plain.outcome == 'success')");
+    expect(deploy.match(/steps\.deploy\.outcome == 'success'/g)!.length).toBe(deploy.match(/steps\.deploy_plain\.outcome == 'success'/g)!.length);
+  });
+
+  test('the set-aside step moves wrangler.toml away and warns, and does not fail', () => {
+    const script = runBlock(step(deploy, 'Set the analytics settings aside after a failed deploy'));
+    for (const has of [true, false]) {
+      const work = mkdtempSync(join(tmpdir(), 'wf-aside-'));
+      if (has) writeFileSync(join(work, 'wrangler.toml'), 'name = "x"\n');
+      const summary = join(work, 'summary');
+      const r = spawnSync('bash', ['-e', '-c', script], { cwd: work, env: { PATH: process.env.PATH, GITHUB_STEP_SUMMARY: summary }, encoding: 'utf8' });
+      expect(r.status, r.stderr).toBe(0);
+      expect(existsSync(join(work, 'wrangler.toml'))).toBe(false);
+      expect(existsSync(join(work, 'wrangler.toml.off'))).toBe(has);
+      expect(r.stdout).toMatch(/^::warning title=Deployed without analytics::/m);
+      expect(readFileSync(summary, 'utf8')).toContain('without wrangler.toml');
+    }
+  });
+
   test('the site address comes from src/config.ts, not the workflow', () => {
     expect(deploy).not.toContain('pages.dev');
     expect(step(deploy, 'Read the site address')).toContain('url=$(./scripts/site-url.sh)');

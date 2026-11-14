@@ -19,6 +19,7 @@ import { VIEW_TABS, clockFor, dayLine, heightText, progress, speedText, viewTab 
 import { calendarWay, landingEvent, saveIcs } from './ics';
 import { startName } from './card';
 import { nearestPlace } from '../geo/gazetteer';
+import { track } from '../analytics/track';
 import type { LatLon } from '../geo/coords';
 
 export type HudHandlers = {
@@ -188,6 +189,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       const m = b.dataset.view as DirectorMode;
       setView(m);
       handlers.onView(m);
+      if (m === 'film' || m === 'above' || m === 'side') track({ e: 'view_change', view: m });
     }),
   );
   const setPaused = (p: boolean) => {
@@ -202,6 +204,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   again.addEventListener('click', () => handlers.onAgain());
   // the landing as a calendar event, with this balloon's own link (the address once the flight is on screen)
   cal.addEventListener('click', () => {
+    track({ e: 'calendar_add' });
     const link = /^#b=/.test(location.hash) ? location.href : `${location.origin}/`;
     const uid = `${Math.round(release / 60e3)}-${location.hash.slice(3, 27) || 'balloon'}`;
     saveIcs(landingEvent({ release, home: calHome || home, own, link, now: Date.now(), uid }), calWay);

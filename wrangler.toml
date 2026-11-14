@@ -1,0 +1,13 @@
+# Cloudflare Pages settings for `wrangler pages deploy dist` (the Deploy workflow). With
+# pages_build_output_dir set, this file is the project's settings: the dashboard shows the same
+# fields but cannot change them (developers.cloudflare.com/pages/functions/wrangler-configuration/).
+name = "let-go-of-a-balloon"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-01"
+
+# The anonymous event counter (functions/api/e.ts, spec 16) writes one row per event here. The
+# dataset is made on the first write; nothing to create by hand. The counter stores nothing that
+# reaches a preview address, so previews never add to the live numbers.
+[[analytics_engine_datasets]]
+binding = "LGOAB_EVENTS"
+dataset = "lgoab_events"
