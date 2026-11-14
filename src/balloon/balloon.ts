@@ -275,8 +275,10 @@ export class Balloon {
   /**
    * The hand holds the string's end; the vector is read every frame, so pass the live hand position.
    * With a grip (person.ts StringGrip: the person), the end stays with `hand` after release() until
-   * grip.releaseT reaches 1, sliding out of the opening fingers (never stretched past the string's
-   * length), and only then eases to hanging.
+   * grip.releaseT reaches 1 (or SLIP_MAX_S has gone by), sliding out of the opening fingers, and only then
+   * eases to hanging. The string is never stretched: while it slips out, if the rising balloon is further
+   * from the hand than the string is long, the end is drawn along the line to the hand to the string's
+   * length (it is being pulled through the fingers), short of the hand.
    */
   hold(hand: V3, grip?: { readonly releaseT: number }): void {
     this.hand = hand;
@@ -326,7 +328,7 @@ export class Balloon {
     const hd = (Number.isFinite(p.headingDeg) ? p.headingDeg : 0) * RAD;
     const sp = Number.isFinite(p.speedMs) ? Math.max(0, p.speedMs) : 0;
     const cur = this.mesh.position;
-    const ropeLen = () => STRING_LENGTH_M * this.scale;
+    const stringLen = () => STRING_LENGTH_M * this.scale;
 
     if (this.hand) {
       // floating on the string: a buoyant pendulum above the hand with a slow, small sway
@@ -335,7 +337,7 @@ export class Balloon {
       const sz = (0.05 * Math.sin(t * 0.7 + 2) + 0.02 * Math.sin(t * 1.9)) * w;
       const dir = new THREE.Vector3(sx, 1, sz).normalize();
       this.scale = displayScale(Math.hypot(h.x - cam.x, h.y - cam.y, h.z - cam.z));
-      const reach = ropeLen() * 0.96 + KNOT_DROP * BALLOON_RADIUS_M * this.scale;
+      const reach = stringLen() * 0.96 + KNOT_DROP * BALLOON_RADIUS_M * this.scale;
       cur.set(h.x, h.y, h.z).addScaledVector(dir, reach);
       this.offset.set(cur.x - pos.x, cur.y - pos.y, cur.z - pos.z);
       this.tilt.set(sx, sz); // the balloon lines up with its string

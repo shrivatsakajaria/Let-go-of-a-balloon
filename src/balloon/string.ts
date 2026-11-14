@@ -16,7 +16,8 @@
  * - The let-go: the free end eases from where the hand held it to the hanging shape over RELEASE_S
  *   (smootherstep: no overshoot), the held shape carrying on as it was moving for a moment and coming
  *   to rest (so nothing stops dead as the hand opens), and the lean starts where the held string pointed.
- * - Never above the knot: every point is kept under a cone just below the knot's horizontal.
+ * - Never above the knot: every point of the free string is kept under a cone just below the knot's
+ *   horizontal (eased in over the let-go: the held string runs to the hand, below the knot anyway).
  *
  * Works in real metres relative to the knot; the caller magnifies it about the drawn knot. No allocation per step.
  */
@@ -269,13 +270,15 @@ export class BalloonString {
       }
     }
     const n = this.segments, p = this.pts;
+    // the cone under the knot holds the free string, coming in over the let-go (no snap as the hand opens)
+    const capW = this.held && hand ? 0 : Number.isFinite(this.since) ? smootherstep(this.since / RELEASE_S) : 1;
     for (let i = 0; i <= n; i++) {
       const f = i / n, a = 2 * (1 - f) * f, b = f * f;
       const x = a * c1.x + b * c2.x, z = a * c1.z + b * c2.z;
       let y = a * c1.y + b * c2.y;
-      if (!this.held || !hand) {
+      if (capW > 0) {
         const cap = -BELOW * Math.hypot(x, z);
-        if (y > cap) y = cap;
+        if (y > cap) y += (cap - y) * capW;
       }
       p[i * 3] = x;
       p[i * 3 + 1] = y;
