@@ -16,7 +16,7 @@ import { CLIMB_RATE_MS } from '../config';
  * would pass on.
  * No allocation per step.
  */
-export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 5, riseTauS: 0.8, maxRiseMs: 3, decayMs: 0.8, smoothLiftS: 0.5, smoothBackS: 0.5 } as const;
+export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 5, riseTauS: 0.8, maxRiseMs: 3, decayMs: 0.8, smoothLiftS: 0.5, smoothBackS: 0.5, catchUp: 0.5 } as const;
 
 /** Highest building or landmark top (absolute) within r of the scene point (x, z); ground or less where none. */
 export type TopAt = (x: number, z: number, r: number) => number;
@@ -86,11 +86,12 @@ export class FacadeSlide {
       this.rawLift = Math.max(want, this.rawLift - SLIDE.decayMs * dt);
     }
     // pressed against a wall it has not yet cleared: held back along the drift (it slides up the wall);
-    // let go again (catching up no faster than its own speed) once the way ahead is clear at its height
+    // let go again (catching up at catchUp of its own speed: it goes on half as fast again) once the way ahead
+    // is clear at its height
     const yNow = y + this.rawLift;
     if (blockedAt(x, z, ux, uz, this.rawBack, yNow, top)) this.rawBack += v * dt;
     else if (this.rawBack > 0) {
-      const nb = Math.max(0, this.rawBack - v * dt);
+      const nb = Math.max(0, this.rawBack - SLIDE.catchUp * v * dt);
       if (!blockedAt(x, z, ux, uz, nb, yNow, top)) this.rawBack = nb;
     }
     this.smooth(dt);
@@ -101,7 +102,7 @@ export class FacadeSlide {
     if (!(dt > 0)) return;
     this.v = 0;
     this.rawLift = Math.max(0, this.rawLift - SLIDE.decayMs * dt);
-    this.rawBack = Math.max(0, this.rawBack - (Number.isFinite(speed) ? Math.max(0, speed) : 0) * dt);
+    this.rawBack = Math.max(0, this.rawBack - SLIDE.catchUp * (Number.isFinite(speed) ? Math.max(0, speed) : 0) * dt);
     this.smooth(dt);
   }
 }
