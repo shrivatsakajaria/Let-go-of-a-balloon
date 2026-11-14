@@ -21,6 +21,7 @@ import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
 import { FacadeSlide } from '../balloon/slide';
+import { FrameClock } from './frameclock';
 import { brightLuminance, climbFloor, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -156,6 +157,8 @@ export class LiveScene {
   /** Whether the feet stood on a landmark's own ground last frame (a change snaps them). */
   private feetOnLandmark = false;
   private last = performance.now();
+  /** The route is shown at each frame's own time, not at whatever millisecond its callback runs (frameclock.ts). */
+  private readonly clock = new FrameClock();
   private frames = 0;
   private skyAt = -Infinity;
   private lumAt = 0;
@@ -500,7 +503,7 @@ export class LiveScene {
     const rp = this.replay;
     const rs = this.rs;
     if (rp) rp.drive.sample(rs); // once a frame: the time, the camera's width and the landing
-    const now = rp ? rs.now : Date.now();
+    const now = rp ? rs.now : this.clock.at(t, Date.now());
 
     // where the balloon is on its route
     const route = this.route;
