@@ -151,7 +151,7 @@ test('the replay ends on the landing card ("Expected to land near ..." over the 
   expect(c.world.readyAt).toBeLessThanOrEqual(c.world.gateAt + 1000);
   console.log(`the card opened ${((c.openedAt - t0) / 1000).toFixed(1)} s after the tap (software renderer)`);
   expect(c.openedAt - c.startedAt).toBeLessThan(30_000);
-  expect(c.kicker).toMatch(/^Expected to (land near|land in|come down in)$/);
+  expect(c.kicker).toMatch(/^Expected to (land|come down at sea)$/);
   // still the replay behind it, holding on the landing
   expect((await hook(page)).replay).toBe(true);
   await expect(card.getByRole('button', { name: 'Back to live' })).toBeVisible();

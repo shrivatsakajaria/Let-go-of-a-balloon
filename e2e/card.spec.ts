@@ -9,31 +9,40 @@ import { eastward, linkTo, liveWorld, SWIFTSHADER } from './fixtures';
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 360_000 });
 
-type CardHook = { renders: number; startedAt: number; state: string; sentence: string; kicker: string; shareText: string; headline: { size: number; lines: string[]; widths: number[] }; frame: string; bytes: number; inApp: boolean };
+type CardHook = { renders: number; startedAt: number; state: string; sentence: string; kicker: string; when: string; shareText: string; names: { text: string; box: number[]; size: number }[]; reveal: string; revealed: boolean; frame: string; bytes: number; inApp: boolean };
 const card = (page: Page) => page.evaluate(() => (window as unknown as { __card?: CardHook }).__card ?? null);
 const opened = async (page: Page, timeout = 120_000) => {
   await expect.poll(async () => (await card(page))?.state, { timeout }).toBe('open');
   return (await card(page))!;
 };
 
-test('a link opened after 72 hours opens on the card: a 1080x1350 postcard of the landing, "Landed near", a headline that fits', async ({ context, page }) => {
+test('a link opened after 72 hours opens on the card (design A) with its reveal: a 1080x1350 postcard, "Landed", the two names placed inside it', async ({ context, page }) => {
   const { external } = await liveWorld(context);
   await page.goto(await linkTo(eastward(80)));
   const c = await opened(page);
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   expect(c.frame).toBe('scene');
-  expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
+  expect(c.kicker).toMatch(/^(Landed|Came down at sea)$/);
+  expect(c.when).toMatch(/^\w{3} \d{1,2} \w{3}, \d\d:\d\d$/);
   await expect(dialog).toHaveAccessibleName(c.sentence);
+  // the trip's end: the reveal plays in the card's frame, then the still and its buttons
+  await expect.poll(async () => (await card(page))!.revealed, { timeout: 60_000 }).toBe(true);
+  expect((await card(page))!.reveal).toBe('played');
+  await expect(dialog.locator('canvas.card-reveal')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Save image' })).toBeVisible();
   const img = dialog.locator('img.card-img');
+  await expect(img).toBeVisible();
   await expect.poll(() => img.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])).toEqual([1080, 1350]);
-  expect(await img.getAttribute('alt')).toMatch(new RegExp(`^${c.sentence}\\. Manchester to `));
-  // headline: at most two lines, every line inside the 72 px margins, at 88 to 120 px
-  expect(c.headline.lines.length).toBeLessThanOrEqual(2);
-  expect(c.headline.size).toBeGreaterThanOrEqual(88);
-  expect(c.headline.size).toBeLessThanOrEqual(120);
-  for (const w of c.headline.widths) expect(w).toBeLessThanOrEqual(1080 - 2 * 72 + 0.5);
-  expect(c.headline.lines.join(' ')).toMatch(/^Manchester to /);
+  expect(await img.getAttribute('alt')).toMatch(new RegExp(`^${c.sentence}, .+\\. Manchester to `));
+  // the two big names, each inside the picture and its margins, at 72 px or more
+  expect(c.names.map((n) => n.text)[0]).toBe('Manchester');
+  for (const n of c.names) {
+    expect(n.size).toBeGreaterThanOrEqual(72);
+    expect(n.box[0]).toBeGreaterThanOrEqual(40);
+    expect(n.box[2]).toBeLessThanOrEqual(1040);
+    expect(n.box[3]).toBeLessThan(1000);
+  }
   // Close returns to the landed balloon, and "Show the card" brings it back
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toHaveCount(0);
@@ -71,7 +80,7 @@ test('the card shows when a balloon comes down while it is being watched', async
   const c = await opened(page, 260_000);
   // made a moment after touchdown, not on it
   expect(c.startedAt).toBeGreaterThanOrEqual(landsAt + 1400);
-  expect(c.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
+  expect(c.kicker).toMatch(/^(Landed|Came down at sea)$/);
 });
 
 test('"Show the card" while the card is still being made waits for that one: one card world, one render', async ({ context, page }) => {

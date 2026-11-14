@@ -119,6 +119,14 @@ export function cardScene(live: LiveScene, opts: CardSceneOpts = {}): CardScene 
         farStats.how = how;
         if (how === 'cancelled') return null;
         farStats.readyAt = Date.now();
+        // the reveal's tiles (round the balloon, on the way up), while the replay plays where there is one;
+        // the reveal only over a whole world: a late one gives the card without it, never holes
+        let more: Awaited<ReturnType<CardWorld['loadReveal']>> | null = null;
+        if (opts.reveal && how === 'ready') {
+          more = await world.loadReveal({ maxMs: REVEAL_WAIT_MS, alive: going });
+          farStats.how = `${how}+${more}`;
+          if (more === 'cancelled') return null;
+        }
         // the picture waits for its moment (the end of the replay), the land drawing meanwhile
         if (gate) {
           await world.renderer.compileAsync(world.scene, poseCamera(world.shot)).catch(() => {});
@@ -131,15 +139,9 @@ export function cardScene(live: LiveScene, opts: CardSceneOpts = {}): CardScene 
         Object.assign(farStats, { tiles: st.wanted, settled: st.settled, failed: st.failed, ms: Math.round(performance.now() - t0) });
         const pic: CardShotPicture | null = still(world, route);
         if (!pic) return null;
-        // the reveal only over a whole world: a late one holds on the card instead of showing holes
-        if (opts.reveal && how === 'ready') {
-          const more = await world.loadReveal({ maxMs: REVEAL_WAIT_MS, alive: going });
-          farStats.how = `${how}+${more}`;
-          if (more === 'cancelled') return null;
-          if (more === 'ready') {
-            kept = true;
-            pic.reveal = revealFrom(world, route);
-          }
+        if (more === 'ready') {
+          kept = true;
+          pic.reveal = revealFrom(world, route);
         }
         return pic;
       } finally {

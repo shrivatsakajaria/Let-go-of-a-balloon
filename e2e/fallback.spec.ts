@@ -216,7 +216,7 @@ test.describe('without WebGL', () => {
     await expect(dialog).toBeVisible({ timeout: 30_000 });
     const hook = await page.evaluate(() => (window as unknown as { __card: { state: string; kicker: string; frame: string; renders: number } }).__card);
     expect(hook.state).toBe('open');
-    expect(hook.kicker).toMatch(/^(Landed near|Landed in|Came down in)$/);
+    expect(hook.kicker).toMatch(/^(Landed|Came down at sea)$/);
     expect(hook.frame).toBe('scene'); // the map's picture, not the plain sketch
     const img = dialog.locator('img.card-img');
     await expect.poll(() => img.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])).toEqual([1080, 1350]);
