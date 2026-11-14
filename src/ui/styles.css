@@ -784,11 +784,11 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 
 /*
  * 200% zoom and small windows (WCAG 1.4.4, 1.4.10): rows wrap, the small print stacks, and the start screen
- * and the flight HUD scroll rather than clip. A landscape phone (844 x 390) keeps its layout. The canvas
+ * and the flight HUD scroll rather than clip. A 320 px phone and a landscape phone (844 x 390) keep their layout. The canvas
  * takes no pointer input, so a HUD that takes taps here blocks nothing; it does so only in the flight,
  * so it never covers the start screen's own controls.
  */
-@media (max-width: 320px), (max-height: 420px) and (max-width: 700px) {
+@media (max-width: 300px), (max-height: 420px) and (max-width: 700px) {
   .start, :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
   .start > *, .hud > * { flex-shrink: 0; }
   .hud-top, .go-row, .views, .actions, .day-row { flex-wrap: wrap; }

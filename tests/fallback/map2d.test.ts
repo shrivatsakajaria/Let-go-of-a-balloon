@@ -103,6 +103,11 @@ test('portrait: the map goes between the top text and the fact line, below the d
   expect(b).toEqual({ left: 16, right: 374, top: 146, bottom: 544 });
 });
 
+test('portrait: a bottom shading taller than the stack keeps the map above its dark part too', () => {
+  const b = freeBand({ w: 390, h: 844, hudTop: 86, shadeTop: 190, stackTop: 560, stackRight: 374, narrowShade: false, shadeBottomTop: 430 });
+  expect(b).toEqual({ left: 16, right: 374, top: 166, bottom: 414 });
+});
+
 test('landscape: the band above the stack is too thin, so the map goes in the clear column beside the stack', () => {
   const b = freeBand({ w: 844, h: 390, hudTop: 86, shadeTop: 170, stackTop: 120, stackRight: 600, narrowShade: true });
   expect(b.left).toBeGreaterThanOrEqual(600 + 16);

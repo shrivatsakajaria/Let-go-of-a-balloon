@@ -42,6 +42,8 @@ const INK = '10, 14, 28';
 const DPR_CAP = 2;
 const TICK_MS = 1000;
 const PLACE_EVERY_MS = 6000;
+/** The bottom shading's first quarter is faint (under a third of its strength): the map may run under it. */
+const SHADE_FAINT = 0.25;
 
 export type FallbackDeps = LiveDeps;
 
@@ -246,6 +248,8 @@ export class Fallback implements World {
       { reducedMotion: reduced, note: COPY.noWebGL },
     );
     window.addEventListener('resize', this.onResize);
+    // the shading is sized to the text, which comes in after the map is laid out: lay it out again
+    for (const el of [this.deps.hudEl.querySelector('.hud-shade'), this.deps.hudEl.querySelector('.hud-top'), document.querySelector('.shade-top')]) if (el) this.chromeRo?.observe(el);
     this.setStart(choice);
   }
 
@@ -394,6 +398,7 @@ export class Fallback implements World {
     closeCardView();
     clearInterval(this.timer);
     window.removeEventListener('resize', this.onResize);
+    this.chromeRo?.disconnect();
     this.hud.destroy();
     this.wrap.remove();
     delete document.documentElement.dataset.map;
@@ -404,6 +409,16 @@ export class Fallback implements World {
   private readonly onResize = () => {
     if (this.flight) this.layout();
   };
+
+  /** The band laid out for last (as text), so a change in the chrome lays the map out again only when it moves the band. */
+  private bandKey = '';
+  private readonly chromeRo = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => {
+        if (!this.flight) return;
+        const { w, h } = this.size;
+        if (JSON.stringify(this.band(w, h)) !== this.bandKey) this.layout();
+      })
+    : null;
 
   /** Fit the route into the band the HUD leaves free, then draw the coast for that view. */
   private layout(): void {
@@ -417,7 +432,9 @@ export class Fallback implements World {
       c.width = Math.round(w * this.dpr);
       c.height = Math.round(h * this.dpr);
     }
-    const v = fitView(fl.route.points, this.band(w, h));
+    const band = this.band(w, h);
+    this.bandKey = JSON.stringify(band);
+    const v = fitView(fl.route.points, band);
     this.px = routePx(fl.route, v);
     this.drawTop();
     const drawn = ++this.drawn;
@@ -448,6 +465,7 @@ export class Fallback implements World {
       stackTop: stack?.top ?? h,
       stackRight: Math.max(stack?.right ?? w, shade?.right ?? w),
       narrowShade: !!shade && shade.width > 0 && shade.right < w - 1,
+      shadeBottomTop: shade && shade.height > 0 ? shade.top + SHADE_FAINT * shade.height : undefined,
     });
   }
 

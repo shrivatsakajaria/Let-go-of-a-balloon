@@ -176,6 +176,19 @@ test('a link opened after 72 hours shows the balloon landed', async ({ context, 
   expect(await page.locator('.string .fill').evaluate((e) => parseFloat((e as HTMLElement).style.width))).toBe(100);
 });
 
+test('a balloon opened from "Your balloons" with the keyboard: focus moves to the flight, not back to the top of the page', async ({ context, page }) => {
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await context.addInitScript((v) => localStorage.setItem('lgoab.balloons.v1', v), JSON.stringify([eastward(14)]));
+  await page.goto('/');
+  await ready(page);
+  const mine = page.getByRole('group', { name: 'Your balloons' }).getByRole('button').first();
+  await mine.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('#hud')), { timeout: 5000 }).toBe(true);
+});
+
 test('the older ?b= link form opens too', async ({ context, page }) => {
   await liveWorld(context);
   const link = await linkTo(eastward(5));

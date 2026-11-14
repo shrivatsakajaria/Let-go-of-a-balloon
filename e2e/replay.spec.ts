@@ -113,7 +113,7 @@ test('the whole trip: "Forecast route" label, a high wide camera with a trail, n
 
   // at most five names on the way, then the landing place, what happens there and when
   const seen = await page.evaluate(() => (window as unknown as { __names: string[] }).__names);
-  const landing = seen.filter((s) => /^.+\|Expected to (land|come down) here · \w{3} \d{1,2} \w{3}, \d\d:\d\d$/.test(s));
+  const landing = seen.filter((s) => /^.+\|Expected to (land|come down) here · \w{3} \d{1,2} \w{3} at \d\d:\d\d$/.test(s));
   expect(landing.length).toBeGreaterThan(0);
   const names = new Set(seen.filter((s) => s.endsWith('|')).map((s) => s.split('|')[0]));
   expect(names.size).toBeLessThanOrEqual(5);

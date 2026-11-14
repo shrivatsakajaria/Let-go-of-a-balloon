@@ -310,9 +310,10 @@ test.describe('town search', () => {
     expect(await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
     const bar = await page.locator('.search-bar').evaluate((el) => {
       const s = getComputedStyle(el);
-      return { line: s.borderBottomColor, width: s.borderBottomWidth, shadow: s.boxShadow };
+      return { line: s.borderBottomColor, shadow: s.boxShadow };
     });
-    expect(bar).toEqual({ line: 'rgb(247, 243, 236)', width: '1.5px', shadow: 'rgb(247, 243, 236) 0px 1.5px 0px 0px' });
+    // (the 1.5 px border itself is drawn at whole device pixels)
+    expect(bar).toEqual({ line: 'rgb(247, 243, 236)', shadow: 'rgb(247, 243, 236) 0px 1.5px 0px 0px' });
   });
 
   test('the search is a modal dialog: Tab stays inside it, and Escape closes it wherever focus is', async ({ page }) => {
