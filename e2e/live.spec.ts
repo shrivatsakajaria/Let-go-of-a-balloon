@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { midnightTicks } from '../src/ui/hudmath';
 import { routeFromHourly } from '../src/flight/route';
@@ -380,6 +384,28 @@ test('the page keeps no test hook unless a test asks for one', async ({ context,
   await page.goto('/');
   await ready(page);
   expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
+});
+
+test('the live site\'s build does not read window.__lgoabStreaks (only test and preview builds do)', async () => {
+  test.setTimeout(120_000);
+  const read = (dir: string) =>
+    readdirSync(join(dir, 'assets'))
+      .filter((f) => f.endsWith('.js'))
+      .some((f) => readFileSync(join(dir, 'assets', f), 'utf8').includes('__lgoabStreaks'));
+  // the build these tests run on (DEBUG_PAGES=1) has the switch: the streak tests use it
+  expect(read('dist')).toBe(true);
+  // the live site's build (main, no proof pages) leaves it out
+  const out = mkdtempSync(join(tmpdir(), 'lgoab-live-'));
+  try {
+    execFileSync('npx', ['vite', 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'error'], {
+      env: { ...process.env, DEBUG_PAGES: '0', BRANCH: 'main' },
+      stdio: 'pipe',
+      timeout: 110_000,
+    });
+    expect(read(out)).toBe(false);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test('disposing the live flight stops drawing and frees the scene, the HUD and the listeners', async ({ context, page }) => {

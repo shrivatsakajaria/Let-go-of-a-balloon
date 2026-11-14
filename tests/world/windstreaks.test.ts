@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boxShift,
   easeToward,
+  EDGE_FADE,
   edgeFade,
   heightFade,
   layerDistance,
@@ -13,6 +14,8 @@ import {
   streakPos,
   streakTarget,
   streakVelocity,
+  streakWind,
+  STREAK_MAX_WIND_MS,
   turnToward,
   WindStreaks,
   type StreakState,
@@ -306,6 +309,53 @@ describe('wind streaks: recycled round the view', () => {
 
   it('a few thousand vertices in one draw', () => {
     expect(STREAK_COUNT * 4).toBeLessThanOrEqual(4000);
+  });
+});
+
+describe('wind streaks: a wind that is not finite, or absurdly strong', () => {
+  it('is read as a calm (not finite) or held to the strongest real wind aloft, its direction kept', () => {
+    const out = { u: 0, v: 0 };
+    expect(streakWind(Number.NaN, 3, out)).toEqual({ u: 0, v: 0 });
+    expect(streakWind(Number.POSITIVE_INFINITY, 0, out)).toEqual({ u: 0, v: 0 });
+    expect(streakWind(4, -3, out)).toEqual({ u: 4, v: -3 });
+    streakWind(3e6, 4e6, out);
+    expect(Math.hypot(out.u, out.v)).toBeCloseTo(STREAK_MAX_WIND_MS, 6);
+    expect(out.u / out.v).toBeCloseTo(0.75, 9);
+  });
+  it('turnToward keeps a unit direction whatever the wind', () => {
+    for (const [u, v] of [[Number.POSITIVE_INFINITY, 1], [1e300, 1e300], [Number.NaN, 0]]) {
+      const dir = { x: 0.6, z: -0.8 };
+      turnToward(dir, u, v, 1 / 30);
+      expect(Number.isFinite(dir.x) && Number.isFinite(dir.z)).toBe(true);
+      expect(Math.hypot(dir.x, dir.z)).toBeCloseTo(1, 9);
+    }
+  });
+  it('the mesh stays finite through such a wind', () => {
+    const scene = new THREE.Scene();
+    const streaks = new WindStreaks(scene, { haze: createHaze(lightFor(30), sunDirection(30, 180)) });
+    const camera = new THREE.PerspectiveCamera(34, 390 / 844, 0.1, 50000);
+    const focus = new THREE.Vector3(0, 1500, 0);
+    camera.position.set(-40, 1537, 30);
+    camera.lookAt(focus);
+    camera.updateMatrixWorld();
+    for (const wind of [{ u: Number.POSITIVE_INFINITY, v: 2 }, { u: 1e9, v: -1e9 }, { u: Number.NaN, v: Number.NaN }]) {
+      for (let i = 0; i < 10; i++) streaks.update(1 / 30, { focus, focusRadius: 0.25, camera, groundM: 0, wind, target: 1 });
+      const u = streaks.mesh.material.uniforms as Record<string, { value: THREE.Vector3[] | THREE.Vector3 }>;
+      for (const v of [...(u.uShift.value as THREE.Vector3[]), u.uDir.value as THREE.Vector3]) expect([v.x, v.y, v.z].every(Number.isFinite)).toBe(true);
+    }
+  });
+});
+
+describe('wind streaks: the shader and the checks share one edge fade', () => {
+  it('fades from EDGE_FADE.from of the way to a face, to nothing at the face', () => {
+    expect(EDGE_FADE).toEqual({ from: 0.32, to: 0.5 });
+    expect(edgeFade({ x: EDGE_FADE.from, y: 0, z: 0 })).toBe(1);
+    expect(edgeFade({ x: 0, y: -EDGE_FADE.to, z: 0 })).toBe(0);
+  });
+  it('the vertex shader is written from the same numbers', () => {
+    const scene = new THREE.Scene();
+    const streaks = new WindStreaks(scene, { haze: createHaze(lightFor(30), sunDirection(30, 180)) });
+    expect(streaks.mesh.material.vertexShader).toContain(`smoothstep(${EDGE_FADE.from.toFixed(2)}, ${EDGE_FADE.to.toFixed(2)},`);
   });
 });
 

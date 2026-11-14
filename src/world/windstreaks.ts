@@ -43,6 +43,11 @@ export const STREAK_SLAB = { below: 900, above: 400, fadeM: 250 } as const;
 /** Streaks flow past the balloon at STREAK_REL_MIN_MS + STREAK_REL_GAIN x the wind's speed (m/s). */
 export const STREAK_REL_MIN_MS = 5;
 export const STREAK_REL_GAIN = 2;
+/**
+ * The strongest wind they are moved by (m/s): above the strongest jet streams. A wind from the data that is
+ * not finite counts as a calm, and a stronger one is held to this, its direction kept.
+ */
+export const STREAK_MAX_WIND_MS = 120;
 /** Seconds: their direction eases toward the wind's with this time constant. */
 export const STREAK_TURN_S = 1;
 /** Heights above the ground (m) over which they come in. */
@@ -89,6 +94,20 @@ export function streakTarget(s: StreakState): number {
   return heightFade(s.aglM) * land;
 }
 
+/** The wind the streaks are moved by (m/s, u east, v north): a calm for one that is not finite, held to STREAK_MAX_WIND_MS. */
+export function streakWind(u: number, v: number, out: { u: number; v: number }): { u: number; v: number } {
+  if (!Number.isFinite(u) || !Number.isFinite(v)) {
+    out.u = 0;
+    out.v = 0;
+    return out;
+  }
+  const s = Math.hypot(u, v);
+  const k = s > STREAK_MAX_WIND_MS ? STREAK_MAX_WIND_MS / s : 1;
+  out.u = u * k;
+  out.v = v * k;
+  return out;
+}
+
 /** One step of an exponential ease from cur toward target (time constant tauS). */
 export function easeToward(cur: number, target: number, dtS: number, tauS: number): number {
   if (!(dtS > 0)) return cur;
@@ -113,7 +132,7 @@ export function streakVelocity(u: number, v: number, dir: { x: number; z: number
 /** One step of the streaks' direction (scene xz, unit, in place) toward the wind's (u east, v north). */
 export function turnToward(dir: { x: number; z: number }, u: number, v: number, dtS: number): { x: number; z: number } {
   const s = Math.hypot(u, v);
-  if (!(s > 1e-3) || !(dtS > 0)) return dir;
+  if (!(s > 1e-3) || !Number.isFinite(s) || !(dtS > 0)) return dir;
   const tx = u / s, tz = -v / s;
   // ease the signed angle (an exact about-face turns as fast as any other change)
   const ang = Math.atan2(dir.x * tz - dir.z * tx, dir.x * tx + dir.z * tz);
@@ -148,9 +167,12 @@ export function streakPos(seed: V3, shift: V3, center: V3, size: number, out: V3
   return out;
 }
 
+/** Where in a box (share of its size from the centre) the fade toward its faces begins and ends; the shader's too. */
+export const EDGE_FADE = { from: 0.32, to: 0.5 } as const;
+
 /** Visibility by place in a box (q: offset from the centre over the box's size, -0.5..0.5): 0 at every face. */
 export function edgeFade(q: V3): number {
-  return 1 - smooth(0.32, 0.5, Math.max(Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)));
+  return 1 - smooth(EDGE_FADE.from, EDGE_FADE.to, Math.max(Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)));
 }
 
 /**
@@ -202,7 +224,7 @@ void main() {
   vec3 q = fract(aSeed.xyz + uShift[k]) - 0.5;
   vec3 c = uCenter[k] + q * size;
   // fades: the box's faces, near the camera, into the haze, the balloon's height band, the ground
-  float a = 1.0 - smoothstep(0.32, 0.5, max(max(abs(q.x), abs(q.y)), abs(q.z)));
+  float a = 1.0 - smoothstep(${EDGE_FADE.from.toFixed(2)}, ${EDGE_FADE.to.toFixed(2)}, max(max(abs(q.x), abs(q.y)), abs(q.z)));
   float dc = length(c - cameraPosition);
   a *= smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, dc);
   #ifdef USE_FOG
@@ -301,6 +323,8 @@ export class WindStreaks {
   /** Where the wind has carried the streaks (scene metres; kept within ANCHOR_WRAP_M of the origin). */
   private readonly anchor = { x: 0, y: 0, z: 0 };
   private readonly vel = { x: 0, z: 0 };
+  /** The wind this frame, made safe (streakWind). */
+  private readonly wind = { u: 0, v: 0 };
   /** Their direction (scene xz, unit), eased toward the wind's. */
   private readonly dir = { x: 1, z: 0 };
   private dirSet = false;
@@ -387,16 +411,17 @@ export class WindStreaks {
     this.eased = this.enabled ? easeToward(this.eased, Math.min(1, Math.max(0, f.target)), dt, STREAK_EASE_S) : 0;
     if (this.eased < 1e-3 && f.target === 0) this.eased = 0;
     const u = this.u;
-    const ws = Math.hypot(f.wind.u, f.wind.v);
+    const w = streakWind(f.wind.u, f.wind.v, this.wind);
+    const ws = Math.hypot(w.u, w.v);
     if (!this.dirSet && ws > 1e-3) {
       // the first wind: face it at once
-      this.dir.x = f.wind.u / ws;
-      this.dir.z = -f.wind.v / ws;
+      this.dir.x = w.u / ws;
+      this.dir.z = -w.v / ws;
       this.dirSet = true;
     }
     if (!this.paused) {
-      turnToward(this.dir, f.wind.u, f.wind.v, dt);
-      streakVelocity(f.wind.u, f.wind.v, this.dir, this.vel);
+      turnToward(this.dir, w.u, w.v, dt);
+      streakVelocity(w.u, w.v, this.dir, this.vel);
       const sp = Math.hypot(this.vel.x, this.vel.z);
       if (sp > 1e-3) u.uDir.value.set(this.vel.x / sp, 0, this.vel.z / sp);
       // the anchor stays within the largest box of the origin: the lattice repeats there
