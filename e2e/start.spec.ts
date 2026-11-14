@@ -303,12 +303,37 @@ test.describe('town search', () => {
     await expect(fromButton(page)).toBeFocused();
   });
 
-  test('the search input shows the focus ring', async ({ page }) => {
+  test('the search field shows focus as its full-strength 3 px underline, not a ring box (R54)', async ({ page }) => {
     await offline(page);
     await page.goto('/');
     await fromButton(page).click();
-    const ring = await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(ring).toBe('rgb(247, 243, 236) 0px 0px 0px 2px, rgb(10, 14, 28) 0px 0px 0px 4px');
+    expect(await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
+    const bar = await page.locator('.search-bar').evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { line: s.borderBottomColor, width: s.borderBottomWidth, shadow: s.boxShadow };
+    });
+    expect(bar).toEqual({ line: 'rgb(247, 243, 236)', width: '1.5px', shadow: 'rgb(247, 243, 236) 0px 1.5px 0px 0px' });
+  });
+
+  test('the search is a modal dialog: Tab stays inside it, and Escape closes it wherever focus is', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    const layer = page.getByRole('dialog', { name: 'Search for a town' });
+    await expect(layer).toBeVisible();
+    await expect(layer).toHaveAttribute('aria-modal', 'true');
+    await expect(page.getByRole('combobox')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab'); // wraps to the input, never out to the page
+    await expect(page.getByRole('combobox')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    // focus lost to the page (a click on the veil): Escape still closes it
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('combobox')).toBeHidden();
+    await expect(fromButton(page)).toBeFocused();
   });
 
   test('Cancel and Escape return to the start screen unchanged', async ({ page }) => {

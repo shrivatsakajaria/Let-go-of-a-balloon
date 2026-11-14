@@ -48,5 +48,6 @@ export async function showMapCard(f: Fallback, route: Route): Promise<void> {
     isCurrent: () => t === ticket && f.shown?.route === route,
     // the card goes on being made while this balloon is on the map ("Show the card" meanwhile shares it)
     alive: () => f.shown?.route === route,
+    fallbackFocus: () => f.hud.el.querySelector<HTMLElement>('.show-card:not([hidden]), .trip:not([hidden]), .pause'),
   });
 }

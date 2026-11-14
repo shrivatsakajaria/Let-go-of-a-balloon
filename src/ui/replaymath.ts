@@ -196,15 +196,33 @@ export function nameOpacity(tS: number, atS: number): number {
 /** "The North Sea" from "the North Sea": a name standing on its own starts with a capital. */
 export const standalone = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
 
+/** "Sun 15 Nov at 14:20", local to where it comes down (the card's "Let go on Mon 9 Nov at 18:48" form). */
+function landingWhen(at: LatLon, utcMs: number): string {
+  const { tz, label } = localTime(utcMs, at);
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).formatToParts(new Date(utcMs));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('weekday')} ${get('day')} ${get('month')} at ${label.split(' ').pop()}`;
+}
+
 /**
  * The landing as the replay comes down: the place large, and under it what happens there and when
- * ("Bergen" / "Expected to land here · Sun 15 Nov, 14:20"); no label above the name.
+ * ("Bergen" / "Expected to land here · Sun 15 Nov at 14:20"); no label above the name.
  */
 export function landingLines(place: { name: string; kind: string }, at: LatLon, utcMs: number, landed: boolean): { name: string; line: string } {
   const sea = place.kind === 'sea';
   const what = landed ? (sea ? 'Came down here' : 'Landed here') : sea ? 'Expected to come down here' : 'Expected to land here';
-  const { tz, label } = localTime(utcMs, at);
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).formatToParts(new Date(utcMs));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return { name: standalone(withArticle(place.name, place.kind)), line: `${what} · ${get('weekday')} ${get('day')} ${get('month')}, ${label.split(' ').pop()}` };
+  return { name: standalone(withArticle(place.name, place.kind)), line: `${what} · ${landingWhen(at, utcMs)}` };
+}
+
+/**
+ * The canvas label during the replay (spec 6.4, 7.3): the drawn names and the reduced-motion map are hidden
+ * from screen readers, so the label says where and when it comes down ("The forecast route of this balloon
+ * from Manchester, expected to land near Bergen on Sun 15 Nov at 14:20"). A label, not an announcement.
+ */
+export function replayLabel(fl: { own: boolean; home: string }, place: { name: string; kind: string } | null, at: LatLon, utcMs: number, landed: boolean): string {
+  const base = `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home}`;
+  if (!place) return base;
+  const name = withArticle(place.name, place.kind);
+  const verb = landed ? (place.kind === 'sea' ? 'came down' : 'landed') : place.kind === 'sea' ? 'expected to come down' : 'expected to land';
+  return `${base}, ${verb} ${place.kind === 'town' ? 'near' : 'in'} ${name} on ${landingWhen(at, utcMs)}`;
 }

@@ -24,6 +24,11 @@ export type CardViewOpts = {
   nav?: ShareEnv['nav'];
   /** False once the visitor has moved on while the card was being got ready: nothing opens. */
   isCurrent?(): boolean;
+  /**
+   * Where focus goes on closing when what had it before is gone (the page, a hidden button: a card that
+   * opened by itself), so a keyboard user is not sent back to the top of the page.
+   */
+  fallbackFocus?(): HTMLElement | null;
 };
 
 export type CardView = { readonly el: HTMLElement; close(): void };
@@ -195,7 +200,11 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
       el.remove();
       if (!o.inApp) URL.revokeObjectURL(src);
       if (current === view) current = null;
-      before?.focus?.({ preventScroll: true });
+      // back where focus was, if that is still there to take it; otherwise where the caller says
+      const usable = (e: HTMLElement | null): e is HTMLElement =>
+        !!e && e !== document.body && e.isConnected && (typeof e.checkVisibility !== 'function' || e.checkVisibility({ visibilityProperty: true }));
+      const back = usable(before) ? before : o.fallbackFocus?.() ?? null;
+      back?.focus?.({ preventScroll: true });
       o.onClose?.();
     },
   };

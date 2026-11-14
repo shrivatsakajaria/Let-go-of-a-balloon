@@ -22,11 +22,27 @@ import { canUseWebGL } from './fallback/detect';
 const params = new URLSearchParams(location.search);
 const html = document.documentElement;
 const sceneEl = document.getElementById('scene')!;
+const appEl = document.getElementById('app')!;
 const hudEl = document.getElementById('hud')!;
 const noticeEl = document.getElementById('notice')!;
 const setView = (v: View) => {
+  const was = html.dataset.view;
   html.dataset.view = v;
+  if (v === 'flight' && was !== 'flight') focusFlight();
 };
+
+/**
+ * When the flight comes on screen (from a link, "Your balloons" or the launch), focus left on the start
+ * screen (now hidden) or on nothing moves to the HUD's main action, so a keyboard user is not sent back
+ * to the top of the page (2.4.3). Focus the visitor put somewhere else stays where it is.
+ */
+function focusFlight(): void {
+  requestAnimationFrame(() => {
+    const a = document.activeElement;
+    if (a && a !== document.body && !appEl.contains(a)) return;
+    hudEl.querySelector<HTMLElement>('.trip:not([hidden]), .pause')?.focus({ preventScroll: true });
+  });
+}
 
 let live: World | null = null;
 let liveP: Promise<World> | null = null;
