@@ -955,7 +955,7 @@ export class Director {
   }
 
   /**
-   * Is the straight line from p to q clear of buildings and landmarks (and the ground), sampled about every
+   * Is the straight line from p to q clear of buildings, landmarks and trees (and the ground), sampled about every
    * 2 m from f0 to f1 of the way? No allocation.
    */
   private sightClear(p: V3, q: V3, f0: number, f1: number, b: RoutePoint, B0: THREE.Vector3): boolean {
@@ -966,7 +966,7 @@ export class Director {
       const f = f0 + ((f1 - f0) * i) / n;
       const ll = this.fromScene(p.x + (q.x - p.x) * f, p.z + (q.z - p.z) * f, b, B0, this.ll);
       const y = p.y + (q.y - p.y) * f;
-      const T = top ? Math.max(top(ll, 0.5), this.deps.groundAt(ll)) : this.deps.groundAt(ll);
+      const T = Math.max(top || this.deps.treeTopAt ? this.spotTop(ll, 0.5) : -Infinity, this.deps.groundAt(ll));
       if (Number.isFinite(T) && T > y - 0.3) return false;
     }
     return true;
@@ -981,7 +981,7 @@ export class Director {
     const ll = this.fromScene(cam.x, cam.z, b, B0, this.ll);
     const g = this.deps.groundAt(ll);
     if (Number.isFinite(g) && cam.y < g + 1) return false;
-    if (this.deps.buildingTopAt && this.deps.buildingTopAt(ll, 1.2) > cam.y - 0.5) return false;
+    if (this.spotTop(ll, 1.2) > cam.y - 0.5) return false; // nor in a tree's crown
     if (!this.sightClear(cam, B, 0.05, 0.85, b, B0)) return false;
     const dist = cam.distanceTo(B);
     const L = Math.max(sky ? CRANE_SKY_M : CRANE_WALL_M, dist + 2);
