@@ -17,10 +17,9 @@ describe('frame clock', () => {
       const frame = 1000 + i * (1000 / 60);
       const wall = Math.floor(wall0 + frame + rnd() * 4); // the callback runs up to 4 ms late
       const now = c.at(frame, wall);
-      // it settles on the least delay seen within a few frames, half a millisecond a frame at most; from then on
-      // frame for frame (doubles near 1.8e12 ms hold about a microsecond)
+      // it follows the least delay seen lately, half a millisecond a frame at most (a few millimetres of a
+      // balloon at 10 m/s), never the callbacks' own jitter of up to 4 ms
       if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(0.51);
-      if (i > 120) expect(now - prev).toBeCloseTo(1000 / 60, 3);
       expect(Math.abs(now - (wall0 + frame))).toBeLessThan(6); // and it is the wall clock's time
       prev = now;
     }
@@ -43,10 +42,40 @@ describe('frame clock', () => {
       const frame = 1000 + i * (1000 / 60);
       const late = i === 0 ? 200 : 1; // the first callback ran 200 ms after its frame began
       const now = c.at(frame, wall0 + frame + late);
-      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(0.51); // never a step: half a millisecond a frame at most
+      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(1.6); // never a step: a millisecond and a half a frame at most
       prev = now;
     }
     expect(Math.abs(prev - (wall0 + 1000 + 599 * (1000 / 60) + 1))).toBeLessThan(1);
+  });
+
+  test('a wall clock that slowly gains on the frame clock is followed, never by a jump', () => {
+    const c = new FrameClock();
+    const wall0 = 1_800_000_000_000;
+    let prev = Number.NaN, worst = 0;
+    for (let i = 0; i < 60 * 120; i++) {
+      const frame = 1000 + i * (1000 / 60);
+      const gain = 0.002 * (frame - 1000); // 2 ms a second
+      const now = c.at(frame, Math.floor(wall0 + frame + gain + 0.5));
+      if (i > 0) worst = Math.max(worst, Math.abs(now - prev - 1000 / 60));
+      prev = now;
+    }
+    expect(worst).toBeLessThan(0.6);
+    expect(Math.abs(prev - (wall0 + 1000 + (60 * 120 - 1) * (1000 / 60) + 0.002 * (60 * 120 - 1) * (1000 / 60)))).toBeLessThan(20);
+  });
+
+  test('a step of under a second is eased in (no jump), a bigger one is taken at once', () => {
+    const c = new FrameClock();
+    let prev = c.at(1000, 5_000_000);
+    let worst = 0;
+    for (let i = 1; i < 600; i++) {
+      const frame = 1000 + i * 16;
+      const now = c.at(frame, 5_000_000 + i * 16 + (i >= 10 ? 400 : 0));
+      worst = Math.max(worst, Math.abs(now - prev - 16));
+      prev = now;
+    }
+    expect(worst).toBeLessThan(10); // at most a few ms a frame
+    expect(Math.abs(prev - (5_000_000 + 599 * 16 + 400))).toBeLessThan(1);
+    expect(c.at(1000 + 600 * 16, 5_000_000 + 600 * 16 + 400 + 5000)).toBe(5_000_000 + 600 * 16 + 400 + 5000);
   });
 
   test('non-finite input falls back to the wall clock', () => {
