@@ -1,3 +1,10 @@
+/**
+ * The live site's public address, with no slash at the end. The one place it is set: index.html's
+ * share tags get it at build time (vite.config.ts), and the Deploy workflow reads it from here
+ * (scripts/site-url.sh) for its checks. For a custom domain, change it here (docs/for-sk/go-live.md).
+ */
+export const SITE_URL = 'https://let-go-of-a-balloon.pages.dev';
+
 export const CLIMB_RATE_MS = 1.5;
 export const CRUISE_ASL_M = 1500;
 export const CRUISE_CLEARANCE_M = 600;
@@ -33,6 +40,11 @@ export const TERRAIN_AWS_MAX_ZOOM = 15;
  * 4644 m) and valleys higher, which can change the cruise level over high ground.
  */
 export const ROUTE_GROUND_ZOOM = 5;
+/**
+ * Most route-ground tiles kept in memory, least recently used out first. A z5 tile is 512 x 512
+ * heights as a Float32Array (1 MiB), so this caps the cache at about 48 MiB; a route needs ~5 tiles.
+ */
+export const ROUTE_GROUND_MAX_TILES = 48;
 
 /**
  * OpenFreeMap vector tiles (OpenMapTiles schema). The TileJSON is versioned: read its `tiles[0]`

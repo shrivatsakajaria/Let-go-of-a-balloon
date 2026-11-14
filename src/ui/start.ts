@@ -112,7 +112,7 @@ export function skyFor(p: LatLon, nowMs: number): { top: string; horizon: string
   return { top: light.skyTop, horizon: light.skyHorizon };
 }
 
-/** Solid worst-case backdrops for the contrast check (?backdrop=noon|snow|sand). */
+/** Solid worst-case backdrops for the contrast check (?backdrop=noon|snow|sand; test and preview builds only). */
 export const TEST_BACKDROPS: Record<string, string> = { noon: '#d6e8f0', snow: '#f4f6f8', sand: '#e6d6a2' };
 
 /**
@@ -195,7 +195,7 @@ export function mountStart(
   };
   const paintSky = () => {
     if (!scene || scene.dataset.live) return; // the 3D world measures its own brightness
-    if (opts.backdrop && TEST_BACKDROPS[opts.backdrop]) {
+    if (__LGOAB_TEST_HOOKS__ && opts.backdrop && TEST_BACKDROPS[opts.backdrop]) {
       const c = TEST_BACKDROPS[opts.backdrop];
       scene.style.background = c;
       setBackdropLuminance(luminance(c), luminance(c));

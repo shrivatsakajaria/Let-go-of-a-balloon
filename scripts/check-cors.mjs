@@ -1,6 +1,6 @@
 // One-off check: do the map and data hosts allow requests from the preview domain?
 // Prints a markdown table. Never fails the build (exit code is always 0).
-// SITE_URL is set once, in .github/workflows/deploy.yml.
+// SITE_URL is set once, in src/config.ts; the Deploy workflow passes it on (scripts/site-url.sh).
 const ORIGIN = process.env.SITE_URL;
 if (!ORIGIN) throw new Error('SITE_URL is not set');
 const rows = [];
