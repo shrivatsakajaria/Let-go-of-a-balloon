@@ -113,22 +113,33 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
 ### 6.4 "Show me the whole trip"
 - Plays the full 72-hour forecast route in about 20 seconds: a wide, high camera follows the route, a trail draws behind the balloon, night and day sweep across the land as the days pass, and large place names appear as it crosses them.
 - Clearly labelled as the forecast route, with the expected landing place and time.
-- Ends on the landing card. "Back to live" returns to the live view.
+- Ends on the landing card, which comes in with its reveal (6.5). "Back to live" returns to the live view.
 
 ### 6.5 The landing card (the shareable thing)
-- A 4:5 postcard image (1080 x 1350), made in the browser.
-- Top 60%: a high, angled golden-hour view that shows both ends of the route, with a 6 px off-white trail and the balloon at the landing point.
-- Bottom 40%: the scene fades into ink, so there is no box behind the text. Text, top to bottom:
-  - kicker, 32 px, secondary text colour: "Expected to land near" (or "Landed near")
-  - headline, 120 px condensed bold, at most two lines (shrink to 88 px if needed): "Manchester to Bergen", with "to" at regular weight
-  - three stats, values 56 px and labels 26 px: distance, time aloft, top speed
-  - date and release time
-  - the site address
-  - credits and "A Still Signal build", 22 px
-- A landing at sea is the shareable joke, not a failure: "Expected to come down in the North Sea".
+
+Design A, "from high up" (owner's decision, 14 November 2026: "it's the nicest one"; what matters most is what people are likely to share). It replaces the earlier golden-hour view with the headline under it.
+
+- A 4:5 postcard image (1080 x 1350), made in the browser. It must work as a still image in a feed.
+- **The picture (top 1000 px):** the app's own low-poly world, seen from high up and looking along the route, with the Earth's curve, so the horizon arcs and fades into a soft haze (a painted sky, deeper overhead, never a flat pale fill).
+  - The framing comes from the route: the start sits low in the picture and the landing higher, so the journey runs away toward the horizon. The camera's height scales with the trip: about 1,600 km up for Manchester to Bergen (894 km), a low view of the city region for a 30-50 km trip, higher for 3,000 km or more, always far enough for recognisable coast and countries round the route. The angle is clamped so the route is never foreshortened to nothing; a route that comes back on itself is looked at across.
+  - Whole-region map tiles (z5 and z6, with z7 to z12 where the trip is short) in a world of the card's own; relief is lifted a little so it reads from far up. Its one offscreen draw is exempt from the per-frame cap (R55).
+  - Graded to the local time of the landing: golden hour, day (a high sun held to a calmer light) or night, with the towns lit and a few stars.
+  - The route in orange (flown solid, still to come dashed), the start an off-white ring, the landing the balloon on a short string: the one bright thing.
+  - A few country and sea names from the map, in light small caps (about 22 px, letter-spaced), the ones that help someone recognise where this is, never over the route, the markers or the big names.
+  - The two place names big (condensed bold, 72-128 px): the start with "Let go Mon 9 Nov, 18:48" under it (local time there), the landing alone. Each goes where it covers the least land and the least bright ground (sea, dark sky or the fade into ink preferred), never over the route or the markers.
+- **The panel:** the picture fades into ink (no box). Top to bottom:
+  - "Landed · Thu 12 Nov, 18:48" or "Expected to land · …" (34 px; the time is the landing's local time). At sea: "Came down at sea" or "Expected to come down at sea" (R56).
+  - The day-progress line (the string line): the 72 hours, flown in orange, ticks at the start's local midnights, a knot at the end.
+  - Three stats, numbers up to 112 px condensed bold with their units beside them, labels 30 px: distance, time aloft, top speed.
+  - One quiet line comparing the distance with something familiar, when there is an honest match (within 12%), from a small table of well-known distances chosen by the start's country ("About the length of Britain"); left out otherwise.
+  - The small credit line (20 px): the site address, then "Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Natural Earth · Terrain: © Mapterhorn · A Still Signal build".
+- No rarity claims, no confetti, nothing invented.
+- **The reveal (the payoff):** when the trip ends (the balloon comes down while watched, a landed link opens) or "Show me the whole trip" reaches its end, the card comes in with a reveal in its frame: the camera starts on the landed balloon and rises and pulls back in one calm eased move to the card's framing (3.6 s) while the route draws in from the start to the landing; a beat of stillness (0.6 s); the names fade in; the numbers count up (1.2 s, eased) and land exactly on their final values; the card's buttons appear. The live view stops drawing meanwhile. The world's tiles stream in before the move starts: while they come the live view holds on the balloon, and a world that is late gives the card without the reveal, never holes. With reduced motion there is no move and no count-up, only a short cross-fade to the finished card. "Show the card" opens the finished card at once. The shared image is the final still.
+- **No WebGL (the 2D map):** the same layout and type over a simple flat map of the coast, the route fitted into the picture; no reveal.
+- A landing at sea is the shareable joke, not a failure.
 - Share on phones uses the system share sheet with the image file and the pre-filled text "My balloon from Manchester is expected to land near Bergen." On desktop, the card downloads. There is also a "Copy link" button that opens this exact balloon.
-- In-app browsers (LinkedIn, X): sharing files and downloads are unreliable there. Detect them and show the card full screen as an image with "Press and hold to save", plus "Open in your browser".
-- After 72 hours the live view shows the balloon landed, and the card says "Landed near ..." instead of "Expected to land near ...".
+- In-app browsers (LinkedIn, X): sharing files and downloads are unreliable there. Detect them and show the card full screen as an image with "Press and hold to save", plus "Open in your browser" (no reveal there).
+- After 72 hours the card says "Landed" instead of "Expected to land".
 - The site has a static link preview for feeds: a 1200 x 627 golden-hour image, a title and a description (Open Graph and X card tags).
 
 ### 6.6 Coming back and sharing a link
@@ -252,7 +263,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - At this speed it would cross Leeds in about 23 minutes
 - 412 km from Manchester so far · Expected to land in 2 days 6 hours
 
-**Landed:** Landed near Bergen on Sun 15 Nov
+**Landed:** Landed near Bergen on Sun 15 Nov (the card's panel: "Landed · Sun 15 Nov, 18:48"; at sea "Came down at sea", R56)
 
 **Errors**
 
