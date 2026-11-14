@@ -1,3 +1,10 @@
+/**
+ * The live site's public address, with no slash at the end. The one place it is set: index.html's
+ * share tags get it at build time (vite.config.ts), and the Deploy workflow reads it from here
+ * (scripts/site-url.sh) for its checks. For a custom domain, change it here (docs/for-sk/go-live.md).
+ */
+export const SITE_URL = 'https://let-go-of-a-balloon.pages.dev';
+
 export const CLIMB_RATE_MS = 1.5;
 export const CRUISE_ASL_M = 1500;
 export const CRUISE_CLEARANCE_M = 600;

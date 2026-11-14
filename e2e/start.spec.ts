@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { SITE_URL } from '../src/config';
 import { decodeBalloon } from '../src/flight/codec';
 import { isFontsGoogle, offline } from './net';
 
@@ -449,7 +450,10 @@ test.describe('page shell', () => {
     const meta = (sel: string) => page.locator(sel).getAttribute('content');
     expect(await meta('meta[property="og:title"]')).toBe('Let go of a balloon');
     expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today’s real winds for three days");
-    expect(await meta('meta[property="og:image"]')).toBe('https://let-go-of-a-balloon.pages.dev/og.png');
+    expect(SITE_URL).toBe('https://let-go-of-a-balloon.pages.dev');
+    expect(await meta('meta[property="og:url"]')).toBe(`${SITE_URL}/`);
+    expect(await meta('meta[property="og:image"]')).toBe(`${SITE_URL}/og.png`);
+    expect(await meta('meta[name="twitter:image"]')).toBe(`${SITE_URL}/og.png`);
     expect(await meta('meta[property="og:image:width"]')).toBe('1200');
     expect(await meta('meta[property="og:image:height"]')).toBe('627');
     expect(await meta('meta[name="twitter:card"]')).toBe('summary_large_image');
