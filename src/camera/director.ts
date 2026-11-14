@@ -222,8 +222,9 @@ export class Director {
   private street: THREE.Vector3 | null = null;
   /** Start screen: the establishing shot is held, and the launch clock waits, until go(). */
   private wait: WaitFrame | null = null;
-  /** The establishing shot's camera position (world), chosen once per launch. */
+  /** The establishing shot's camera position (world), chosen once per launch, and how blocked it was then (waitTarget). */
   private wide: THREE.Vector3 | null = null;
+  private wideBlocked = 0;
   /** The waiting shot's camera height last frame. */
   private waitY = Number.NaN;
   /** Frames counted while waiting, to check the cached spots against newly arrived buildings now and then. */
@@ -776,15 +777,27 @@ export class Director {
     }
     const upwind: [number, number][] = [[-4.2, 0.9], [-4.2, -0.9], [-4, 2.5], [-4, -2.5], [-1, 2.8], [-1, -2.8], [-2.5, 1.2], [-2.5, -1.2]];
     for (const [back, side] of upwind) spots.push(P.clone().addScaledVector(dir, back).addScaledVector(right, side));
-    let pick: THREE.Vector3 | null = null;
+    // the first spot with nothing on it and a clear sightline to the person (a tree in a park, say), or
+    // else the first with nothing on it
+    let pick: THREE.Vector3 | null = null, first: THREE.Vector3 | null = null;
     for (const c of spots) {
       const ll = this.fromScene(c.x, c.z, b, B0);
       const g = this.deps.groundAt(ll);
       if (!Number.isFinite(g) || !Number.isFinite(c.x) || !Number.isFinite(c.z)) continue;
       if (this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) continue;
-      pick = c.setY(g + EYE_M);
-      break;
+      c.setY(g + EYE_M);
+      first ??= c;
+      let seen = true;
+      for (const f of [0.35, 0.7]) {
+        const q = this.fromScene(c.x + (P.x - c.x) * f, c.z + (P.z - c.z) * f, b, B0);
+        if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) seen = false;
+      }
+      if (seen) {
+        pick = c;
+        break;
+      }
     }
+    pick ??= first;
     if (!pick) pick = P.clone().addScaledVector(dir, -1.5).setY(this.deps.groundAt(o.personAt) + EYE_M);
     if (!finite3(pick)) return P.clone().setY(EYE_M); // never cache a non-finite spot; try again next frame
     this.street = pick;
@@ -1197,20 +1210,21 @@ export class Director {
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
     const gP = this.deps.groundAt(o.personAt);
-    const clear = (c: THREE.Vector3): boolean => {
-        const ll = this.fromScene(c.x, c.z, b, B0);
-        const g = this.deps.groundAt(ll);
-        if (!Number.isFinite(g)) return false;
-        if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return true;
-        if (this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) return false;
-        for (const f of [0.2, 0.4, 0.6, 0.8]) {
-          const q = this.fromScene(c.x + (ps.x - c.x) * f, c.z + (ps.z - c.z) * f, b, B0);
-          if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) return false;
-        }
-        return true;
-      };
+    // how blocked a spot is: 0 clear; a building or a tree on the spot counts 10, each on the sightline 1
+    const blocked = (c: THREE.Vector3): number => {
+      const ll = this.fromScene(c.x, c.z, b, B0);
+      const g = this.deps.groundAt(ll);
+      if (!Number.isFinite(g)) return Infinity;
+      if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return 0;
+      let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 ? 10 : 0;
+      for (const f of [0.2, 0.4, 0.6, 0.8]) {
+        const q = this.fromScene(c.x + (ps.x - c.x) * f, c.z + (ps.z - c.z) * f, b, B0);
+        if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) n++;
+      }
+      return n;
+    };
     this.recheck++;
-    if (this.wide && this.recheck % 20 === 0 && !clear(this.wide)) this.wide = null;
+    if (this.wide && this.recheck % 20 === 0 && blocked(this.wide) > this.wideBlocked) this.wide = null;
     if (this.wide) this.settle(this.wide, b, B0, false);
     if (!this.wide) {
       const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
@@ -1220,19 +1234,31 @@ export class Director {
       const lines = [this.landmarkDir(), u].filter((x): x is THREE.Vector3 => x !== null);
       const H = WAIT_SUBJECT_M;
       const want = Math.min(20, Math.max(6, H / (Math.min(0.7 * span, WAIT_FILL) * tanV)));
-      let pick: THREE.Vector3 | null = null;
-      for (const l of lines) {
-        for (const k of [1, 0.85, 0.7, 0.55, 0.42]) {
-          const c = new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(l, -want * k);
-          if (clear(c)) {
-            pick = c.setY(this.deps.groundAt(this.fromScene(c.x, c.z, b, B0)) + EYE_M);
-            break;
-          }
+      // on the line first, then the street spot, then turned a little off the line (among trees in a park,
+      // an aisle between them); nothing clear: the least blocked of them
+      const up = new THREE.Vector3(0, 1, 0);
+      const cands: THREE.Vector3[] = [];
+      for (const rot of [0, 12, -12, 25, -25, 40, -40]) {
+        for (const l of lines) {
+          const lr = l.clone().applyAxisAngle(up, rot * RAD);
+          for (const k of [1, 0.85, 0.7, 0.55, 0.42]) cands.push(new THREE.Vector3(ps.x, 0, ps.z).addScaledVector(lr, -want * k));
         }
-        if (pick) break;
+        if (rot === 0) cands.push(S.clone());
       }
+      let pick: THREE.Vector3 | null = null;
+      let best = Infinity;
+      for (const c of cands) {
+        const n = blocked(c);
+        if (n < best) {
+          best = n;
+          pick = c;
+          if (n === 0) break;
+        }
+      }
+      if (pick) pick.setY(this.deps.groundAt(this.fromScene(pick.x, pick.z, b, B0)) + EYE_M);
       if (!pick || !finite3(pick)) pick = S.clone();
       this.wide = pick;
+      this.wideBlocked = Math.min(best, 99);
     }
     const C = this.wide;
     const dh = Math.max(0.5, Math.hypot(ps.x - C.x, ps.z - C.z));

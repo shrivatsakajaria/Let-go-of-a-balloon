@@ -403,6 +403,29 @@ describe('Director', () => {
     run(d, 6, 1.1, 0.05, held, () => expect(cam.position.z).toBeLessThan(3 - 1.5));
   });
 
+  test('waiting in a park of trees (a 14 m grid, crowns 3.5 m across the line): the camera finds an aisle with a clear sightline to the person', () => {
+    const cam = mkPhone(50);
+    const trees: [number, number][] = [];
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) trees.push([i * 14 + 6, j * 14 + 5]);
+    // and trees right on the landmark's line behind the person, and by the upwind street spots
+    for (const k of [7, 12, 17]) trees.push([-0.5 * k, 0.866 * k]);
+    trees.push([1.5, -5.5], [-4, -1], [7, 0], [9.5, 0], [12, 0], [14.5, 0], [17, 0]);
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) < r + 3.5) ? 11 : -Infinity;
+    };
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 30, startUtcMs: 0, waiting: { centerY: 0.15, spanY: 0.7 } });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 2.5, headingDeg: 200 });
+    run(d, 0, 8, 0.05, held);
+    expect(Math.hypot(cam.position.x, cam.position.z)).toBeGreaterThan(5); // a wide shot, not a step behind them
+    const c = cam.position;
+    for (let f = 0.05; f < 1; f += 0.05) {
+      const q = new THREE.Vector3(c.x * (1 - f), 0, c.z * (1 - f));
+      for (const [x, z] of trees) expect(Math.hypot(q.x - x, q.z - z), `${f.toFixed(2)}`).toBeGreaterThan(3.5);
+    }
+  });
+
   test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     let ground = 60; // the coarse fallback before any tile is in
