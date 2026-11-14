@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_MAX_TILES, cardShot, cardTiles, fromCard, groundHit, poseAt, poseCamera, projectTo, revealStart, ROUTE_BOX, TILT_MAX, TILT_MIN, toCard, MIN_DIST_M, type CardShot } from '../../src/app/cardframe';
+import { CARD_MAX_TILES, contextK, dropAt, EARTH_R_M, MAX_ALT_M, cardShot, cardTiles, fromCard, groundHit, poseAt, poseCamera, projectTo, revealStart, ROUTE_BOX, TILT_MAX, TILT_MIN, toCard, MIN_DIST_M, type CardShot } from '../../src/app/cardframe';
 import { levelFor } from '../../src/world/lod';
 import { haversineKm, lonDelta, wrapLon, type LatLon } from '../../src/geo/coords';
 
@@ -50,12 +50,14 @@ describe('cardShot', () => {
     for (const [a, b] of [[MANCHESTER, BERGEN], [LONDON, BIALYSTOK], [MANCHESTER, HUDDERSFIELD], [LISBON, MOSCOW]] as const) {
       const r = trip(a, b);
       const s = seen(cardShot(r), r);
+      // a very long trip (Lisbon to Moscow) is held to the height ceiling: it may run a little past the box
+      const slack = haversineKm(a, b) > 3000 ? 0.06 : 0.01;
       for (const p of s) {
         expect(p.seen).toBe(true);
-        expect(p.fx).toBeGreaterThanOrEqual(ROUTE_BOX.left - 0.01);
-        expect(p.fx).toBeLessThanOrEqual(ROUTE_BOX.right + 0.01);
-        expect(p.fy).toBeGreaterThanOrEqual(ROUTE_BOX.top - 0.01);
-        expect(p.fy).toBeLessThanOrEqual(ROUTE_BOX.bottom + 0.01);
+        expect(p.fx).toBeGreaterThanOrEqual(ROUTE_BOX.left - slack);
+        expect(p.fx).toBeLessThanOrEqual(ROUTE_BOX.right + slack);
+        expect(p.fy).toBeGreaterThanOrEqual(ROUTE_BOX.top - slack);
+        expect(p.fy).toBeLessThanOrEqual(ROUTE_BOX.bottom + slack);
       }
     }
   });
@@ -188,5 +190,52 @@ describe('cardTiles: the map tiles of the card world', () => {
     const back = fromCard(shot.landing, hit.x, hit.z);
     expect(back.lat).toBeGreaterThan(50);
     expect(groundHit(cam, 0.5, 0)).toBeNull(); // the top of the picture is sky, above the curved horizon
+  });
+});
+
+describe('very long and polar trips', () => {
+  const LONDON_ = { lat: 51.5072, lon: -0.1276 };
+  it('6,000 km and 8,000 km: never higher than 6,000 km; the whole of a 6,000 km route in sight, most of an 8,000 km one', () => {
+    for (const b of [{ lat: 34, lon: 75 }, { lat: 39.9, lon: 116.4 }]) {
+      const r = trip(LONDON_, b);
+      const km = haversineKm(LONDON_, b);
+      expect(km).toBeGreaterThan(5500);
+      const shot = cardShot(r);
+      expect(shot.altM).toBeLessThanOrEqual(MAX_ALT_M + 1);
+      const s = seen(shot, r);
+      if (km < 7000) for (const p of s) expect(p.seen).toBe(true);
+      // past about 7,000 km the card world's flat frame (the stream's own) cannot hold the far end: the
+      // landing and most of the way are still in sight
+      else {
+        expect(s[s.length - 1].seen).toBe(true);
+        expect(s.filter((p) => p.seen).length / s.length).toBeGreaterThan(0.55);
+      }
+    }
+  });
+
+  it('the context shrinks with length: 3 up to 1,000 km, 1.3 at 6,000 km and beyond', () => {
+    expect(contextK(500)).toBe(3);
+    expect(contextK(1000)).toBe(3);
+    expect(contextK(6000)).toBeCloseTo(1.3, 6);
+    expect(contextK(9000)).toBeCloseTo(1.3, 6);
+    expect(contextK(3000)).toBeLessThan(3);
+  });
+
+  it('the bent ground lies on the sphere whose horizon the card works out', () => {
+    for (const d of [100e3, 1000e3, 3000e3, 5000e3]) {
+      const y = -dropAt(d, 0);
+      expect(Math.hypot(d, y + EARTH_R_M)).toBeCloseTo(EARTH_R_M, 0);
+    }
+  });
+
+  it('polar trips: across the high Arctic and toward the pole, in sight and at a sensible height', () => {
+    for (const [a, b] of [[{ lat: 69.65, lon: 18.96 }, { lat: 78.22, lon: 15.65 }], [{ lat: 80, lon: 0 }, { lat: 84, lon: 90 }], [{ lat: -77.85, lon: 166.67 }, { lat: -82, lon: -170 }]] as const) {
+      const r = trip(a, b);
+      const shot = cardShot(r);
+      expect(Number.isFinite(shot.altM)).toBe(true);
+      expect(shot.altM).toBeLessThanOrEqual(MAX_ALT_M + 1);
+      for (const p of seen(shot, r)) expect(p.seen).toBe(true);
+      expect(cardTiles(shot.landing, [shot], r).length).toBeGreaterThan(0);
+    }
   });
 });

@@ -74,8 +74,8 @@ const COARSEST = LOD_LEVELS[LOD_LEVELS.length - 1].z;
  * stops at z7); the card's own world does. Drawn under z7, with skirts deep enough to meet it.
  */
 const CARD_LEVELS: LodLevel[] = [
-  { z: 6, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3 }, skirtM: 3000, dropM: 120, castShadow: false, split: false },
-  { z: 5, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3 }, skirtM: 4000, dropM: 160, castShadow: false, split: false },
+  { z: 6, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3, waterCalm: true }, skirtM: 3000, dropM: 120, castShadow: false, split: false },
+  { z: 5, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3, waterCalm: true }, skirtM: 4000, dropM: 160, castShadow: false, split: false },
 ];
 
 export const levelFor = (z: number): LodLevel => {
