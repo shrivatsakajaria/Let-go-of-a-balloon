@@ -168,8 +168,8 @@ export class Balloon {
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
       // the lower fifth tucks in toward the neck, smoothly (no crease where it starts)
-      const tuck = y < -0.72 ? ((-0.72 - y) / 0.28) ** 2 : 0;
-      const k = (1 + 0.18 * y - 0.14 * y * y) * (1 - 0.62 * tuck);
+      const tuck = y < -0.74 ? ((-0.74 - y) / 0.26) ** 2 : 0;
+      const k = (1 + 0.18 * y - 0.14 * y * y) * (1 - 0.55 * tuck);
       p.setXYZ(i, x * k, y * 1.16 - 0.02 * tuck, z * k);
     }
     g.computeVertexNormals();
@@ -203,18 +203,18 @@ export class Balloon {
     const skin = new THREE.Mesh(g, this.material);
     // the neck, its rolled lip and the knot, in the same latex a shade deeper and satin
     this.neckMat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(BALLOON_HEX).multiplyScalar(0.8),
-      roughness: 0.42,
+      color: new THREE.Color(BALLOON_HEX).multiplyScalar(0.6),
+      roughness: 0.5,
       metalness: 0,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.32,
-      sheen: 0.5,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.4,
+      sheen: 0.22,
       sheenColor: new THREE.Color('#ffb48a'),
       sheenRoughness: 0.45,
       envMap: this.envTex,
-      envMapIntensity: 1,
+      envMapIntensity: 0.6,
       emissive: new THREE.Color(BALLOON_HEX),
-      emissiveIntensity: 0.05,
+      emissiveIntensity: 0.03,
     });
     const neck = new THREE.Mesh(makeNeck(), this.neckMat);
     this.body.add(skin, neck);
@@ -467,8 +467,8 @@ export class Balloon {
     // a faint lift at night (the prototype's curve), and calmer reflections in the dark
     this.material.emissiveIntensity = 0.06 + light.night * 0.32;
     this.material.envMapIntensity = 1 - 0.6 * light.night;
-    this.neckMat.emissiveIntensity = 0.05 + light.night * 0.26;
-    this.neckMat.envMapIntensity = this.material.envMapIntensity;
+    this.neckMat.emissiveIntensity = 0.03 + light.night * 0.24;
+    this.neckMat.envMapIntensity = this.material.envMapIntensity * 0.6;
     this.rimUniform.value = 0.55 * light.night;
     this.refreshEnv(light);
     this.ribbonMat.color.copy(RIBBON_DAY).lerp(RIBBON_NIGHT, light.night);
@@ -546,20 +546,20 @@ export function makeNeck(): THREE.BufferGeometry {
     return g;
   };
   // the neck: out of the skin's tuck, pinched, then flaring to the lip
-  const neck = lathe([[0.12, -1.1], [0.085, -1.14], [0.063, -1.172], [0.052, -1.21], [0.053, -1.245], [0.068, -1.274], [0.082, -1.29]], 16);
+  const neck = lathe([[0.12, -1.1], [0.088, -1.14], [0.07, -1.17], [0.061, -1.2], [0.062, -1.235], [0.078, -1.262], [0.09, -1.275]], 16);
   // the rolled lip: a soft ring
-  const lip = new THREE.TorusGeometry(0.078, 0.028, 8, 18);
+  const lip = new THREE.TorusGeometry(0.082, 0.031, 8, 18);
   lip.deleteAttribute('uv');
   lip.rotateX(Math.PI / 2);
-  lip.translate(0, -1.3, 0);
+  lip.translate(0, -1.288, 0);
   // the knot: a squashed, slightly lumpy bulb under the lip, tied a little to one side
-  const knot = lathe([[0.03, -1.3], [0.058, -1.318], [0.072, -1.35], [0.066, -1.39], [0.044, -1.425], [0.016, -1.438], [0.001, -1.44]], 14);
+  const knot = lathe([[0.03, -1.29], [0.066, -1.31], [0.082, -1.345], [0.074, -1.385], [0.05, -1.42], [0.018, -1.437], [0.001, -1.44]], 14);
   knot.scale(1, 1, 0.82);
   const pos = knot.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const a = Math.atan2(z, x);
-    const lump = 1 + 0.08 * Math.sin(3 * a + 0.6) * Math.sin(Math.PI * Math.min(1, Math.max(0, (-1.3 - y) / 0.14)));
+    const lump = 1 + 0.11 * Math.sin(3 * a + 0.6) * Math.sin(Math.PI * Math.min(1, Math.max(0, (-1.3 - y) / 0.14)));
     pos.setXYZ(i, x * lump + 0.014 * Math.sin(Math.PI * Math.min(1, Math.max(0, (-1.3 - y) / 0.14))), y, z * lump);
   }
   knot.computeVertexNormals();

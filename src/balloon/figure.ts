@@ -35,10 +35,10 @@ export type Outfit = {
 };
 
 export const OUTFITS: readonly Outfit[] = [
-  { name: 'camel', coat: '#b48e6a', trim: '#8f6e50', scarf: '#4d6585', trousers: '#4b4f5a', shoes: '#2e2b2a', skin: '#e3c2a6', hair: '#5a4334', hat: '#4d6585', headwear: 'beanie' },
-  { name: 'plum', coat: '#7e5560', trim: '#64434d', scarf: '#e8dcc4', trousers: '#454b5e', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
-  { name: 'ochre', coat: '#ab8b56', trim: '#8a6c40', scarf: '#3e6b6e', trousers: '#57524c', shoes: '#2b2b2d', skin: '#8f6249', hair: '#241d1a', hat: '#4b4b52', headwear: 'cap' },
-  { name: 'chestnut', coat: '#73564a', trim: '#5b4239', scarf: '#9bb3c4', trousers: '#4a4b50', shoes: '#262424', skin: '#d9ab8c', hair: '#1f1a18', hat: '#1f1a18', headwear: 'bun' },
+  { name: 'camel', coat: '#b48e6a', trim: '#8f6e50', scarf: '#4d6585', trousers: '#555b68', shoes: '#2e2b2a', skin: '#e3c2a6', hair: '#5a4334', hat: '#4d6585', headwear: 'beanie' },
+  { name: 'rosewood', coat: '#86585a', trim: '#6a4446', scarf: '#e8dcc4', trousers: '#4f566b', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
+  { name: 'ochre', coat: '#ab8b56', trim: '#8a6c40', scarf: '#3e6b6e', trousers: '#5f5a53', shoes: '#2b2b2d', skin: '#8f6249', hair: '#241d1a', hat: '#4b4b52', headwear: 'cap' },
+  { name: 'chestnut', coat: '#73564a', trim: '#5b4239', scarf: '#9bb3c4', trousers: '#55565c', shoes: '#262424', skin: '#d9ab8c', hair: '#1f1a18', hat: '#1f1a18', headwear: 'bun' },
 ];
 
 /** The outfit for a start place: the same place always gets the same one. */
@@ -155,7 +155,7 @@ export function buildFigure(outfit: Outfit): Rig {
   bone('body', 'base', 0, 0, 0);
   bone('torso', 'body', 0, HIP_Y, 0);
   bone('neck', 'torso', 0, NECK_Y - HIP_Y, 0);
-  bone('tail1', 'torso', -0.045, NECK_Y - HIP_Y - 0.02, 0.075);
+  bone('tail1', 'torso', -0.05, NECK_Y - HIP_Y - 0.015, 0.1);
   bone('tail2', 'tail1', 0, -0.15, 0);
   for (const [s, side] of [['R', 1], ['L', -1]] as const) {
     bone(`shoulder${s}`, 'torso', 0.185 * side, SHOULDER_Y - HIP_Y, 0.005);
@@ -202,7 +202,7 @@ export function buildFigure(outfit: Outfit): Rig {
   }
 
   // the scarf: a chunky wrap round the neck, one end down the front, one over the back on the wind
-  const wrap = lathe([[0.062, 1.425], [0.098, 1.43], [0.112, 1.455], [0.108, 1.49], [0.088, 1.512], [0.06, 1.515]], 10, { sz: 0.92 });
+  const wrap = lathe([[0.062, 1.425], [0.1, 1.43], [0.115, 1.458], [0.11, 1.5], [0.088, 1.528], [0.058, 1.532]], 10, { sz: 0.92 });
   P.add(wrap, o.scarf, idx('torso'), mul(T(0, -HIP_Y, 0), T(0, 1.47, 0), RX(0.12), T(0, -1.47, 0)));
   const front = block(0.034, 0.011, 0.25, 0.01, 6);
   P.add(front, o.scarf, idx('torso'), mul(T(-0.055, 1.46 - HIP_Y, -0.112), RZ(-0.08), RX(0.16)));
@@ -215,7 +215,7 @@ export function buildFigure(outfit: Outfit): Rig {
   P.add(fringe, o.scarf, idx('tail2'), T(0, -0.13, 0));
 
   // the head: a faceless, slightly large egg on a short neck
-  const HC = 0.158; // head centre above the neck bone
+  const HC = 0.15; // head centre above the neck bone
   const neck = lathe([[0.046, -0.02], [0.044, 0.04], [0.048, 0.07]], 8);
   P.add(neck, o.skin, idx('neck'));
   const headProf: Prof = [[0, -0.112], [0.05, -0.104], [0.083, -0.07], [0.099, -0.02], [0.102, 0.025], [0.092, 0.07], [0.064, 0.108], [0.03, 0.124], [0, 0.128]];

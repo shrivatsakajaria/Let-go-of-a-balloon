@@ -13,6 +13,7 @@
  *   target=x,y,z        or a fixed point (the camera then stands round it, like hand and knot)
  *   fov=deg             vertical field of view (default 35)
  *   at=lat,lon          the start place (it picks the outfit)
+ *   outfit=n            or this outfit (0 to 3)
  *   reduced=1           reduced motion
  *   clean=1             no caption
  *
@@ -59,7 +60,7 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 const facing = 0; // the person faces north (-z)
-const person = new Person(scene, { lat, lon }, facing, { x: 0, y: 0, z: 0 }, { reducedMotion: reduced, wind: { speedMs: 4, headingDeg: 200 } });
+const person = new Person(scene, { lat, lon }, facing, { x: 0, y: 0, z: 0 }, { reducedMotion: reduced, wind: { speedMs: 4, headingDeg: 200 }, outfit: q.has('outfit') ? num('outfit', 0) : undefined });
 const balloon = new Balloon(scene, { reducedMotion: reduced });
 balloon.hold(person.hand, person);
 

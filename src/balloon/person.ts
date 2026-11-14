@@ -322,8 +322,8 @@ export class Person implements StringGrip {
     const dl = Math.hypot(dx, dz) || 1;
     this.axis.set(-dz / dl, 0, dx / dl); // turns -y toward (dx, 0, dz)
     const flutter = calm * (0.05 + 0.08 * wn);
-    const a1 = 0.22 + 0.4 * wn + flutter * (Math.sin(c * 2.1) + 0.45 * Math.sin(c * 5.3 + 1));
-    const a2 = 0.18 + 0.3 * wn + flutter * 1.4 * (Math.sin(c * 2.1 - 0.9) + 0.45 * Math.sin(c * 5.3 - 0.4));
+    const a1 = 0.1 + 0.28 * wn + flutter * (Math.sin(c * 2.1) + 0.45 * Math.sin(c * 5.3 + 1));
+    const a2 = 0.16 + 0.32 * wn + flutter * 1.4 * (Math.sin(c * 2.1 - 0.9) + 0.45 * Math.sin(c * 5.3 - 0.4));
     b.tail1.quaternion.setFromAxisAngle(this.axis, a1);
     b.tail2.quaternion.setFromAxisAngle(this.axis, a2);
 
