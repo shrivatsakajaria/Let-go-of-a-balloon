@@ -551,7 +551,7 @@ describe('Director', () => {
     expect(cam.position.y).toBeLessThan(60 + 2);
     ground = 5; // the street, as drawn
     run(d, 2, 10, 0.1, held);
-    expect(cam.position.y).toBeGreaterThan(5 + 1);
+    expect(cam.position.y).toBeGreaterThan(5 + 0.9); // (the start screen's camera stands low, at about a metre)
     expect(cam.position.y).toBeLessThan(5 + 2);
     blocks = true; // a terrace arrives where the camera stands (upwind, west)
     run(d, 12, 12, 0.1, held);

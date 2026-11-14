@@ -83,8 +83,8 @@ const CLEAR_AHEAD_S = 19; // (the push in, LAUNCH.pushS, a moment's wait, and 8 
  * acceleration is capped at LAUNCH_MAX_A (followStep): nothing the drawn balloon does (its catch-up after
  * the release, a facade it slides up) is passed on to the camera's position, which follows the route; the
  * camera is aimed at the drawn balloon.
- * - The opening: from Let go the camera stays where the start screen had it (lowered to HOLD_EYE_M over
- *   OPEN_S) and frames the person and the held balloon on a longer lens: HOLD_FRAME_M of the frame's height
+ * - The opening: from Let go the camera stays where the start screen had it (low, at HOLD_EYE_M, on the
+ *   landmark's line) and over OPEN_S frames the person and the held balloon on a longer lens: HOLD_FRAME_M of the frame's height
  *   at the person, the horizon low (HOLD_HORIZON, NDC), so the lawn takes about a quarter of the frame and the
  *   landmark behind them the rest (the start screen's spot is on its line).
  * - The hold: as the hand opens the camera stays put while the string slips out, and the balloon rises in the
@@ -105,7 +105,7 @@ const CLEAR_AHEAD_S = 19; // (the push in, LAUNCH.pushS, a moment's wait, and 8 
  * - The push in (launchTarget): one smootherstep to Ride's place, by distance and height round the balloon;
  *   Ride takes its bearing from the crane's (rideYaw) and comes round behind the balloon slowly afterwards.
  */
-const OPEN_S = 1.4;
+const OPEN_S = 1;
 const HOLD_EYE_M = 1;
 const HOLD_FRAME_M = 5.2;
 const HOLD_HORIZON = -0.45;
@@ -971,8 +971,7 @@ export class Director {
       return this.stillTarget(b, B, B0, dir);
     }
     // the hold spot: where the start screen's camera stood (on the landmark's line), else the street spot; low
-    const W = this.wide ?? S;
-    const H = this.holdAt.set(W.x, W.y - EYE_M + HOLD_EYE_M, W.z);
+    const H = this.wide ? this.holdAt.copy(this.wide) : this.holdAt.set(S.x, S.y - EYE_M + HOLD_EYE_M, S.z);
     const cr = this.launchPlan(b, B, B0, H, dir);
     if (!Number.isNaN(this.pushAt)) {
       const c = smoother((t - this.pushAt) / PUSH_MOVE_S);
@@ -1429,7 +1428,7 @@ export class Director {
     };
     this.recheck++;
     if (this.wide && this.recheck % 20 === 0 && blocked(this.wide) > this.wideBlocked) this.wide = null;
-    if (this.wide) this.settle(this.wide, b, B0, false);
+    if (this.wide) this.settle(this.wide, b, B0, false, HOLD_EYE_M);
     if (!this.wide) {
       const u = new THREE.Vector3(ps.x - S.x, 0, ps.z - S.z);
       const len = u.length();
@@ -1459,7 +1458,7 @@ export class Director {
           if (n === 0) break;
         }
       }
-      if (pick) pick.setY(this.deps.groundAt(this.fromScene(pick.x, pick.z, b, B0)) + EYE_M);
+      if (pick) pick.setY(this.deps.groundAt(this.fromScene(pick.x, pick.z, b, B0)) + HOLD_EYE_M);
       if (!pick || !finite3(pick)) pick = S.clone();
       this.wide = pick;
       this.wideBlocked = Math.min(best, 99);
@@ -1594,12 +1593,12 @@ export class Director {
   }
 
   /** Put a cached camera spot on the ground as drawn now; false when a building now stands on it (if checked). */
-  private settle(c: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3, check: boolean): boolean {
+  private settle(c: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3, check: boolean, eye = EYE_M): boolean {
     const ll = this.fromScene(c.x, c.z, b, B0);
     const g = this.deps.groundAt(ll);
     if (!Number.isFinite(g)) return true;
     if (check && this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) return false;
-    c.y = g + EYE_M;
+    c.y = g + eye;
     return true;
   }
 
