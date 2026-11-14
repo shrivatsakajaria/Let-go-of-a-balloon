@@ -11,8 +11,10 @@ test.describe.configure({ mode: 'default', timeout: 360_000 });
 
 type CardHook = { renders: number; startedAt: number; state: string; sentence: string; kicker: string; when: string; shareText: string; names: { text: string; box: number[]; size: number }[]; reveal: string; revealed: boolean; frame: string; bytes: number; inApp: boolean };
 const card = (page: Page) => page.evaluate(() => (window as unknown as { __card?: CardHook }).__card ?? null);
+/** The card is open and in: its reveal (if it plays one) has ended and its buttons are up. */
 const opened = async (page: Page, timeout = 120_000) => {
   await expect.poll(async () => (await card(page))?.state, { timeout }).toBe('open');
+  await expect.poll(async () => (await card(page))?.revealed, { timeout: 60_000 }).toBe(true);
   return (await card(page))!;
 };
 
@@ -95,8 +97,8 @@ test('"Show the card" while the card is still being made waits for that one: one
 
 test('leaving while the card is being made stops it: it never opens over the start screen', async ({ context, page }) => {
   await liveWorld(context);
-  // the card world's coarse (z7) map tiles come slowly, so it is still being made when the visitor leaves
-  await context.route(/^https:\/\/tiles\.openfreemap\.org\/fixture\/7\//, async (route) => {
+  // the card world's region map tiles (z5 to z7) come slowly, so it is still being made when the visitor leaves
+  await context.route(/^https:\/\/tiles\.openfreemap\.org\/fixture\/[567]\//, async (route) => {
     await new Promise((r) => setTimeout(r, 15_000));
     await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }).catch(() => {});
   });

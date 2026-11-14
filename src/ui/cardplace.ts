@@ -265,7 +265,7 @@ export const LABEL_FONT: CardFont = { size: 30, weight: 500, condensed: false };
 export const KICKER_FONT: CardFont = { size: 34, weight: 650, condensed: false };
 export const WHEN_FONT: CardFont = { size: 34, weight: 450, condensed: false };
 export const COMPARE_FONT: CardFont = { size: 28, weight: 450, condensed: false };
-export const CREDIT_FONT: CardFont = { size: 20, weight: 450, condensed: false };
+export const CREDIT_FONT: CardFont = { size: 18, weight: 450, condensed: false };
 
 /** The credit line, broken only between credits (the " · " at a break is left out). */
 export function wrapCredits(text: string, f: CardFont, m: Measure, max: number): string[] {
@@ -299,8 +299,8 @@ export function panelLayout(w: PanelWords, m: Measure): Panel {
     texts.push({ role, text, x, y, width: m(text, font), font, tone, ...(stat !== undefined ? { stat } : {}) });
 
   const credit = wrapCredits(w.credit, CREDIT_FONT, m, inner);
-  let y = CARD_H - 40 - (credit.length - 1) * 26;
-  credit.forEach((line, i) => put('credit', line, X, y + i * 26, CREDIT_FONT, 'secondary'));
+  let y = CARD_H - 44 - (credit.length - 1) * 24;
+  credit.forEach((line, i) => put('credit', line, X, y + i * 24, CREDIT_FONT, 'secondary'));
   y -= 46;
   if (w.compare) {
     put('compare', w.compare, X, y, COMPARE_FONT, 'secondary');
