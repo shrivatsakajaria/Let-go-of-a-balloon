@@ -36,6 +36,7 @@ import { MAX_IN_FLIGHT, MAX_TILES, levelFor, tileKey, tilesFor, type LodCamera, 
 import type { BuildReply, BuildRequest } from './worker';
 import type { HiddenFootprint, Label } from './meshjob';
 import { vectorTileTemplate } from './vector';
+import { buildTopIndex, maxTopNear, nearestNear, type TopIndex } from './topindex';
 
 /** The parts of WorkerPool the stream uses. */
 export type BuildPool = {
@@ -93,6 +94,11 @@ type Entry = {
   wanted: boolean;
   ground: Ground | null;
   tops: Float32Array | null;
+  /** tops indexed on a coarse grid (buildingTopAt), built when the tile is applied. */
+  topIx: TopIndex | null;
+  /** [x, z, crown radius, top] per drawn tree (local metres; top absolute), indexed (treeTopAt, crownNear), and each tree's foot. */
+  treeIx: TopIndex | null;
+  treeBase: Float32Array | null;
   labels: Label[];
 };
 
@@ -238,8 +244,12 @@ export class WorldStream {
     return out;
   }
 
-  fromScene(x: number, z: number): LatLon {
-    return { lat: this.origin.lat - z / M_PER_DEG, lon: wrapLon(this.origin.lon + x / (M_PER_DEG * this.cosO)) };
+  fromScene(x: number, z: number, out?: LatLon): LatLon {
+    const lat = this.origin.lat - z / M_PER_DEG, lon = wrapLon(this.origin.lon + x / (M_PER_DEG * this.cosO));
+    if (!out) return { lat, lon };
+    out.lat = lat;
+    out.lon = lon;
+    return out;
   }
 
   // ---- per frame ----
@@ -524,17 +534,63 @@ export class WorldStream {
     const live = this.live;
     for (let k = 0; k < live.length; k++) {
       const e = live[k];
-      const g = e.ground!, tops = e.tops;
-      if (!tops || tops.length === 0) continue;
+      const g = e.ground!, ix = e.topIx;
+      if (!ix) continue;
       const x = lonDelta(g.west, p.lon) * g.mLon, z = -(p.lat - g.south) * M_PER_DEG;
       const W = g.dLon * g.mLon, H = (g.north - g.south) * M_PER_DEG;
       if (x < -radiusM - 200 || x > W + radiusM + 200 || z > radiusM + 200 || z < -H - radiusM - 200) continue;
-      for (let i = 0; i < tops.length; i += 4) {
-        const dx = tops[i] - x, dz = tops[i + 1] - z, r = radiusM + tops[i + 2];
-        if (dx * dx + dz * dz <= r * r && tops[i + 3] > best) best = tops[i + 3];
-      }
+      best = maxTopNear(ix, x, z, radiusM, best);
     }
     return best;
+  }
+
+  /**
+   * Highest tree top (absolute) within radiusM of p; -Infinity where there is none. For choosing a camera
+   * spot at eye height in a park (a tree's crown is not a sightline); not for every frame.
+   */
+  treeTopAt(p: LatLon, radiusM: number): number {
+    let best = -Infinity;
+    const live = this.live;
+    for (let k = 0; k < live.length; k++) {
+      const e = live[k];
+      const g = e.ground!, ix = e.treeIx;
+      if (!ix) continue;
+      const x = lonDelta(g.west, p.lon) * g.mLon, z = -(p.lat - g.south) * M_PER_DEG;
+      const W = g.dLon * g.mLon, H = (g.north - g.south) * M_PER_DEG;
+      if (x < -radiusM - 20 || x > W + radiusM + 20 || z > radiusM + 20 || z < -H - radiusM - 20) continue;
+      best = maxTopNear(ix, x, z, radiusM, best);
+    }
+    return best;
+  }
+
+  /**
+   * The drawn tree whose crown reaches nearest p, within radiusM of it: its trunk (out.lat, out.lon), its
+   * crown's radius at the foot, its foot and its top (absolute). False where there is none. No allocation.
+   */
+  crownNear(p: LatLon, radiusM: number, out: Crown): boolean {
+    let found = false, bestGap = Infinity;
+    const live = this.live;
+    for (let k = 0; k < live.length; k++) {
+      const e = live[k];
+      const g = e.ground!, ix = e.treeIx;
+      if (!ix || !e.treeBase) continue;
+      const x = lonDelta(g.west, p.lon) * g.mLon, z = -(p.lat - g.south) * M_PER_DEG;
+      const W = g.dLon * g.mLon, H = (g.north - g.south) * M_PER_DEG;
+      if (x < -radiusM - 20 || x > W + radiusM + 20 || z > radiusM + 20 || z < -H - radiusM - 20) continue;
+      const i = nearestNear(ix, x, z, radiusM);
+      if (i < 0) continue;
+      const t = ix.tops, o = i * 4;
+      const gap = Math.hypot(t[o] - x, t[o + 1] - z) - t[o + 2];
+      if (gap >= bestGap) continue;
+      bestGap = gap;
+      found = true;
+      out.lon = wrapLon(g.west + t[o] / g.mLon);
+      out.lat = g.south - t[o + 1] / M_PER_DEG;
+      out.radius = t[o + 2];
+      out.top = t[o + 3];
+      out.base = e.treeBase[i];
+    }
+    return found;
   }
 
   /** Map labels (places, water names) of the live tiles within km of p, nearest first, each name once. */
@@ -776,7 +832,7 @@ export class WorldStream {
     const b = tileBounds(t.z, t.x, t.y);
     const centre = { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
     const ac = new AbortController();
-    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null, labels: [] };
+    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null, topIx: null, treeIx: null, treeBase: null, labels: [] };
     this.entries.set(key, e);
     this.pool
       .request(
@@ -866,6 +922,10 @@ export class WorldStream {
     e.fade = 0;
     e.view.setFade(0);
     e.tops = m.tops;
+    e.topIx = buildTopIndex(m.tops);
+    const tt = treeTops(m.trees);
+    e.treeIx = buildTopIndex(tt.tops);
+    e.treeBase = tt.base;
     e.labels = m.labels ?? [];
     const f = tileFrame(e.t.z, e.t.x, e.t.y);
     const n = e.level.lcSize;
@@ -993,4 +1053,23 @@ export class WorldStream {
     const g = e.ground!;
     return groundHeightAt(g, lonDelta(g.west, p.lon) * g.mLon, -(p.lat - g.south) * M_PER_DEG);
   }
+}
+
+/** A drawn tree's crown (crownNear): a cone from its foot to its top, of `radius` at the foot. */
+export type Crown = { lat: number; lon: number; radius: number; base: number; top: number };
+
+/** The drawn trees' crowns as [x, z, radius, top], and each one's foot (treeGeometry: a cone 11 m tall, of radius 3.4 m at its foot, scaled per tree). */
+function treeTops(m: Float32Array): { tops: Float32Array; base: Float32Array } {
+  const n = m.length / 16;
+  const tops = new Float32Array(n * 4);
+  const base = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 16;
+    tops[i * 4] = m[o + 12];
+    tops[i * 4 + 1] = m[o + 14];
+    tops[i * 4 + 2] = 3.4 * Math.hypot(m[o], m[o + 2]);
+    tops[i * 4 + 3] = m[o + 13] + 11 * m[o + 5];
+    base[i] = m[o + 13];
+  }
+  return { tops, base };
 }

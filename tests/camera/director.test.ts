@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Director, type DirectorDeps } from '../../src/camera/director';
 import { displayScale } from '../../src/balloon/balloon';
+import { FacadeSlide } from '../../src/balloon/slide';
 import type { RoutePoint } from '../../src/flight/route';
 import type { LatLon } from '../../src/geo/coords';
 
@@ -62,6 +63,11 @@ function inFrame(cam: THREE.PerspectiveCamera, p: THREE.Vector3) {
   cam.updateMatrixWorld(true);
   const v = p.clone().project(cam);
   return p.clone().applyMatrix4(cam.matrixWorldInverse).z < 0 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+}
+/** Where a point lands in the frame (NDC). */
+function ndc(cam: THREE.PerspectiveCamera, p: THREE.Vector3) {
+  cam.updateMatrixWorld(true);
+  return p.clone().project(cam);
 }
 describe('Director', () => {
   test('camera never below ground + 8 m over a 300 m hill', () => {
@@ -183,44 +189,12 @@ describe('Director', () => {
     }
   });
 
-  test('launch timeline: street level, tilts up, pulls back wider, hands over to ride', () => {
-    const person: LatLon = { lat: 50, lon: 0 };
-    const ground = 40;
-    const cam = mkCam();
-    const d = new Director(cam, deps({ groundAt: () => ground }));
-    d.setLaunch({ personAt: person, landmarkHeadingDeg: 45, startUtcMs: 0 });
-    expect(d.mode).toBe('launch');
-    const mk = (t: number): RoutePoint => {
-      const rise = Math.max(0, t - 1.2) * 3;
-      return { tSec: t, lat: 50, lon: (Math.max(0, t - 1.2) * 6) / K, altM: ground + 1.7 + rise, groundM: ground, speedMs: 6, headingDeg: 90 };
-    };
-    const snap: Record<number, { y: number; fov: number; dist: number }> = {};
-    const p0 = toScene(person);
-    run(d, 0, 21, 0.05, mk, (t) => {
-      const k = Math.round(t * 100) / 100;
-      if ([1, 8, 14, 20].includes(k)) {
-        snap[k] = { y: cam.position.y, fov: cam.fov, dist: Math.hypot(cam.position.x - p0.x, cam.position.z - p0.z) };
-      }
-    });
-    expect(snap[1].y).toBeGreaterThanOrEqual(ground + 1.2 - 1e-6);
-    expect(snap[1].y).toBeLessThan(ground + 3);
-    expect(snap[1].dist).toBeGreaterThan(2);
-    expect(snap[1].dist).toBeLessThan(10);
-    // 0-8 s at street level, tilting up; the climb is part of the 8-20 s pull-back
-    expect(snap[8].y).toBeLessThan(ground + 4);
-    expect(snap[14].y).toBeGreaterThan(snap[8].y + 5);
-    expect(snap[20].dist).toBeGreaterThan(snap[8].dist + 20);
-    expect(snap[20].fov).toBeGreaterThan(snap[1].fov + 5);
-    expect(d.mode).toBe('film');
-    expect(d.shot).toBe('ride');
-  });
-
   test('launch honours a view chosen during the launch once it ends', () => {
     const d = new Director(mkCam(), deps());
     d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 0, startUtcMs: 0 });
     d.set('side');
     expect(d.mode).toBe('launch');
-    run(d, 0, 21);
+    run(d, 0, 41);
     expect(d.mode).toBe('side');
   });
 
@@ -357,55 +331,6 @@ describe('Director', () => {
     expect(camC.position.distanceTo(camA.position)).toBeGreaterThan(0.5);
   });
 
-  test('launch with the real balloon: eye level and tilting up to 8 s, climbs and shows the landmark, ride at 20 s', () => {
-    const person: LatLon = { lat: 50, lon: 0 };
-    const ground = 40;
-    // a terrace of 15 m buildings 2.5 m west of the person; the wind blows from the west-south-west
-    const inBlock = (x: number, r: number) => x - r < -2.5 && x + r > -20;
-    const buildingTopAt = (p: LatLon, r: number) => (inBlock(toScene(p).x, r) ? ground + 15 : ground);
-    const cam = mkPhone(50);
-    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt }));
-    const landmarkHeadingDeg = 30;
-    d.setLaunch({ personAt: person, landmarkHeadingDeg, startUtcMs: 0 });
-    const heading = 70;
-    const h = (heading * Math.PI) / 180;
-    // drawn balloon: 2.4 m up while held, then climbing at 1.5 m/s and drifting at 2.5 m/s
-    const mk = (t: number): RoutePoint => {
-      const fl = Math.max(0, t - 1.2);
-      const ll = fromScene(Math.sin(h) * 2.5 * fl, -Math.cos(h) * 2.5 * fl);
-      return { tSec: t, lat: ll.lat, lon: ll.lon, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: 2.5, headingDeg: heading };
-    };
-    const lh = (landmarkHeadingDeg * Math.PI) / 180;
-    const landmark = new THREE.Vector3(Math.sin(lh) * 2500, ground + 60, -Math.cos(lh) * 2500);
-    const p0 = toScene(person);
-    const personHead = new THREE.Vector3(p0.x, ground + 1.6, p0.z);
-    let landmarkSeen = false;
-    run(d, 0, 21, 0.05, mk, (t) => {
-      const k = Math.round(t * 100) / 100;
-      const B = ballPos(mk(t));
-      // never inside a building or the ground
-      if (inBlock(cam.position.x, 0)) expect(cam.position.y).toBeGreaterThan(ground + 15);
-      expect(cam.position.y).toBeGreaterThan(ground + 1);
-      if (k <= 20) expect(inFrame(cam, B)).toBe(true); // the balloon is always in the frame
-      if (k === 0.5) expect(inFrame(cam, personHead)).toBe(true); // the person holding it is in the shot
-      if (k === 4 || k === 8) {
-        expect(cam.position.y).toBeLessThan(ground + 4); // low at street level
-        expect(cam.position.y).toBeLessThan(B.y); // looking up at it, not down
-      }
-      if (k === 4) expect(new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).y).toBeGreaterThan(0.15); // tilted up
-      if (k >= 11 && k <= 16 && cam.position.y > ground + 10 && inFrame(cam, landmark)) landmarkSeen = true;
-      if (k === 20) {
-        const f = framing(cam, B, REAL(cam.position.distanceTo(B)));
-        expect(f.h).toBeGreaterThan(0.18);
-        expect(f.h).toBeLessThan(0.35);
-        expect(f.extent).toBeLessThan(0.98);
-      }
-    });
-    expect(landmarkSeen).toBe(true);
-    expect(d.mode).toBe('film');
-    expect(d.shot).toBe('ride');
-  });
-
   test('waiting at the start screen: the person and the held balloon sit in the free band, nothing blocks them; go() starts the launch', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     const ground = 20;
@@ -438,13 +363,14 @@ describe('Director', () => {
       expect(inBlock(cam.position.x, cam.position.z, 0)).toBe(false);
       expect(cam.position.x).toBeGreaterThan(-8);
       expect(cam.position.y).toBeLessThan(ground + 2);
-      // Let go: the launch runs from 0 and hands over to ride 20 s later
+      // Let go: the launch runs from 0 and settles in ride no sooner than 12 s and no later than 40 s
       d.go();
       expect(d.waiting).toBe(false);
-      run(d, 30, 19.5, 0.1, held);
+      run(d, 30, 11.9, 0.1, held);
       expect(d.shot).toBe('launch');
-      run(d, 49.5, 1, 0.1, held);
-      expect(d.shot).toBe('ride');
+      run(d, 41.9, 28.2, 0.1, held);
+      expect(d.mode).toBe('film');
+      expect(d.shot).not.toBe('launch');
     }
     // a failed launch rewinds to the waiting shot smoothly (no snap), and stays there
     const cam = new THREE.PerspectiveCamera(50, 390 / 660, 0.05, 100000);
@@ -463,6 +389,102 @@ describe('Director', () => {
     run(d, 11.1, 30, 0.1, held);
     expect(d.waiting).toBe(true);
     expect(cam.position.distanceTo(wide)).toBeLessThan(0.05);
+  });
+
+  test('waiting and the street shot: the camera never stands in a tree or behind one (a park of trees south of the person)', () => {
+    const cam = mkPhone(50);
+    // trees everywhere more than 3 m south of the person (z > 3), crowns 11 m tall
+    const treeTopAt = (p: LatLon, r: number) => (toScene(p).z + r > 3 ? 11 : -Infinity);
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 0, startUtcMs: 0, waiting: { centerY: 0.15, spanY: 0.7 } });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 2.5, headingDeg: 0 });
+    run(d, 0, 6, 0.05, held, () => expect(cam.position.z).toBeLessThan(3 - 1.5));
+    d.go();
+    run(d, 6, 1.1, 0.05, held, () => expect(cam.position.z).toBeLessThan(3 - 1.5));
+  });
+
+  test('waiting in a park of trees (a 14 m grid, crowns 3.5 m across the line): the camera finds an aisle with a clear sightline to the person', () => {
+    const cam = mkPhone(50);
+    const trees: [number, number][] = [];
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) trees.push([i * 14 + 6, j * 14 + 5]);
+    // and trees right on the landmark's line behind the person, and by the upwind street spots
+    for (const k of [7, 12, 17]) trees.push([-0.5 * k, 0.866 * k]);
+    trees.push([1.5, -5.5], [-4, -1], [7, 0], [9.5, 0], [12, 0], [14.5, 0], [17, 0]);
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) < r + 3.5) ? 11 : -Infinity;
+    };
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 30, startUtcMs: 0, waiting: { centerY: 0.15, spanY: 0.7 } });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 2.5, headingDeg: 200 });
+    run(d, 0, 8, 0.05, held);
+    expect(Math.hypot(cam.position.x, cam.position.z)).toBeGreaterThan(5); // a wide shot, not a step behind them
+    const c = cam.position;
+    for (let f = 0.05; f < 1; f += 0.05) {
+      const q = new THREE.Vector3(c.x * (1 - f), 0, c.z * (1 - f));
+      for (const [x, z] of trees) expect(Math.hypot(q.x - x, q.z - z), `${f.toFixed(2)}`).toBeGreaterThan(3.5);
+    }
+  });
+
+  // (the reviewer's reproduction: the real crane in a park, a 14 m grid of trees with crowns 3.4 m in radius, 11 m tall)
+  test.each([[225, 0, 3], [225, 1.3, 5.3], [180, 0.4, 5], [270, -2.5, 4], [200, 3, 2]])('the launch in a park (wind %d deg, grid offset %d m, %d m/s): the camera is never inside a tree\'s crown', (heading, ox, speed) => {
+    const trees: [number, number][] = [];
+    for (let i = -8; i <= 8; i++) for (let j = -8; j <= 8; j++) trees.push([i * 14 + ox, j * 14 + 4.2]);
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) <= r + 3.4) ? 11 : -Infinity;
+    };
+    const crownNear = (p: LatLon, r: number, out: { lat: number; lon: number; radius: number; base: number; top: number }) => {
+      const s = toScene(p);
+      let best = -1, gap = Infinity;
+      trees.forEach(([x, z], i) => {
+        const g = Math.hypot(s.x - x, s.z - z) - 3.4;
+        if (g <= r && g < gap) { gap = g; best = i; }
+      });
+      if (best < 0) return false;
+      Object.assign(out, fromScene(trees[best][0], trees[best][1]), { radius: 3.4, base: 0, top: 11 });
+      return true;
+    };
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, buildingTopAt: () => 0, treeTopAt, crownNear }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 315, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 1.2 }, cueRelease: true });
+    const h = (heading * Math.PI) / 180;
+    const mk = (t: number): RoutePoint => {
+      const fl = Math.max(0, t - 1.2);
+      const ll = fromScene(Math.sin(h) * speed * fl, -Math.cos(h) * speed * fl);
+      return { tSec: t, lat: ll.lat, lon: ll.lon, altM: 2.4 + 1.5 * fl, groundM: 0, speedMs: speed, headingDeg: heading };
+    };
+    for (let i = 0; i < 30; i++) d.update(mk(0), 0.05);
+    d.go();
+    for (let i = 1; i <= 20 / 0.05; i++) {
+      const t = i * 0.05;
+      if (Math.abs(t - 1.2) < 1e-6) d.release();
+      d.update(mk(t), 0.05);
+      const c = cam.position;
+      for (const [x, z] of trees) if (c.y < 11) expect(Math.hypot(c.x - x, c.z - z), `${t.toFixed(2)} ${d.shot}`).toBeGreaterThanOrEqual(3.4 * (1 - c.y / 11) - 1e-6);
+    }
+  });
+
+  test('trees streaming in after the street spot was chosen: it is chosen again where it sees the person', () => {
+    const cam = mkPhone(50);
+    let trees: [number, number][] = [];
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) <= r + 3.4) ? 11 : -Infinity;
+    };
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 315, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 1.2 }, cueRelease: true });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 3, headingDeg: 225 });
+    run(d, 0, 2, 0.05, held);
+    const S = (d as unknown as { street: THREE.Vector3 }).street.clone();
+    // a tree arrives right on the line from that spot to the person
+    trees = [[S.x * 0.5, S.z * 0.5]];
+    run(d, 2, 3, 0.05, held);
+    const S2 = (d as unknown as { street: THREE.Vector3 }).street;
+    for (const f of [0.2, 0.35, 0.5, 0.7, 0.85]) {
+      const q = { x: S2.x * (1 - f), z: S2.z * (1 - f) };
+      expect(Math.hypot(q.x - trees[0][0], q.z - trees[0][1])).toBeGreaterThan(3.4 + 0.6);
+    }
   });
 
   test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
@@ -502,6 +524,41 @@ describe('Director', () => {
     const B = ballPos(balloon(2.1));
     expect(cam.position.distanceTo(B)).toBeLessThan(3);
     expect(inFrame(cam, B)).toBe(true);
+  });
+
+  test('featured landmark, any wind (R36): behind the person in the start screen and in the first second of the launch', () => {
+    const person: LatLon = { lat: 50, lon: 0 };
+    const H = 100;
+    const lh = (H * Math.PI) / 180;
+    const Ld = new THREE.Vector3(Math.sin(lh), 0, -Math.cos(lh));
+    const ground = 5;
+    for (const heading of [0, 45, 90, 135, 180, 225, 270, 315]) {
+      for (const dist of [40, 300]) {
+        const tower = (y: number) => Ld.clone().multiplyScalar(dist).setY(ground + y);
+        const cam = new THREE.PerspectiveCamera(50, 390 / 844, 0.05, 100000);
+        const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground }));
+        const band = { centerY: 0.15, spanY: 0.7 };
+        d.setLaunch({ personAt: person, landmarkHeadingDeg: H, startUtcMs: 0, waiting: band });
+        const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: ground + 2.4, groundM: ground, speedMs: 3, headingDeg: heading });
+        run(d, 0, 10, 0.1, held);
+        const msg = `wind ${heading}, landmark ${dist} m`;
+        // the start screen: the person in the band and the landmark right behind them
+        const feet = new THREE.Vector3(0, ground, 0);
+        expect(inFrame(cam, feet), msg).toBe(true);
+        expect(inFrame(cam, tower(10)), msg).toBe(true);
+        const f = ndc(cam, feet), l = ndc(cam, tower(10));
+        expect(Math.abs(f.x - l.x), msg).toBeLessThan(0.35);
+        // Let go: at 0.5 s (still held) and at 1 s the landmark is in the street shot too
+        d.go();
+        run(d, 10, 1, 0.05, held, (t) => {
+          const k = Math.round((t - 10) * 100) / 100;
+          if (k === 0.5 || k === 1) {
+            expect(inFrame(cam, tower(10)), `${msg} at ${k} s`).toBe(true);
+            expect(inFrame(cam, ballPos(held(t))), `${msg} at ${k} s`).toBe(true);
+          }
+        });
+      }
+    }
   });
 
   test('featured landmark: in view from 0.5 to 4 s, camera beyond the person from it, the person not blocking it', () => {
@@ -631,5 +688,288 @@ describe('Director', () => {
     d.cut('replay');
     d.replayWide = 0;
     run(d, 0, 2, 1 / 30, (t) => ({ ...balloon(t, 300), speedMs: 0, lon: 0 }), () => expect(cam.position.y).toBeGreaterThanOrEqual(288 - 1e-6));
+  });
+});
+
+// ---- the launch crane shot (Task 13c, ruling R51) ----
+describe('launch crane', () => {
+  type Box = { x0: number; x1: number; z0: number; z1: number; top: number };
+  /** Buildings as boxes in the flat frame; tops are absolute (like groundAt). */
+  const city = (boxes: Box[], ground: number) => (p: LatLon, r: number) => {
+    const s = toScene(p);
+    let best = ground;
+    for (const b of boxes) if (s.x + r > b.x0 && s.x - r < b.x1 && s.z + r > b.z0 && s.z - r < b.z1) best = Math.max(best, b.top);
+    return best;
+  };
+  const inside = (boxes: Box[], p: THREE.Vector3) => boxes.some((b) => p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1 && p.y < b.top);
+  /** Released at 1.2 s from the hand (2.4 m up), climbing at 1.5 m/s and drifting at `speed` along `heading`. */
+  const rising = (ground: number, heading: number, speed = 2.5) => (t: number): RoutePoint => {
+    const fl = Math.max(0, t - 1.2);
+    const h = (heading * Math.PI) / 180;
+    const ll = fromScene(Math.sin(h) * speed * fl, -Math.cos(h) * speed * fl);
+    return { tSec: t, lat: ll.lat, lon: ll.lon, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: speed, headingDeg: heading };
+  };
+  /** Runs a launch and records when it settled (the shot left 'launch'). */
+  function launch(opts: { boxes?: Box[]; ground?: number; heading?: number; speed?: number; landmark?: number; reduced?: boolean; until?: number; each?: (t: number, cam: THREE.PerspectiveCamera, d: Director) => void }) {
+    const ground = opts.ground ?? 10;
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt: city(opts.boxes ?? [], ground), reducedMotion: opts.reduced }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: opts.landmark, startUtcMs: 0 });
+    const mk = rising(ground, opts.heading ?? 70, opts.speed);
+    let settledAt = Number.NaN;
+    run(d, 0, opts.until ?? 45, 0.05, mk, (t) => {
+      if (Number.isNaN(settledAt) && d.shot !== 'launch') settledAt = t;
+      opts.each?.(t, cam, d);
+    });
+    return { d, cam, mk, settledAt };
+  }
+
+  test('Ride settles only once the balloon has cleared the rooftops round it: later among taller buildings', () => {
+    // a street running east with the wind, 16 m wide, between two long terraces
+    const terraces = (top: number): Box[] => [
+      { x0: -300, x1: 300, z0: 8, z1: 40, top },
+      { x0: -300, x1: 300, z0: -40, z1: -8, top },
+    ];
+    const ground = 10;
+    const settle = (h: number) => {
+      const boxes = terraces(ground + h);
+      const mk = rising(ground, 90);
+      let lastCam: THREE.Vector3 | null = null;
+      const r = launch({
+        boxes, ground, heading: 90, until: 45,
+        each: (t, cam, d) => {
+          const B = ballPos(mk(t));
+          expect(inside(boxes, cam.position)).toBe(false); // never inside a building
+          if (t > 1.3) expect(inFrame(cam, B)).toBe(true);
+          if (d.shot === 'launch' && B.y < ground + h + 4) expect(cam.position.y).toBeLessThan(B.y); // looking up at it in the canyon
+          if (lastCam) expect(cam.position.distanceTo(lastCam)).toBeLessThan(0.75); // no cut, the hand-over included
+          lastCam = cam.position.clone();
+        },
+      });
+      // when it settled, the balloon was above the terraces with a margin, in the Ride framing
+      const B = ballPos(mk(r.settledAt));
+      expect(B.y).toBeGreaterThan(ground + h + 3);
+      expect(r.d.shot).toBe('ride');
+      const f = framing(r.cam, ballPos(mk(45)), REAL(r.cam.position.distanceTo(ballPos(mk(45)))));
+      expect(f.h).toBeGreaterThan(0.18);
+      expect(f.h).toBeLessThan(0.35);
+      return r.settledAt;
+    };
+    const low = settle(12), high = settle(30);
+    expect(low).toBeGreaterThanOrEqual(11.9);
+    expect(high).toBeGreaterThan(low + 8);
+    expect(high).toBeLessThan(40.1);
+  });
+
+  test('an open square with tall buildings downwind: it does not settle into Ride just before drifting in among them', () => {
+    const ground = 10;
+    const boxes: Box[] = [{ x0: 70, x1: 130, z0: -60, z1: 60, top: ground + 50 }];
+    const shots: [number, string][] = [];
+    const { settledAt } = launch({ boxes, ground, heading: 90, until: 60, each: (t, _c, d) => shots.push([t, d.shot]) });
+    expect(settledAt).toBeLessThan(40.1);
+    // once settled, Film rides on: the balloon is not walled in a few seconds later (it looks 8 s ahead)
+    for (const [t, s] of shots) if (t >= settledAt && t < settledAt + 8) expect(s, `${t}`).toBe('ride');
+  });
+
+  test('a tower beside its path that it never clears in time: the launch still ends by 40 s, in Ride (R57: a landmark beside the balloon is no wall in Ride\'s view)', () => {
+    const ground = 10;
+    const boxes: Box[] = [{ x0: -60, x1: 60, z0: 20, z1: 70, top: ground + 200 }];
+    const { settledAt, d } = launch({ boxes, ground, heading: 90, speed: 0.3, until: 60 });
+    expect(settledAt).toBeGreaterThan(30);
+    expect(settledAt).toBeLessThan(40.1);
+    expect(d.mode).toBe('film');
+    expect(d.shot).toBe('ride');
+  });
+
+  test('a link opened while the balloon is still down a narrow street: Film circles (Ride would film a wall), then rides once it is above the roofs', () => {
+    const ground = 0;
+    const boxes: Box[] = [{ x0: -400, x1: 400, z0: 5, z1: 60, top: 40 }, { x0: -400, x1: 400, z0: -60, z1: -5, top: 40 }];
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, buildingTopAt: city(boxes, ground) }));
+    const mk = (t: number): RoutePoint => ({ ...balloon(t, 20 + 1.5 * t), speedMs: 1, lon: (1 * t) / K });
+    d.cut('film');
+    const shots: string[] = [];
+    run(d, 0, 30, 0.05, mk, (t) => {
+      shots.push(d.shot);
+      const B = ballPos(mk(t));
+      expect(inside(boxes, cam.position)).toBe(false);
+      if (B.y < 43) expect(d.shot).not.toBe('ride');
+    });
+    expect(shots[0]).toBe('circling');
+    expect(d.shot).toBe('ride'); // 65 m up by 30 s, still in Ride's 40 s slot
+  });
+
+  /** Is the straight line from p to q clear of the boxes (sampled every 0.25 m)? */
+  const clearLine = (boxes: Box[], p: THREE.Vector3, q: THREE.Vector3) => {
+    const n = Math.ceil(p.distanceTo(q) / 0.25);
+    for (let i = 1; i < n; i++) if (inside(boxes, p.clone().lerp(q, i / n))) return false;
+    return true;
+  };
+  test('the crane keeps the balloon in sight every frame: round or over the buildings, never in one, never facing a wall close by; the drawn balloon never inside one', () => {
+    // a street east between terraces, a block across it 40 m on, and a tall tower beside the street further on
+    const boxes: Box[] = [
+      { x0: -200, x1: 200, z0: 8, z1: 40, top: 22 },
+      { x0: -200, x1: 30, z0: -40, z1: -8, top: 18 },
+      { x0: 40, x1: 70, z0: -8, z1: 8, top: 26 },
+      { x0: 90, x1: 110, z0: -50, z1: -30, top: 90 },
+    ];
+    for (const heading of [80, 100, 70]) {
+      const ground = 0;
+      const cam = mkPhone(50);
+      const top = city(boxes, ground);
+      const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt: top }));
+      d.setLaunch({ personAt: { lat: 50, lon: 0 }, startUtcMs: 0 });
+      const mk = rising(ground, heading, 3);
+      const slide = new FacadeSlide();
+      const h = (heading * Math.PI) / 180;
+      const ux = Math.sin(h), uz = -Math.cos(h);
+      const sTop = (x: number, z: number, r: number) => top(fromScene(x, z), r);
+      let hidden = 0, walled = 0;
+      let maxWalled = 0;
+      for (let i = 1; i <= 45 / 0.05; i++) {
+        const t = i * 0.05;
+        const b = mk(t);
+        const s0 = toScene(b);
+        if (t > 1.2) slide.step(s0.x, b.altM, s0.z, ux, uz, 3, 0.05, sTop);
+        const B = new THREE.Vector3(s0.x - ux * slide.back, b.altM + slide.lift, s0.z - uz * slide.back);
+        d.update({ ...b, altM: B.y }, 0.05, B);
+        expect(inside(boxes, B), `${heading} ${t.toFixed(2)} balloon`).toBe(false);
+        expect(inside(boxes, cam.position), `${heading} ${t.toFixed(2)} camera`).toBe(false);
+        if (d.shot !== 'launch' || t < 1.3) continue;
+        // in sight: a frame or two of the camera catching up round a corner at most
+        if (!clearLine(boxes, cam.position, B.clone().lerp(cam.position, 0.15))) hidden++;
+        else hidden = 0;
+        expect(hidden, `${heading} ${t.toFixed(2)} line of sight`).toBeLessThan(6);
+        expect(inFrame(cam, B)).toBe(true);
+        // never facing a wall close by: the line on past the balloon is clear to 10 m from the camera
+        const far = B.clone().sub(cam.position).setLength(10).add(cam.position);
+        if (cam.position.distanceTo(B) < 9 && !clearLine(boxes, B.clone().lerp(far, 0.1), far)) walled++;
+        else walled = 0;
+        maxWalled = Math.max(maxWalled, walled);
+        expect(walled, `${heading} ${t.toFixed(2)} wall`).toBeLessThan(40); // gone round it within 2 s
+      }
+      expect(maxWalled).toBeLessThan(32); // round it within about 1.5 s
+    }
+  });
+
+  test('the crane: the camera opens with the hand, then rises with the balloon close by, the balloon 5-10% of the frame high in its upper part', () => {
+    const ground = 10;
+    const mk = rising(ground, 70);
+    let prevY = -Infinity;
+    let personAt15 = false;
+    const track: THREE.Vector3[] = [];
+    const { settledAt } = launch({
+      ground, until: 16,
+      each: (t, cam, d) => {
+        const k = Math.round(t * 100) / 100;
+        const B = ballPos(mk(t));
+        if (k === 1.5) personAt15 = inFrame(cam, new THREE.Vector3(0, ground + 0.9, 0));
+        if (d.shot === 'launch') {
+          expect(inFrame(cam, B)).toBe(true);
+          track.push(cam.position.clone());
+        }
+        // from 4 s until the push begins (in the open, as soon as it may: 7 s before the 12 s floor)
+        if (d.shot === 'launch' && k >= 4 && k <= 6.5) {
+          const f = framing(cam, B, REAL(cam.position.distanceTo(B)));
+          expect(f.h, `${k}`).toBeGreaterThan(0.05);
+          expect(f.h, `${k}`).toBeLessThan(0.1);
+          expect(f.centre.y, `${k}`).toBeGreaterThan(0.1);
+          expect(f.centre.y, `${k}`).toBeLessThan(0.5);
+          expect(cam.position.y, `${k}`).toBeGreaterThan(prevY - 1e-6); // rising with it
+          prevY = cam.position.y;
+        }
+      },
+    });
+    expect(settledAt).toBeGreaterThan(11.9);
+    expect(settledAt).toBeLessThan(15);
+    expect(personAt15).toBe(true); // the hand opening, the person in the shot
+    // smooth: no cut and no lurch
+    for (let i = 2; i < track.length; i++) {
+      const v1 = track[i].clone().sub(track[i - 1]).divideScalar(0.05);
+      const v0 = track[i - 1].clone().sub(track[i - 2]).divideScalar(0.05);
+      expect(v1.length()).toBeLessThan(15);
+      expect(v1.distanceTo(v0) / 0.05).toBeLessThan(12);
+    }
+  });
+
+  test('following the balloon away over the person (a landmark downwind, a strong wind), the camera goes over their head, never through them', () => {
+    const ground = 10;
+    let near = 0;
+    launch({
+      ground, heading: 100, speed: 6.4, landmark: 95, until: 8,
+      each: (_t, cam) => {
+        const dh = Math.hypot(cam.position.x, cam.position.z);
+        if (dh < 1) { near++; expect(cam.position.y - ground).toBeGreaterThan(2.25); } // the person is 1.75 m tall: half a metre over their head
+      },
+    });
+    expect(near).toBeGreaterThan(0); // it did pass over them
+  });
+
+  test('a late release (the route not ready at 1.2 s): the street shot holds until the hand opens, then the crane', () => {
+    const ground = 10;
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, startUtcMs: 0, cueRelease: true });
+    const late = 4;
+    const mk = (t: number): RoutePoint => {
+      const fl = Math.max(0, t - late);
+      return { tSec: t, lat: 50, lon: (2.5 * fl) / K, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: 2.5, headingDeg: 90 };
+    };
+    let held: THREE.Vector3 | null = null;
+    run(d, 0, 10, 0.05, mk, (t) => {
+      const k = Math.round(t * 100) / 100;
+      if (k === 2) held = cam.position.clone();
+      if (k > 2 && k < late) expect(cam.position.distanceTo(held!)).toBeLessThan(1e-3);
+      if (k === late) d.release();
+    });
+    expect(Math.hypot(cam.position.x, cam.position.z)).toBeGreaterThan(Math.hypot(held!.x, held!.z) + 5);
+  });
+
+  test('a featured landmark stays in frame through the crane', () => {
+    const ground = 0;
+    const H = 30;
+    const lh = (H * Math.PI) / 180;
+    const tower = (y: number) => new THREE.Vector3(Math.sin(lh) * 400, y, -Math.cos(lh) * 400);
+    launch({
+      ground, landmark: H, heading: 50, until: 12,
+      each: (t, cam) => {
+        const k = Math.round(t * 100) / 100;
+        if ([2, 5, 9].includes(k)) expect(inFrame(cam, tower(60))).toBe(true);
+      },
+    });
+  });
+
+  test('reduced motion: no crane, a still frame of the person and the rising balloon (big enough to read), then a cut to the settled view as it leaves it', () => {
+    const ground = 10;
+    const mk = rising(ground, 70);
+    let still: { pos: THREE.Vector3; q: THREE.Quaternion } | null = null;
+    let personIn = false;
+    let prev: THREE.Vector3 | null = null;
+    let jump = 0;
+    const { settledAt, d, cam } = launch({
+      ground, reduced: true, until: 45,
+      each: (t, cam, d) => {
+        const k = Math.round(t * 100) / 100;
+        if (d.shot === 'launch' && k >= 1.3) {
+          if (!still) still = { pos: cam.position.clone(), q: cam.quaternion.clone() };
+          expect(cam.position.distanceTo(still.pos)).toBeLessThan(1e-6); // still
+          expect(cam.quaternion.angleTo(still.q)).toBeLessThan(1e-6);
+          expect(inFrame(cam, ballPos(mk(t)))).toBe(true);
+          if (k === 1.5) personIn = inFrame(cam, new THREE.Vector3(0, ground + 0.9, 0));
+          if (k === 1.5) {
+            const B = ballPos(mk(t));
+            expect(framing(cam, B, REAL(cam.position.distanceTo(B))).h).toBeGreaterThan(0.04); // the balloon reads
+          }
+        }
+        if (prev) jump = Math.max(jump, cam.position.distanceTo(prev));
+        prev = cam.position.clone();
+      },
+    });
+    expect(personIn).toBe(true);
+    expect(settledAt).toBeGreaterThan(4); // once the balloon is about to leave the still (it is framed close, so it reads)
+    expect(settledAt).toBeLessThan(40.1);
+    expect(jump).toBeGreaterThan(5); // a cut, not a move
+    expect(d.shot).toBe('ride');
+    expect(cam.position.distanceTo(ballPos(mk(45)))).toBeLessThan(2.5);
   });
 });

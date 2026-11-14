@@ -20,7 +20,8 @@ async function ready(page: Page) {
   await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 30_000 });
 }
 
-test('Let go from Albert Square: the chrome fades, the person lets go, the balloon climbs, the link and "Your balloons" are written, the HUD comes in at about 20 s', async ({ context, page }) => {
+test('Let go from Albert Square: the chrome fades, the person lets go, the balloon climbs, the link and "Your balloons" are written, the HUD comes in when the crane shot settles', async ({ context, page }) => {
+  test.setTimeout(200_000); // the launch alone is up to 40 s of the director's clock, which slow frames stretch
   const { external } = await liveWorld(context);
   await startAtAlbertSquare(context);
   await page.goto('/');
@@ -55,12 +56,18 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
   // the launch is announced in the polite status region
   await expect(page.locator('.hud .status')).toHaveText('Your balloon is on its way from Manchester', { timeout: 15_000 });
 
-  // at 20 s Ride settles and the HUD comes in over 600 ms
-  await expect.poll(() => view(page), { timeout: 60_000, intervals: [250] }).toBe('flight');
-  expect(Date.now() - t0).toBeGreaterThan(19_500);
+  // the crane shot (R51): once the balloon has cleared the rooftops round it (12-40 s of the director's
+  // clock, which a software renderer's slow frames stretch in real time) the camera settles in the flight's
+  // view and the page turns to the flight: that is the HUD's cue, and it comes in over 600 ms
+  await expect.poll(() => view(page), { timeout: 110_000, intervals: [250] }).toBe('flight');
+  expect(Date.now() - t0).toBeGreaterThan(11_500);
+  expect((await hook(page))!.shot).not.toBe('launch');
   expect(await page.locator('.hud-bottom').evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0\.6s/);
-  await expect.poll(() => opacity(page, '.hud-bottom'), { timeout: 8000 }).toBe(1);
-  expect((await hook(page))!.shot).toBe('ride');
+  // the fade is measured in the page, frame by frame: a transition only moves on when a frame is drawn, and on
+  // a busy machine the page can go seconds between frames (read between them, it reads the fade's start)
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.hud-bottom')!).opacity === '1', null, { polling: 'raf', timeout: 30_000 });
+  // Ride, or Circling if the Town Hall's tower still stands over it at the 40 s ceiling (Film never rides below the rooftops)
+  expect(['ride', 'circling']).toContain((await hook(page))!.shot);
   await expect(page.locator('.hud .day')).toHaveText(/^Day 1 of 3 · \d+ min aloft$/);
   await expect(page.getByRole('button', { name: 'Film' })).toHaveAttribute('aria-pressed', 'true');
   // the flight's main action (Task 18 plays it: e2e/replay.spec.ts)

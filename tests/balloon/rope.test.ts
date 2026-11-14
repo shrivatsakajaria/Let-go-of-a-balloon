@@ -166,6 +166,26 @@ describe('balloon on its string', () => {
     expect(end.y).toBeGreaterThan(hand.y + 1); // it went up with the balloon
   });
 
+  test('the held string stays at least about a pixel wide from the start camera, so the balloon never looks loose from the hand', () => {
+    const scene = new THREE.Scene();
+    const b = new Balloon(scene);
+    const hand = new THREE.Vector3(0.25, 1.0, 0);
+    const pos = new THREE.Vector3(0, 1.5, 0);
+    for (const far of [3, 15, 25]) {
+      const cam = new THREE.Vector3(0, 1.6, far);
+      b.hold(hand);
+      for (let i = 0; i < 30; i++) b.setState(point(0), 1 / 60, DAY, { pos, camera: cam });
+      const ribbon = b.root.children.find((o) => o instanceof THREE.Mesh && (o.material as THREE.MeshBasicMaterial).side === THREE.DoubleSide) as THREE.Mesh;
+      const p = ribbon.geometry.getAttribute('position');
+      for (let j = 0; j < p.count; j += 2) {
+        const a = new THREE.Vector3().fromBufferAttribute(p, j), c = new THREE.Vector3().fromBufferAttribute(p, j + 1);
+        const mid = a.clone().add(c).multiplyScalar(0.5);
+        // a phone 844 px tall with a 40-50 deg view: a pixel is about 1 mrad
+        expect(a.distanceTo(c) / mid.distanceTo(cam), `${far} m`).toBeGreaterThan(0.0011);
+      }
+    }
+  });
+
   test('after release the balloon rises without dipping and settles onto the given position', () => {
     const scene = new THREE.Scene();
     const b = new Balloon(scene);

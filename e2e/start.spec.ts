@@ -35,7 +35,8 @@ test.describe('start screen', () => {
   test('the simulation notice and the map credit are on screen', async ({ page }) => {
     await offline(page);
     await page.goto('/');
-    await expect(page.getByText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.')).toBeInViewport();
+    // the start screen's own copy (the HUD has one too, hidden, once the live flight has loaded)
+    await expect(page.locator('#app').getByText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.')).toBeInViewport();
     const credit = page.locator('.start .map-credit');
     await expect(credit).toHaveText('OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn');
     await expect(credit).toBeInViewport();

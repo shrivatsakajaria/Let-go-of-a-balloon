@@ -42,6 +42,8 @@ const RAD = Math.PI / 180;
 /** Ribbon vertices per rope segment (a smooth curve through the rope points, no visible corners). */
 const RIBBON_SUB = 3;
 const RIBBON_DAY = new THREE.Color('#f2ebe2');
+/** The string's half-width is at least this many radians of view (its full width about 1.2 mrad, a pixel on a phone). */
+const MIN_RIBBON_RAD = 0.0006;
 const RIBBON_NIGHT = new THREE.Color('#6d7590');
 
 /**
@@ -385,8 +387,10 @@ export class Balloon {
       view.set(cam.x - c.x, cam.y - c.y, cam.z - c.z);
       side.crossVectors(tan, view);
       const l = side.length();
-      if (l < 1e-12) side.set(half, 0, 0);
-      else side.multiplyScalar(half / l);
+      // never thinner than about a pixel on a phone, or a held balloon looks loose from the hand
+      const hw = Math.max(half, MIN_RIBBON_RAD * view.length());
+      if (l < 1e-12) side.set(hw, 0, 0);
+      else side.multiplyScalar(hw / l);
       pos.setXYZ(2 * j, c.x + side.x, c.y + side.y, c.z + side.z);
       pos.setXYZ(2 * j + 1, c.x - side.x, c.y - side.y, c.z - side.z);
     }
