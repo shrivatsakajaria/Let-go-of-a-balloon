@@ -20,6 +20,7 @@ import { Director, type DirectorMode, type WaitFrame } from '../camera/director'
 import { FLIGHT_HOURS } from '../config';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
+import { FacadeSlide } from '../balloon/slide';
 import { brightLuminance, climbFloor, sceneAltitude } from '../ui/hudmath';
 import { LandmarkLayer } from '../landmarks/layer';
 import { hiddenFootprints } from '../landmarks/registry';
@@ -94,6 +95,9 @@ function shadowRadius(agl: number): number {
   return Math.round(Math.min(900, Math.max(600, r)));
 }
 
+/** Above this height over the ground the drawn balloon has nothing to slide up (R57b). */
+const SLIDE_ABOVE_M = 400;
+
 export class LiveScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -136,6 +140,12 @@ export class LiveScene {
   private groundS = Number.NaN;
   /** Scene y of the balloon when it was let go here (NaN for a balloon opened from a link). */
   private releaseY = Number.NaN;
+  /** The drawn balloon's slide up a facade it meets (R57b). */
+  private readonly slide = new FacadeSlide();
+  private readonly slideTop = (x: number, z: number, r: number) => {
+    const p = this.stream.fromScene(x, z);
+    return Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r));
+  };
   private placedAt = 0;
   private landmark: number | undefined = undefined;
   /** While the person holds on at Let go: when to give up waiting for the route (performance.now ms). */
@@ -420,6 +430,7 @@ export class LiveScene {
   // ---- internals ----
 
   private newBalloon(): void {
+    this.slide.reset();
     this.balloon.dispose();
     this.balloon = new Balloon(this.scene, { reducedMotion: this.reduced });
   }
@@ -521,7 +532,17 @@ export class LiveScene {
       y += (rest - y) * rs.landing;
     }
     const s = this.stream.toScene(pt, this.tmp);
-    this.pos.set(s.x, y, s.z);
+    // the drawn balloon slides up a facade it meets, never into it (R57b); well up, nothing is in its way
+    let sx = s.x, sz = s.z;
+    if (this.released && !rp && !landed && route && y - this.groundS < SLIDE_ABOVE_M) {
+      const h = pt.headingDeg * (Math.PI / 180);
+      const ux = Math.sin(h), uz = -Math.cos(h);
+      this.slide.step(s.x, y, s.z, ux, uz, pt.speedMs, dt, this.slideTop);
+      sx -= ux * this.slide.back;
+      sz -= uz * this.slide.back;
+      y += this.slide.lift;
+    }
+    this.pos.set(sx, y, sz);
 
     // the balloon (sized for last frame's camera), then the camera framing it as drawn
     this.balloon.setState(pt, dt, this.sky.current, { pos: this.pos, camera: this.camera.position });
