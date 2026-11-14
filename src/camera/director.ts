@@ -70,8 +70,11 @@ const OPEN_M = 5;
 /** Ride is walled in by a building within RIDE_WALL_R_M of the balloon, or of the point RIDE_AHEAD_M ahead of it, that stands over it. */
 const RIDE_WALL_R_M = 6;
 const RIDE_AHEAD_M = 10;
-/** ...looking this far ahead along its drift, so Film does not drop back among the rooftops soon after. */
-const CLEAR_AHEAD_S = 24;
+/**
+ * ...and the push in waits while a wall that would wall Ride in (RIDE_WALL_R_M, as Film's cramped) stands
+ * over it within CLEAR_AHEAD_S along its drift, so the launch does not settle into Ride just before one.
+ */
+const CLEAR_AHEAD_S = 8;
 /**
  * The crane (after the hand opens; ruling R57). The balloon is the subject: the camera stays close to it,
  * at the distance where it fills CRANE_FRAC of the frame's height (easing from the first to the second as
@@ -373,9 +376,8 @@ export class Director {
       this.low = B.y < top + LOW_M;
       return;
     }
-    // cleared: above the rooftops round it now, and staying above those round where it drifts over the
-    // next CLEAR_AHEAD_S as it climbs (an open square with tall buildings downwind is not clear); the look
-    // ahead is worked out twice a second
+    // cleared: above the rooftops round it now, and no wall that would wall Ride in stands over it along
+    // its drift over the next CLEAR_AHEAD_S as it climbs; the look ahead is worked out twice a second
     if (B.y < top + CLEAR_M) {
       this.low = true;
       return;
@@ -385,12 +387,13 @@ export class Director {
       this.aheadClear = true;
       const v = Number.isFinite(b.speedMs) && Number.isFinite(b.headingDeg) ? b.speedMs : 0;
       const h = b.headingDeg * RAD;
-      const n = 8;
-      for (let k = 1; this.aheadClear && v > 0 && k <= n; k++) {
+      const n = 4;
+      const top = this.deps.buildingTopAt;
+      for (let k = 1; top && this.aheadClear && v > 0 && k <= n; k++) {
         const tau = (CLEAR_AHEAD_S * k) / n;
         const q = this.fromScene(B0.x + Math.sin(h) * v * tau, B0.z - Math.cos(h) * v * tau, b, B0, this.ll);
-        const T = this.roofTop(q);
-        if (Number.isFinite(T) && B.y + CLIMB_RATE_MS * tau < T + LOW_M + 1) this.aheadClear = false;
+        const T = top(q, RIDE_WALL_R_M);
+        if (Number.isFinite(T) && B.y + CLIMB_RATE_MS * tau < T + 1) this.aheadClear = false;
       }
     }
     this.low = !this.aheadClear;

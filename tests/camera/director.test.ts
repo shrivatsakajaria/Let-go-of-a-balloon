@@ -745,8 +745,8 @@ describe('launch crane', () => {
     const shots: [number, string][] = [];
     const { settledAt } = launch({ boxes, ground, heading: 90, until: 60, each: (t, _c, d) => shots.push([t, d.shot]) });
     expect(settledAt).toBeLessThan(40.1);
-    // once settled, Film rides on: the balloon is not dropped back among the rooftops a few seconds later
-    for (const [t, s] of shots) if (t >= settledAt && t < settledAt + 15) expect(s, `${t}`).toBe('ride');
+    // once settled, Film rides on: the balloon is not walled in a few seconds later (it looks 8 s ahead)
+    for (const [t, s] of shots) if (t >= settledAt && t < settledAt + 8) expect(s, `${t}`).toBe('ride');
   });
 
   test('a tower beside its path that it never clears in time: the launch still ends by 40 s, in Ride (R57: a landmark beside the balloon is no wall in Ride\'s view)', () => {
