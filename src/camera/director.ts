@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SLIDE } from '../balloon/slide';
 import { CLIMB_RATE_MS } from '../config';
 import type { RoutePoint } from '../flight/route';
 import type { LatLon } from '../geo/coords';
@@ -138,6 +139,8 @@ const HANDOVER_WAIT_S = 4;
 /** The balloon shares the frame with the person until this long after the hand opens (s). */
 const PERSON_SHARE_S = 2.5;
 const LIFT_OVER_M = 2;
+/** ...and a balloon going over a roof is seen from this far off at least (m). */
+const ROOF_SEE_M = 9.5;
 const LIFT_T_S = 0.8;
 const LIFT_DOWN_T_S = 3;
 const LIFT_MAX_A = 2;
@@ -338,6 +341,7 @@ export class Director {
   private readonly v1 = new THREE.Vector3();
   private readonly v3 = new THREE.Vector3();
   private readonly v4 = new THREE.Vector3();
+  private readonly v5 = new THREE.Vector3();
   private readonly holdAt = new THREE.Vector3();
   private afterLaunch: DirectorMode = 'film';
   private ready = false;
@@ -1061,12 +1065,16 @@ export class Director {
     if (u >= 0) {
       if (!this.plan) this.plan = this.makePlan(b, B0, H, dir);
       const pl = this.plan;
-      this.planAt(u, B0, H, p);
+      // across, it goes where the balloon is drawn (held back at a facade it climbs, it is not flown over
+      // and looked straight down on: the follower takes out the slide's quicker moves); up, with the route
+      const Bh = this.v5.set(B.x, B0.y, B.z);
+      this.planAt(u, Bh, H, p);
       // over buildings: the predicted path's need and the present one's, through the lift's spring
       const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
       let need = this.liftNeed(p, B, b, B0);
       for (const tau of [0.5, 1, 1.5, 2, 3, 4]) {
-        const Bf = this.v4.set(B0.x + dir.x * v * tau, B0.y + CLIMB_RATE_MS * tau, B0.z + dir.z * v * tau);
+        const Bf = this.v4.set(Bh.x + dir.x * v * tau, B0.y + CLIMB_RATE_MS * tau, Bh.z + dir.z * v * tau);
+        Bf.y = this.drawnY(Bf, b, B0);
         need = Math.max(need, liftLater(this.liftNeed(this.planAt(u + tau, Bf, H, this.v3), Bf, b, B0), tau));
       }
       const i = Math.min(pl.need.length - 1, Math.max(0, u / PLAN_STEP_S));
@@ -1124,9 +1132,13 @@ export class Director {
     // the predicted path: on with the wind, climbing
     const raw = new Float64Array(n);
     const Bp = new THREE.Vector3(), C = new THREE.Vector3();
+    let drawn = -Infinity;
     for (let i = 0; i < n; i++) {
       const u = i * PLAN_STEP_S;
       Bp.set(B0.x + dir.x * v * u, B0.y + CLIMB_RATE_MS * u, B0.z + dir.z * v * u);
+      // (past a roof it went over, the drawn balloon comes down to its route only slowly)
+      Bp.y = Math.max(this.drawnY(Bp, b, B0), drawn - SLIDE.decayMs * PLAN_STEP_S);
+      drawn = Bp.y;
       raw[i] = this.liftNeed(this.planAt(u, Bp, H, C), Bp, b, B0);
     }
     // each step needs what lies PLAN_AHEAD_S on too: the lift comes before the roof
@@ -1150,6 +1162,7 @@ export class Director {
     const ps = this.deps.toScene(o.personAt);
     let need = Math.hypot(p.x - ps.x, p.z - ps.z) < PERSON_EASE_M ? this.deps.groundAt(o.personAt) + PERSON_OVER_M - p.y : 0;
     if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return Number.isFinite(need) ? need : 0;
+    const By = this.drawnY(B, b, B0);
     const ll = this.fromScene(p.x, p.z, b, B0, this.ll);
     const g = this.deps.groundAt(ll);
     const T = this.spotTop(ll, 2);
@@ -1159,9 +1172,29 @@ export class Director {
       const Tq = this.spotTop(q, 0.5);
       if (!Number.isFinite(Tq) || Tq <= this.deps.groundAt(q) + 0.5) continue;
       // the line from the camera to the balloon passes Tq + 0.5 there
-      need = Math.max(need, (Tq + 0.5 - f * B.y) / (1 - f) - p.y);
+      need = Math.max(need, (Tq + 0.5 - f * By) / (1 - f) - p.y);
+    }
+    // a balloon going over a roof is not filmed from close by, looking down on it against the roof: from
+    // ROOF_SEE_M off at least
+    const hd = Math.hypot(B.x - p.x, B.z - p.z);
+    if (hd > 0.5 && hd < ROOF_SEE_M) {
+      for (const s of [1, 3, 5]) {
+        const q = this.fromScene(B.x + ((B.x - p.x) / hd) * s, B.z + ((B.z - p.z) / hd) * s, b, B0, this.ll);
+        const Tq = this.spotTop(q, 0.5);
+        if (!Number.isFinite(Tq) || Tq <= this.deps.groundAt(q) + 0.5 || Tq < By - 4) continue;
+        need = Math.max(need, By + Math.sqrt(ROOF_SEE_M * ROOF_SEE_M - hd * hd) - p.y);
+        break;
+      }
     }
     return Number.isFinite(need) ? need : 0;
+  }
+
+  /** How high a balloon on its way at B is drawn: over a building it has met, up its facade and over its roof, never in it (R57b). */
+  private drawnY(B: V3, b: RoutePoint, B0: THREE.Vector3): number {
+    if (!this.deps.buildingTopAt) return B.y;
+    const lb = this.fromScene(B.x, B.z, b, B0, this.ll);
+    const T = this.deps.buildingTopAt(lb, SLIDE.radiusM);
+    return T > this.deps.groundAt(lb) + 0.5 ? Math.max(B.y, T + SLIDE.marginM) : B.y;
   }
 
   /** The lift toward what is needed: a critically damped spring (quicker up than down), its acceleration and speed capped. */

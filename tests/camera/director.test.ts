@@ -1149,8 +1149,9 @@ describe('launch: one smooth move', () => {
   /** The worst of each over the run: the target's speed relative to the balloon, the camera's acceleration, the look's rate and its change. */
   function worst(rec: ReturnType<typeof fly>['rec'], skip = () => false) {
     const RADD = 180 / Math.PI;
-    let tgt = 0, acc = 0, w = 0, a = 0;
-    let at = { tgt: 0, acc: 0, w: 0, a: 0 };
+    let tgt = 0, acc = 0, w = 0, a = 0, spin = 0;
+    let at = { tgt: 0, acc: 0, w: 0, a: 0, spin: 0 };
+    const up = new THREE.Vector3(0, 1, 0);
     for (let i = 2; i < rec.length; i++) {
       const r = rec[i], q = rec[i - 1], p = rec[i - 2];
       if (skip()) continue;
@@ -1165,14 +1166,19 @@ describe('launch: one smooth move', () => {
       if (w1.length() > w) [w, at.w] = [w1.length(), r.t];
       const aa = w1.distanceTo(w0) / ((r.dt + q.dt) / 2);
       if (aa > a) [a, at.a] = [aa, r.t];
+      // the whole frame's turn, the roll about the look included (seen as the frame's right edge turning):
+      // looking straight down, a little sideways motion spins the picture round
+      const s = new THREE.Vector3().crossVectors(q.look, up).normalize().angleTo(new THREE.Vector3().crossVectors(r.look, up).normalize()) * (RADD / r.dt);
+      if (s > spin) [spin, at.spin] = [s, r.t];
     }
-    return { tgt, acc, w, a, at };
+    return { tgt, acc, w, a, spin, at };
   }
   /** (slack: a 32 km/h wind takes the balloon from rest to 9 m/s in a second or two, and the camera with it) */
   const expectSmooth = (r: ReturnType<typeof worst>, msg: string, slack = 1) => {
     expect(r.tgt, `${msg}: target speed at ${r.at.tgt.toFixed(2)} s`).toBeLessThan(12 * slack);
     expect(r.acc, `${msg}: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(3);
     expect(r.w, `${msg}: turn rate at ${r.at.w.toFixed(2)} s`).toBeLessThan(35);
+    expect(r.spin, `${msg}: the frame's turn at ${r.at.spin.toFixed(2)} s`).toBeLessThan(45);
     expect(r.a, `${msg}: turn acceleration at ${r.at.a.toFixed(2)} s`).toBeLessThan(60 * slack);
   };
 
@@ -1209,6 +1215,23 @@ describe('launch: one smooth move', () => {
       { x0: 40, x1: 70, z0: -8, z1: 8, top: 36 },
     ];
     for (const heading of [80, 100]) expectSmooth(worst(fly({ boxes, heading, hz: 60, jitterMs: 4 }).rec), `street, wind ${heading}`);
+  });
+
+  test('a tall block across the wind: the balloon climbs its facade, the camera stays back from it (never over it, looking straight down)', () => {
+    for (const [speed, near] of [[4, 40], [8, 60], [8, 90]]) {
+      const boxes: Box[] = [{ x0: -300, x1: 300, z0: near, z1: near + 60, top: 45 }];
+      const { rec } = fly({ boxes, heading: 164, speed, hz: 30, jitterMs: 6 });
+      const r = worst(rec);
+      const msg = `block ${near} m off, ${speed} m/s: ${JSON.stringify(r.at)}`;
+      expect(r.tgt, msg).toBeLessThan(12);
+      expect(r.acc, msg).toBeLessThan(3);
+      // (a 29 km/h wind into a wall: the balloon is stopped and runs up it, the camera still near)
+      expect(r.w, msg).toBeLessThan(45);
+      expect(r.a, msg).toBeLessThan(60);
+      expect(r.spin, msg).toBeLessThan(45);
+      const steepest = Math.max(...rec.filter((q) => q.shot === 'launch').map((q) => -q.look.y));
+      expect(Math.asin(steepest) * (180 / Math.PI), `block ${near} m off, ${speed} m/s`).toBeLessThan(70);
+    }
   });
 
   test('a stalled frame (the scene counts 0.25 s while the balloon moved on 1 s) does not jolt the camera', () => {
