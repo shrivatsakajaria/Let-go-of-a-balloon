@@ -15,8 +15,8 @@ import { lonDelta, wrapLon, type LatLon } from '../geo/coords';
 import { landingPlace } from '../geo/facts';
 import { WorkerPool } from '../world/workerpool';
 import type { BuildReply, BuildRequest } from '../world/worker';
-import { cardScene } from '../app/cardshot';
-import { presentCard } from '../app/landingcard';
+import { cardScene, farStats } from '../app/cardshot';
+import { cardHook, presentCard } from '../app/landingcard';
 import type { LiveScene } from '../app/scene';
 
 type Trip = { name: string; a: LatLon; b: LatLon; wig: number[]; landsUtc: string };
@@ -65,6 +65,7 @@ async function main() {
   const saved: SavedBalloon = { v: 1, name: trip.name, start: trip.a, release, hourly: hours, runId: 'proof' };
   const pool = new WorkerPool<BuildRequest, BuildReply>(() => new Worker(new URL('../world/worker.ts', import.meta.url), { type: 'module' }), 4, { timeoutMs: 60000 });
   const live = { pool, gone: false } as unknown as LiveScene;
+  cardHook.world = farStats;
   await presentCard({ scene: cardScene(live, { reveal }), route, saved, own: true, landing: landingPlace(route).catch(() => null), isCurrent: () => true, reveal });
 }
 void main();

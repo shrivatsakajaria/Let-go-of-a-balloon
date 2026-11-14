@@ -125,6 +125,8 @@ export type PresentOpts = {
   fallbackFocus?(): HTMLElement | null;
   /** Play the reveal (when the card's world was kept for it): the trip's end, not "Show the card". */
   reveal?: boolean;
+  /** The reveal starts and ends (the 3D flight stops drawing the live view meanwhile). */
+  onRevealPlaying?(on: boolean): void;
 };
 
 let latest = 0;
@@ -230,6 +232,7 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
       fallbackFocus: o.fallbackFocus,
       reveal: src ? revealFor(card, src) : undefined,
       onRevealed: (how) => Object.assign(cardHook, { revealed: true, reveal: how }),
+      onRevealPlaying: o.onRevealPlaying,
       onClose: () => {
         cardHook.state = 'closed';
         o.onClose?.();

@@ -38,6 +38,8 @@ export type CardViewOpts = {
   fallbackFocus?(): HTMLElement | null;
   /** Play the reveal in the card's frame before the still and its buttons show (none in an in-app browser). */
   reveal?: CardReveal;
+  /** The reveal starts (true) and ends (false): the live view can stop drawing meanwhile. */
+  onRevealPlaying?(on: boolean): void;
   /** The card is in: after the reveal ('played'), the reduced-motion cross-fade ('faded'), or straight away ('none'). */
   onRevealed?(how: 'played' | 'faded' | 'none'): void;
 };
@@ -228,11 +230,21 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   current = view;
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (o.reveal && !o.inApp && !reduced) {
-    stopReveal = playReveal(o.reveal, frame, img, actions, () => {
+    o.onRevealPlaying?.(true);
+    const stop = playReveal(o.reveal, frame, img, actions, () => {
       // focus moves to the main action as the buttons come, unless the visitor has moved it meanwhile
-      if (document.activeElement === close || document.activeElement === document.body) first.focus({ preventScroll: true });
-    }, () => o.onRevealed?.('played'));
-    close.focus({ preventScroll: true });
+      if (document.activeElement === el || document.activeElement === document.body) first.focus({ preventScroll: true });
+    }, () => {
+      o.onRevealPlaying?.(false);
+      o.onRevealed?.('played');
+    });
+    stopReveal = () => {
+      stop();
+      o.onRevealPlaying?.(false);
+    };
+    // the dialog itself has focus while the reveal plays (Tab reaches Close; Escape closes)
+    el.tabIndex = -1;
+    el.focus({ preventScroll: true });
   } else if (o.reveal && !o.inApp) {
     // reduced motion: no camera move and no count-up, a short cross-fade to the finished card (the
     // Web Animations API: the page's reduced-motion rule turns CSS animations off)
@@ -285,10 +297,18 @@ function playReveal(r: CardReveal, frame: HTMLElement, img: HTMLImageElement, ac
   // a test page can step the reveal by hand (window.__revealAt = seconds)
   const testClock = () => (window as unknown as { __revealAt?: number }).__revealAt;
   let t0 = -1;
+  let lastHeld: number | undefined;
   const tick = (now: number) => {
     if (stopped) return;
     if (t0 < 0) t0 = now;
-    const t = testClock() ?? (now - t0) / 1000;
+    const held = testClock();
+    const t = held ?? (now - t0) / 1000;
+    // a held test clock draws its frame once
+    if (held !== undefined && held === lastHeld) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    lastHeld = held;
     const st = revealAt(t);
     // the 3D view at the frame's own size (at most 1.5 device pixels a CSS pixel), 1080:1000
     const box = c.getBoundingClientRect();

@@ -20,6 +20,8 @@ import type { Route } from '../flight/route';
 import type { LatLon } from '../geo/coords';
 import { sunPosition } from '../geo/sun';
 import type { Label } from '../world/meshjob';
+import type { TileKey } from '../world/lod';
+import { SLOT_COUNT } from '../world/materials';
 import { lightFor, regionStyle, type Light } from '../world/palette';
 import { Sky } from '../world/sky';
 import { WorldStream, type BuildPool } from '../world/stream';
@@ -50,7 +52,8 @@ const WATER_KINDS = new Set(['ocean', 'sea', 'bay', 'strait', 'gulf']);
 
 /** The look for the landing's local time: the sun's real height there, held inside the keyed range. */
 export function cardLook(landing: LatLon, utcMs: number): CardLook {
-  const el = Math.max(-16, Math.min(32, sunPosition(utcMs, landing).elevationDeg));
+  // a high noon sun washes the land out from far up: the day look stops at a calmer, lower sun
+  const el = Math.max(-16, Math.min(22, sunPosition(utcMs, landing).elevationDeg));
   const light = lightFor(el);
   return { light, night: light.night, sunElevationDeg: el };
 }
@@ -77,6 +80,11 @@ export class CardWorld {
   private readonly route: LatLon[];
   private heights: Float32Array | null = null;
   private disposed = false;
+  private readonly finalTiles: TileKey[];
+  private readonly revealTiles: TileKey[];
+  private wanted: TileKey[];
+  /** Asked for the reveal's tiles too (the stream is told by a changed camera height). */
+  private phase = 0;
 
   constructor(pool: BuildPool, route: Route, o: { sunAt: number; reveal?: boolean; canvas?: HTMLCanvasElement }) {
     const pts = route.points.map((p) => ({ lat: p.lat, lon: p.lon }));
@@ -84,7 +92,8 @@ export class CardWorld {
     this.landing = pts[pts.length - 1];
     this.shot = cardShot(pts);
     this.start = revealStart(this.shot);
-    this.exag = Math.max(1, Math.min(3, 1 + this.shot.altM / 800_000));
+    // (held back: lifted much more, the steep faces turn to clay and the reveal's start, near the ground, bristles)
+    this.exag = Math.max(1, Math.min(2, 1 + this.shot.altM / 1_200_000));
     this.canvas = o.canvas ?? document.createElement('canvas');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(1);
@@ -105,14 +114,21 @@ export class CardWorld {
     this.sky.moonDisc.visible = false;
     this.sky.stars.visible = false;
 
-    const poses = o.reveal ? [this.start, poseAt(this.start, this.shot, 0.35), poseAt(this.start, this.shot, 0.6), poseAt(this.start, this.shot, 0.8), this.shot] : [this.shot];
-    const tiles = cardTiles(this.landing, poses, pts);
+    // the card's own tiles first; the reveal's (round the balloon and on the way up) only once those are in
+    this.finalTiles = cardTiles(this.landing, [this.shot], pts);
+    const have = new Set(this.finalTiles.map((t) => `${t.z}/${t.x}/${t.y}`));
+    this.revealTiles = o.reveal
+      ? cardTiles(this.landing, [this.start, poseAt(this.start, this.shot, 0.3), poseAt(this.start, this.shot, 0.55), poseAt(this.start, this.shot, 0.8)], pts, { max: 200, tilePx: 420, nearLanding: true })
+          .filter((t) => !have.has(`${t.z}/${t.x}/${t.y}`))
+          .slice(0, Math.max(0, SLOT_COUNT - 2 - this.finalTiles.length))
+      : [];
+    this.wanted = this.finalTiles;
     this.stream = new WorldStream(this.scene, pool, regionStyle, {
       haze: this.sky.haze,
       groundTint: L.groundTint,
       origin: this.landing,
-      want: () => tiles,
-      maxTiles: tiles.length + 4,
+      want: () => this.wanted,
+      maxTiles: this.finalTiles.length + this.revealTiles.length + 4,
       maxInFlight: 8,
       fadeMs: 1,
       recentreM: 1e12,
@@ -122,7 +138,7 @@ export class CardWorld {
 
   /** Step the stream and bend what came in. */
   private step(): void {
-    const here = { lat: this.landing.lat, lon: this.landing.lon, altM: this.shot.altM, headingDeg: this.shot.headingDeg };
+    const here = { lat: this.landing.lat, lon: this.landing.lon, altM: this.shot.altM + this.phase * 1000, headingDeg: this.shot.headingDeg };
     this.stream.update(here, performance.now());
     this.bendNew();
   }
@@ -142,6 +158,13 @@ export class CardWorld {
       this.heights = null;
     }
     return how;
+  }
+
+  /** The reveal's tiles as well (once the card's own are in): until they are all in, or the time is up. */
+  async loadReveal(o: { maxMs: number; alive: () => boolean }): Promise<'ready' | 'timeout' | 'cancelled' | 'stopped'> {
+    this.wanted = [...this.finalTiles, ...this.revealTiles];
+    this.phase = 1;
+    return this.load(o);
   }
 
   /** Each tile's vertices bent by the Earth's curve (and its relief lifted), once, as it comes in. */

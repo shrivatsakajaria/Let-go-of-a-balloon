@@ -433,6 +433,16 @@ function paintSky(ctx: CanvasRenderingContext2D, pic: CardPicture): void {
   g.addColorStop(1, pic.sky.horizon);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CARD_W, PICTURE_H);
+  if (pic.sky.night > 0.4) {
+    // a few stars in the sky (always the same ones); the haze under the horizon covers the rest
+    let s = 7;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    ctx.fillStyle = `rgba(${PAPER}, ${(0.55 * pic.sky.night).toFixed(3)})`;
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * CARD_W, y = rnd() * hy;
+      ctx.fillRect(x, y, 1.6, 1.6);
+    }
+  }
   ctx.fillStyle = pic.sky.horizon;
   ctx.beginPath();
   pic.horizon.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
@@ -440,16 +450,6 @@ function paintSky(ctx: CanvasRenderingContext2D, pic: CardPicture): void {
   ctx.lineTo(pic.horizon[0].x, PICTURE_H);
   ctx.closePath();
   ctx.fill();
-  if (pic.sky.night > 0.4) {
-    // a few stars above the horizon (always the same ones)
-    let s = 7;
-    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-    ctx.fillStyle = `rgba(${PAPER}, ${(0.55 * pic.sky.night).toFixed(3)})`;
-    for (let i = 0; i < 70; i++) {
-      const x = rnd() * CARD_W, y = rnd() * hy * 0.9;
-      ctx.fillRect(x, y, 1.6, 1.6);
-    }
-  }
 }
 
 /** A soft band of haze along the curved horizon, over the picture's edge (the land fades into it). */

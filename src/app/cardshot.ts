@@ -17,6 +17,8 @@ import type { LiveScene } from './scene';
 
 /** How long the card world may take to draw before the picture is taken anyway. */
 const FAR_WAIT_MS = 20000;
+/** And this much longer for the reveal's tiles (round the balloon, on the way up); later than that, no reveal. */
+const REVEAL_WAIT_MS = 20000;
 /** The still's size: the card's picture. */
 const W = 1080, H = 1000;
 
@@ -131,8 +133,13 @@ export function cardScene(live: LiveScene, opts: CardSceneOpts = {}): CardScene 
         if (!pic) return null;
         // the reveal only over a whole world: a late one holds on the card instead of showing holes
         if (opts.reveal && how === 'ready') {
-          kept = true;
-          pic.reveal = revealFrom(world, route);
+          const more = await world.loadReveal({ maxMs: REVEAL_WAIT_MS, alive: going });
+          farStats.how = `${how}+${more}`;
+          if (more === 'cancelled') return null;
+          if (more === 'ready') {
+            kept = true;
+            pic.reveal = revealFrom(world, route);
+          }
         }
         return pic;
       } finally {

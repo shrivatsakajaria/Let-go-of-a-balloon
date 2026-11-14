@@ -674,6 +674,9 @@ export class Live {
       // the card's world is its own (no wait for the live world round the landing)
       scene: cardScene(this.scene, { reveal: !!opts.reveal }),
       reveal: opts.reveal,
+      onRevealPlaying: (on) => {
+        if (!this.scene.gone) this.scene.holdRender = on;
+      },
       route: r,
       saved: fl.saved,
       own: fl.own,

@@ -265,8 +265,11 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
 export const CARD_ZOOMS = [5, 6, 7, 10, 12];
 /** A tile is drawn about this many picture pixels across (its 64 ground cells a few pixels each). */
 const TILE_PX = 300;
-/** At most this many tiles in a card world. */
-export const CARD_MAX_TILES = 110;
+/**
+ * At most this many tiles for the card's framing: a world draws at most 63 (materials.ts SLOT_COUNT), and
+ * the reveal's way up needs some of the rest.
+ */
+export const CARD_MAX_TILES = 46;
 const CIRC_M = 2 * Math.PI * 6378137;
 
 /**
@@ -307,7 +310,7 @@ function tileOf(p: LatLon, z: number): { z: number; x: number; y: number } {
  * from far up, z10 and z12 round the balloon at the start of the reveal. The landing's and the start's
  * tiles first, then nearest the route; at most CARD_MAX_TILES.
  */
-export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o: { aspect?: number; heightPx?: number; max?: number } = {}): { z: number; x: number; y: number }[] {
+export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o: { aspect?: number; heightPx?: number; max?: number; tilePx?: number; nearLanding?: boolean } = {}): { z: number; x: number; y: number }[] {
   const aspect = o.aspect ?? CARD_ASPECT, heightPx = o.heightPx ?? 1000;
   const rank = new Map<string, { t: { z: number; x: number; y: number }; r: number }>();
   const add = (t: { z: number; x: number; y: number }, r: number) => {
@@ -317,7 +320,8 @@ export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o
   };
   const cam = new THREE.PerspectiveCamera();
   const pts = thin(route, 40).map((p) => toCard(landing, p));
-  const near = (x: number, z: number) => Math.min(...pts.map((p) => Math.hypot(p.x - x, p.z - z)));
+  // nearest the route first (the card), or nearest the balloon (the reveal, which starts on it)
+  const near = (x: number, z: number) => (o.nearLanding ? Math.hypot(x, z) : Math.min(...pts.map((p) => Math.hypot(p.x - x, p.z - z))));
   poses.forEach((pose, pi) => {
     poseCamera(pose, aspect, cam);
     const pxRad = (pose.fovDeg * D2R) / heightPx;
@@ -330,9 +334,9 @@ export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o
         const ll = fromCard(landing, hit.x, hit.z);
         // metres per picture pixel there (looking down at a slant: a little more)
         const mpp = hit.d * pxRad * 1.4;
-        const want = Math.log2((CIRC_M * Math.cos(ll.lat * D2R)) / (mpp * TILE_PX));
+        const want = Math.log2((CIRC_M * Math.cos(ll.lat * D2R)) / (mpp * (o.tilePx ?? TILE_PX)));
         const z = CARD_ZOOMS.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
-        add(tileOf(ll, z), 10 + pi + near(hit.x, hit.z) / 1e6);
+        add(tileOf(ll, z), 10 + (o.nearLanding ? 0 : pi) + near(hit.x, hit.z) / 1e6);
       }
   });
   // the two ends and the line between them, at the zoom their part of the picture asked for, else z6
