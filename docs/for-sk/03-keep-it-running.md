@@ -15,14 +15,29 @@ So a failed or switched-off Deploy is **urgent**. You have about a day and a hal
 - **GitHub emails you that a Deploy run failed.** Deploy checks the live site every time it runs. If the newest forecast there is more than 18 hours old, the run fails on purpose, so that GitHub emails you. It keeps failing (and emailing) until the winds are fresh again.
 - **GitHub emails you that it has switched a timer off.** In a public project, GitHub switches timers off after 60 days with no activity. Nothing is deleted, but the forecasts stop.
 
-### Make sure the emails reach you (once, about a minute)
+### Make sure the emails reach you (once, after go-live, about two minutes)
 
-1. Open https://github.com/settings/notifications and sign in.
+GitHub sends the email about a failed timer run to one person only: whoever last changed the timers, or last switched the job off and on. Today that may be a robot account, so the email could reach nobody. Switching Deploy off and straight back on makes it you.
+
+**Part 1: make the timer emails yours**
+
+1. Open https://github.com/shrivatsakajaria/Let-go-of-a-balloon and sign in.
+2. Click the **Actions** tab.
+3. In the left-hand list, click **Deploy**.
+4. Near the top right, above the list of runs, click the **...** button.
+5. Click **Disable workflow**. The timers pause.
+6. A grey box now says the workflow is disabled. Click **Enable workflow** in it. The timers are back on, and their emails now come to you.
+
+Do both clicks one after the other. A minute or two off does no harm.
+
+**Part 2: check your email settings**
+
+1. Open https://github.com/settings/notifications.
 2. Scroll down to **System**, then **Actions**.
 3. Make sure **Email** is ticked under **Notify me**. You can also tick **Only notify for failed workflows**, so you only hear when something is wrong.
-4. If you change anything, click **Save** if GitHub shows the button.
+4. If GitHub shows a **Save** button, click it.
 
-GitHub sends the timer emails to the account that last changed the timers in the project. If you never get one, even after a red cross, tell Claude.
+If you see a red cross on the **Actions** tab but never got an email, tell Claude.
 
 ### Keep alive
 

@@ -1,6 +1,6 @@
 # Going live
 
-This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: say yes, and check one email setting (about a minute). There is one more setting you might be asked to change yourself, also about a minute.
+This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: say yes, then switch one job off and on and check one email setting (about two minutes). There is one more setting you might be asked to change yourself, also about a minute.
 
 Written 14 November 2026.
 
@@ -51,12 +51,21 @@ This change is on my work branch, in its own commit: "ci: the hourly wind refres
 7. Start the Keep alive job once by hand, to check it can write to `main`.
 8. Ask you to do the 5-minute phone test in `phone-test.md`, on the live address.
 9. Fill in the live link in `handback.md`.
+10. Ask you to make the timer emails yours (below).
 
 After that, my changes go to a preview first, as now. Only when you have said OK do I copy them to `main`, which updates the live site. Before copying, I bring the monthly Keep alive changes on `main` back into my work branch, so the copy is a simple step forward.
 
 ## What you should click
 
-One thing, about a minute, any time before or after go-live: make sure GitHub's "run failed" emails reach you. The steps are under "Make sure the emails reach you" in `03-keep-it-running.md`. Those emails are how you would hear that the winds are getting old.
+One thing, about two minutes, just after go-live: make sure GitHub's "run failed" emails reach you. Those emails are how you would hear that the winds are getting old. GitHub sends them to whoever last switched the Deploy job on, which may be a robot account today, so:
+
+1. Open https://github.com/shrivatsakajaria/Let-go-of-a-balloon and click the **Actions** tab.
+2. In the left-hand list, click **Deploy**.
+3. Near the top right, click the **...** button, then **Disable workflow**.
+4. In the grey box that appears, click **Enable workflow**.
+5. Open https://github.com/settings/notifications, scroll to **System**, then **Actions**, and make sure **Email** is ticked under **Notify me**.
+
+The same steps, with a little more explanation, are under "Make sure the emails reach you" in `03-keep-it-running.md`.
 
 ## What you might have to click
 
