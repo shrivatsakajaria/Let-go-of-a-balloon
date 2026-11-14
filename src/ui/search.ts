@@ -79,8 +79,9 @@ export function visitorHints(env?: { languages: readonly string[]; timeZone: str
  * Florida), then bigger places before smaller ones; Open-Meteo's order breaks ties. A copy; the input is kept.
  */
 export function rankPlaces(places: Place[], hints: VisitorHints): Place[] {
+  // the language's region is the stronger hint (2), the time zone the weaker (1): a British visitor abroad
   const score = (p: Place) =>
-    (p.countryCode && hints.regions.includes(p.countryCode) ? 1 : 0) + (p.timeZone && p.timeZone === hints.timeZone ? 1 : 0);
+    (p.countryCode && hints.regions.includes(p.countryCode) ? 2 : 0) + (p.timeZone && p.timeZone === hints.timeZone ? 1 : 0);
   return places
     .map((p, i) => ({ p, i, s: score(p), pop: p.population ?? -1 }))
     .sort((a, b) => b.s - a.s || b.pop - a.pop || a.i - b.i)

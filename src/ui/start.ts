@@ -448,6 +448,15 @@ export function mountStart(
     if (e.target === credits) credits.close(); // a tap on the veil itself
   });
 
+  // a phone turned on its side (or back) shows another number of rows
+  let rowsShown = mineRows();
+  const onResize = () => {
+    if (mineRows() === rowsShown) return;
+    rowsShown = mineRows();
+    renderMine();
+    fitShade();
+  };
+  window.addEventListener('resize', onResize);
   const onStorage = (e: StorageEvent) => {
     if (e.key === null || e.key === 'lgoab.balloons.v1') renderMine();
   };
@@ -473,6 +482,7 @@ export function mountStart(
       ro?.disconnect();
       window.removeEventListener('storage', onStorage);
       document.removeEventListener(ABOUT_EVENT, openAbout);
+      window.removeEventListener('resize', onResize);
       search.el.remove();
       shades.forEach((s) => s.remove());
       root.replaceChildren();

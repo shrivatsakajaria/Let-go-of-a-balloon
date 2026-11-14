@@ -171,6 +171,11 @@ describe('ranking (owner\'s decision, 14 November 2026: the visitor\'s own count
     expect(ranked).toEqual(['England', 'Florida', 'Queensland', 'Tasmania', 'Victoria', 'Canterbury', 'Tennessee', 'Connecticut']);
   });
 
+  test('the language\'s region outweighs the time zone: an American visitor in London gets the Florida one first', () => {
+    expect(where(rankPlaces(windermere(), { regions: ['US'], timeZone: 'Europe/London' }))[0]).toBe('Florida');
+    expect(where(rankPlaces(windermere(), { regions: ['GB'], timeZone: 'America/New_York' }))[0]).toBe('England');
+  });
+
   test('the list given is not changed', () => {
     const ps = windermere();
     const before = ps.map((p) => p.admin1);

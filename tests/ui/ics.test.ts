@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { icsDate, icsEscape, icsFold, landingEvent } from '../../src/ui/ics';
+import { calendarWay, icsDataUrl, icsDate, icsEscape, icsFold, landingEvent } from '../../src/ui/ics';
 
 const LINK = 'https://let-go-of-a-balloon.pages.dev/#b=AbCdEf-_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -61,5 +61,28 @@ describe('the .ics text', () => {
   test('someone else\'s balloon, and names with commas, are said and escaped plainly', () => {
     const other = landingEvent({ release, home: 'Washington, D.C.', own: false, link: LINK, now: release, uid: 'x' }).replace(/\r\n /g, '');
     expect(other).toContain('SUMMARY:A balloon from Washington\\, D.C. lands');
+  });
+});
+
+describe('how each browser takes the file (review of Task 29)', () => {
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+  const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36';
+
+  test('iOS and iPadOS open a text/calendar data URL ("Add to Calendar"), not a download', () => {
+    expect(calendarWay(IPHONE)).toBe('open');
+    expect(calendarWay(IPAD, 5)).toBe('open');
+    expect(icsDataUrl('BEGIN:VCALENDAR\r\n')).toBe('data:text/calendar;charset=utf-8,BEGIN%3AVCALENDAR%0D%0A');
+  });
+
+  test('desktop and Android download the file', () => {
+    expect(calendarWay(IPAD, 0)).toBe('download'); // a real Mac
+    expect(calendarWay(ANDROID)).toBe('download');
+  });
+
+  test('in-app browsers get no calendar control', () => {
+    expect(calendarWay(IPHONE + ' [LinkedInApp]')).toBe('none');
+    expect(calendarWay(ANDROID + ' [FB_IAB/FB4A;FBAV/400.0]')).toBe('none');
+    expect(calendarWay(IPHONE + ' Instagram 300.0')).toBe('none');
   });
 });

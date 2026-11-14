@@ -4,6 +4,7 @@
  * TEXT values escaped, lines folded at 75 octets.
  */
 import { FLIGHT_HOURS, SITE_URL } from '../config';
+import { isInAppBrowser } from './card';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -85,18 +86,37 @@ export function landingEvent(e: LandingEventInput): string {
 }
 
 /**
- * Hand the file to the browser as a text/calendar download: iOS Safari opens it as "Add to Calendar",
- * desktop browsers save it. The object URL is let go once the browser has it.
+ * How this browser takes the file (review of Task 29). iOS (iPadOS too, which says it is a Mac) opens a
+ * text/calendar data URL as "Add to Calendar", where a download would only offer "Save to Files". In-app
+ * browsers (LinkedIn, X, Facebook, Instagram) drop both, so the control is not offered there. Everywhere
+ * else the file downloads.
  */
-export function downloadIcs(text: string, filename = 'balloon-landing.ics'): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' }));
+export type CalendarWay = 'open' | 'download' | 'none';
+export function calendarWay(ua: string, touchPoints = 0): CalendarWay {
+  if (isInAppBrowser(ua)) return 'none';
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && touchPoints > 1) ? 'open' : 'download';
+}
+
+/** The file as a data URL, for iOS. */
+export function icsDataUrl(text: string): string {
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(text)}`;
+}
+
+/** Hand the file to the browser: opened on iOS, downloaded elsewhere (the object URL let go once it has it). */
+export function saveIcs(text: string, way: CalendarWay, filename = 'balloon-landing.ics'): void {
+  if (way === 'none') return;
   const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
   a.rel = 'noopener';
   a.hidden = true;
+  let url = '';
+  if (way === 'open') a.href = icsDataUrl(text);
+  else {
+    url = URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' }));
+    a.href = url;
+    a.download = filename;
+  }
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (url) setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

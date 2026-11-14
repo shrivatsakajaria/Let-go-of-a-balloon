@@ -16,7 +16,9 @@ import { COPY } from './copy';
 import { shadeBottomPx, shadeTopPx } from './shade';
 import { MAP_LINE, creditHtml } from './credits';
 import { VIEW_TABS, clockFor, dayLine, heightText, progress, speedText, viewTab } from './hudmath';
-import { downloadIcs, landingEvent } from './ics';
+import { calendarWay, landingEvent, saveIcs } from './ics';
+import { startName } from './card';
+import { nearestPlace } from '../geo/gazetteer';
 import type { LatLon } from '../geo/coords';
 
 export type HudHandlers = {
@@ -43,7 +45,7 @@ export type Hud = {
    * A new flight: its release time, its midnight ticks (0..1), whether it is the visitor's own, and the start
    * place as said in a sentence (for "Add to calendar": "My balloon from London lands").
    */
-  setFlight(f: { release: number; ticks: number[]; own: boolean; home?: string }): void;
+  setFlight(f: { release: number; ticks: number[]; own: boolean; home?: string; start?: LatLon }): void;
   /** Every frame (cheap: text is only written when it changes). */
   frame(f: HudFrame): void;
   /** "Over the North Sea", or "Landed near Bergen". */
@@ -127,6 +129,10 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   let release = 0;
   let own = false;
   let home = '';
+  /** The start as the calendar names it: a "Use my location" start by its place, as on the card. */
+  let calHome = '';
+  let calAsk = 0;
+  const calWay = calendarWay(typeof navigator !== 'undefined' ? navigator.userAgent : '', typeof navigator !== 'undefined' ? navigator.maxTouchPoints ?? 0 : 0);
   /** "It flies on for three days...": shown first, once, when a flight of the visitor's own settles. */
   let lead = '';
   let facts: string[] = [];
@@ -198,7 +204,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   cal.addEventListener('click', () => {
     const link = /^#b=/.test(location.hash) ? location.href : `${location.origin}/`;
     const uid = `${Math.round(release / 60e3)}-${location.hash.slice(3, 27) || 'balloon'}`;
-    downloadIcs(landingEvent({ release, home: home || 'here', own, link, now: Date.now(), uid }));
+    saveIcs(landingEvent({ release, home: calHome || home, own, link, now: Date.now(), uid }), calWay);
   });
   const trip = $<HTMLButtonElement>('.trip'), back = $<HTMLButtonElement>('.back'), replaySlot = $('.replay-slot');
   let tripOn = false;
@@ -214,7 +220,15 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       home = f.home ?? '';
       // only while it is new: a balloon of your own opened again on day 3 does not need telling
       lead = f.own && f.home && Date.now() - f.release < 6 * 3600e3 ? COPY.next : '';
-      cal.hidden = !f.home;
+      calHome = f.home ?? '';
+      const ask = ++calAsk;
+      const start = f.start;
+      if (start && f.home === COPY.yourLocation.toLowerCase()) {
+        nearestPlace(start)
+          .then((p) => startName(start, p), () => startName(start, null))
+          .then((n) => ask === calAsk && (calHome = n));
+      }
+      cal.hidden = !f.home || calWay === 'none';
       lastP = -1;
       again.textContent = f.own ? COPY.letGoAnother : COPY.letGoYourOwn;
       ticksEl.innerHTML = f.ticks.map((t) => `<i style="left:${(t * 100).toFixed(3)}%"></i>`).join('');
@@ -239,7 +253,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         knot.style.left = pc;
         root.classList.toggle('is-landed', f.landed);
         if (f.landed) cal.hidden = true; // nothing left to remind anyone of
-        else if (home) cal.hidden = false;
+        else if (home && calWay !== 'none') cal.hidden = false;
       }
     },
     setOver(s) {
