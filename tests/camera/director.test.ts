@@ -391,6 +391,18 @@ describe('Director', () => {
     expect(cam.position.distanceTo(wide)).toBeLessThan(0.05);
   });
 
+  test('waiting and the street shot: the camera never stands in a tree or behind one (a park of trees south of the person)', () => {
+    const cam = mkPhone(50);
+    // trees everywhere more than 3 m south of the person (z > 3), crowns 11 m tall
+    const treeTopAt = (p: LatLon, r: number) => (toScene(p).z + r > 3 ? 11 : -Infinity);
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 0, startUtcMs: 0, waiting: { centerY: 0.15, spanY: 0.7 } });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 2.5, headingDeg: 0 });
+    run(d, 0, 6, 0.05, held, () => expect(cam.position.z).toBeLessThan(3 - 1.5));
+    d.go();
+    run(d, 6, 1.1, 0.05, held, () => expect(cam.position.z).toBeLessThan(3 - 1.5));
+  });
+
   test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     let ground = 60; // the coarse fallback before any tile is in

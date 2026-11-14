@@ -24,6 +24,8 @@ export type DirectorDeps = {
   groundAt(p: LatLon): number;
   /** Highest building top (absolute, like groundAt) within radiusM; ground or less where there is none. */
   buildingTopAt?(p: LatLon, radiusM: number): number;
+  /** Highest tree top (absolute) within radiusM; -Infinity where there is none. Only for choosing eye-height spots. */
+  treeTopAt?(p: LatLon, radiusM: number): number;
   balloonRadius(distM: number): number;
   reducedMotion?: boolean;
 };
@@ -779,7 +781,7 @@ export class Director {
       const ll = this.fromScene(c.x, c.z, b, B0);
       const g = this.deps.groundAt(ll);
       if (!Number.isFinite(g) || !Number.isFinite(c.x) || !Number.isFinite(c.z)) continue;
-      if (this.deps.buildingTopAt && this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) continue;
+      if (this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) continue;
       pick = c.setY(g + EYE_M);
       break;
     }
@@ -1152,10 +1154,10 @@ export class Director {
     };
     const at = (a: THREE.Vector3, D: number) => this.fromScene(ps.x + a.x * D, ps.z + a.z * D, b, B0);
     const clear = (a: THREE.Vector3, D: number): boolean => {
-      if (!this.deps.buildingTopAt) return true;
+      if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return true;
       for (const f of [1, 0.75, 0.5, 0.25]) {
         const q = at(a, D * f);
-        if (this.deps.buildingTopAt(q, f === 1 ? STREET_CLEAR_M : 0.6) > this.deps.groundAt(q) + (f === 1 ? 0.5 : 1)) return false;
+        if (this.spotTop(q, f === 1 ? STREET_CLEAR_M : 0.6) > this.deps.groundAt(q) + (f === 1 ? 0.5 : 1)) return false;
       }
       return true;
     };
@@ -1199,11 +1201,11 @@ export class Director {
         const ll = this.fromScene(c.x, c.z, b, B0);
         const g = this.deps.groundAt(ll);
         if (!Number.isFinite(g)) return false;
-        if (!this.deps.buildingTopAt) return true;
-        if (this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) return false;
+        if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return true;
+        if (this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) return false;
         for (const f of [0.2, 0.4, 0.6, 0.8]) {
           const q = this.fromScene(c.x + (ps.x - c.x) * f, c.z + (ps.z - c.z) * f, b, B0);
-          if (this.deps.buildingTopAt(q, 0.6) > this.deps.groundAt(q) + 1) return false;
+          if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) return false;
         }
         return true;
       };
@@ -1311,12 +1313,19 @@ export class Director {
     if (p.y < floor) p.y = floor;
   }
 
+  /** What stands at an eye-height camera spot or on its sightline: buildings, landmarks and trees (absolute top). */
+  private spotTop(p: LatLon, r: number): number {
+    const b = this.deps.buildingTopAt ? this.deps.buildingTopAt(p, r) : -Infinity;
+    const t = this.deps.treeTopAt ? this.deps.treeTopAt(p, r) : -Infinity;
+    return Math.max(b, t);
+  }
+
   /** Put a cached camera spot on the ground as drawn now; false when a building now stands on it (if checked). */
   private settle(c: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3, check: boolean): boolean {
     const ll = this.fromScene(c.x, c.z, b, B0);
     const g = this.deps.groundAt(ll);
     if (!Number.isFinite(g)) return true;
-    if (check && this.deps.buildingTopAt && this.deps.buildingTopAt(ll, STREET_CLEAR_M) > g + 0.5) return false;
+    if (check && this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) return false;
     c.y = g + EYE_M;
     return true;
   }

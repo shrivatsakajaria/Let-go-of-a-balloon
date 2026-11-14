@@ -221,6 +221,7 @@ export class LiveScene {
       // street camera spots stand on a landmark's own ground (a summit terrace), never inside it
       groundAt: (p) => standableGround(this.ground, p),
       buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
+      treeTopAt: (p, r) => this.stream.treeTopAt(p, r),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
     });

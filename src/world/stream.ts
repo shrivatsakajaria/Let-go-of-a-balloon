@@ -93,6 +93,8 @@ type Entry = {
   wanted: boolean;
   ground: Ground | null;
   tops: Float32Array | null;
+  /** [x, z, crown radius, top] per drawn tree (local metres; top absolute), for treeTopAt. */
+  treeTops: Float32Array | null;
   labels: Label[];
 };
 
@@ -537,6 +539,28 @@ export class WorldStream {
     return best;
   }
 
+  /**
+   * Highest tree top (absolute) within radiusM of p; -Infinity where there is none. For choosing a camera
+   * spot at eye height in a park (a tree's crown is not a sightline); not for every frame.
+   */
+  treeTopAt(p: LatLon, radiusM: number): number {
+    let best = -Infinity;
+    const live = this.live;
+    for (let k = 0; k < live.length; k++) {
+      const e = live[k];
+      const g = e.ground!, tops = e.treeTops;
+      if (!tops || tops.length === 0) continue;
+      const x = lonDelta(g.west, p.lon) * g.mLon, z = -(p.lat - g.south) * M_PER_DEG;
+      const W = g.dLon * g.mLon, H = (g.north - g.south) * M_PER_DEG;
+      if (x < -radiusM - 20 || x > W + radiusM + 20 || z > radiusM + 20 || z < -H - radiusM - 20) continue;
+      for (let i = 0; i < tops.length; i += 4) {
+        const dx = tops[i] - x, dz = tops[i + 1] - z, r = radiusM + tops[i + 2];
+        if (dx * dx + dz * dz <= r * r && tops[i + 3] > best) best = tops[i + 3];
+      }
+    }
+    return best;
+  }
+
   /** Map labels (places, water names) of the live tiles within km of p, nearest first, each name once. */
   labelsNear(p: LatLon, km: number): Label[] {
     const out: { l: Label; d: number }[] = [];
@@ -776,7 +800,7 @@ export class WorldStream {
     const b = tileBounds(t.z, t.x, t.y);
     const centre = { lat: (b.south + b.north) / 2, lon: (b.west + b.east) / 2 };
     const ac = new AbortController();
-    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null, labels: [] };
+    const e: Entry = { key, t, level, state: 'loading', ac, view: null, born: 0, fade: 0, dither: false, settled: false, wanted: true, ground: null, tops: null, treeTops: null, labels: [] };
     this.entries.set(key, e);
     this.pool
       .request(
@@ -866,6 +890,7 @@ export class WorldStream {
     e.fade = 0;
     e.view.setFade(0);
     e.tops = m.tops;
+    e.treeTops = treeTops(m.trees);
     e.labels = m.labels ?? [];
     const f = tileFrame(e.t.z, e.t.x, e.t.y);
     const n = e.level.lcSize;
@@ -993,4 +1018,18 @@ export class WorldStream {
     const g = e.ground!;
     return groundHeightAt(g, lonDelta(g.west, p.lon) * g.mLon, -(p.lat - g.south) * M_PER_DEG);
   }
+}
+
+/** The drawn trees' crowns as [x, z, radius, top] (treeGeometry: a cone 11 m tall, 3.4 m across at its foot, scaled per tree). */
+function treeTops(m: Float32Array): Float32Array {
+  const n = m.length / 16;
+  const out = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const o = i * 16;
+    out[i * 4] = m[o + 12];
+    out[i * 4 + 1] = m[o + 14];
+    out[i * 4 + 2] = 3.4 * Math.hypot(m[o], m[o + 2]);
+    out[i * 4 + 3] = m[o + 13] + 11 * m[o + 5];
+  }
+  return out;
 }
