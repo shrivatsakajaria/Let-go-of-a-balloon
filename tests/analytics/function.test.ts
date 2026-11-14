@@ -23,7 +23,15 @@ describe('the counter (POST /api/e)', () => {
     expect(res.status).toBe(204);
     expect(res.headers.get('set-cookie')).toBeNull();
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(points).toEqual([{ blobs: ['let_go', 'featured', 'paris', 'FR'], doubles: [1], indexes: ['let_go'] }]);
+    expect(points).toEqual([{ blobs: ['let_go', 'featured', 'paris', 'FR', '', ''], doubles: [1], indexes: ['let_go'] }]);
+  });
+
+  test('a visit is stored with the device class read from the User-Agent, never the User-Agent itself', async () => {
+    const { points, env } = dataset();
+    const ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+    await onRequestPost({ request: req('{"e":"start_view","ref":"www.linkedin.com"}', { country: 'GB', headers: { 'user-agent': ua } }), env });
+    expect(points).toEqual([{ blobs: ['start_view', '', '', 'GB', 'mobile', 'www.linkedin.com'], doubles: [1], indexes: ['start_view'] }]);
+    expect(JSON.stringify(points)).not.toContain('iPhone');
   });
 
   test('the country comes only from the edge: a country in the body is refused', async () => {

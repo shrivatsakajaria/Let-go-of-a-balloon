@@ -19,7 +19,7 @@ import { hudFocusTarget } from './ui/focus';
 import type { View } from './app/live';
 import { resumeAction, type Handover, type World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
-import { letGoEvent, linkOpenEvent, startTracking, track } from './analytics/track';
+import { letGoEvent, linkOpenEvent, startTracking, startViewEvent, track } from './analytics/track';
 
 const params = new URLSearchParams(location.search);
 /**
@@ -189,7 +189,7 @@ const start = mountStart(
   document.getElementById('app')!,
   {
     onLetGo(c) {
-      track(letGoEvent(c));
+      track(() => letGoEvent(c));
       letGo(c);
     },
     onOpenBalloon: open,
@@ -225,7 +225,7 @@ function route() {
   if (!payload) return false;
   setView('link');
   decodeBalloon(payload).then((b) => {
-    track(linkOpenEvent(b, Date.now()));
+    track(() => linkOpenEvent(b, Date.now(), document.referrer, location.hostname));
     open(b);
   }, showBroken);
   return true;
@@ -235,7 +235,7 @@ function route() {
 startTracking();
 if (!route()) {
   setView('start');
-  track({ e: 'start_view' });
+  track(() => startViewEvent(document.referrer, location.hostname));
 }
 // a link pasted into the address bar of an open page
 window.addEventListener('hashchange', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CAP, PRODUCTION_HOSTS, armSessionEnd, createTracker, isProductionHost, letGoEvent, linkOpenEvent, type TrackEnv } from '../../src/analytics/track';
+import { CAP, PRODUCTION_HOSTS, armSessionEnd, createTracker, isProductionHost, letGoEvent, linkOpenEvent, startViewEvent, track, type TrackEnv } from '../../src/analytics/track';
 import { parseBody } from '../../src/analytics/events';
 import type { SavedBalloon } from '../../src/flight/codec';
 import type { StartChoice } from '../../src/ui/start';
@@ -17,8 +17,8 @@ describe('where events are sent from', () => {
     const { e, sent } = env();
     const t = createTracker(e);
     expect(t.enabled).toBe(true);
-    expect(t.track({ e: 'start_view' })).toBe(true);
-    expect(sent).toEqual(['{"e":"start_view"}']);
+    expect(t.track({ e: 'start_view', ref: 'direct' })).toBe(true);
+    expect(sent).toEqual(['{"e":"start_view","ref":"direct"}']);
   });
 
   test('previews, localhost and the browser tests send nothing', () => {
@@ -26,7 +26,7 @@ describe('where events are sent from', () => {
       const { e, sent } = env({ host });
       const t = createTracker(e);
       expect(t.enabled, host).toBe(false);
-      t.track({ e: 'start_view' });
+      t.track({ e: 'start_view', ref: 'direct' });
       t.track({ e: 'card_shown' });
       expect(sent, host).toEqual([]);
     }
@@ -43,13 +43,13 @@ describe('where events are sent from', () => {
     const { e, sent } = env({ gpc: true });
     const t = createTracker(e);
     expect(t.enabled).toBe(false);
-    t.track({ e: 'start_view' });
+    t.track({ e: 'start_view', ref: 'direct' });
     expect(sent).toEqual([]);
   });
 
   test('a browser driven by a script (navigator.webdriver): nothing is sent', () => {
     const { e, sent } = env({ bot: true });
-    createTracker(e).track({ e: 'start_view' });
+    createTracker(e).track({ e: 'start_view', ref: 'direct' });
     expect(sent).toEqual([]);
   });
 });
@@ -99,10 +99,12 @@ describe('no personal data in what is sent', () => {
     const starts = [choice({ kind: 'search' }), choice({ kind: 'gps', name: 'Your location', lat: 53.4794, lon: -2.2453 }), choice({ kind: 'featured', name: 'Tokyo', cityId: 'tokyo', lat: 35.6586, lon: 139.7454 })];
     for (const s of starts) t.track(letGoEvent(s));
     const b: SavedBalloon = { v: 1, name: 'Windermere', start: { lat: 54.3803, lon: -2.9076 }, release: Date.UTC(2026, 10, 10, 9), hourly: [{ lat: 54.3803, lon: -2.9076 }], runId: '2026111006' };
-    t.track(linkOpenEvent(b, Date.UTC(2026, 10, 14)));
-    expect(sent.length).toBe(4);
+    t.track(linkOpenEvent(b, Date.UTC(2026, 10, 14), 'https://www.linkedin.com/feed/update/urn:li:activity:7?trk=x', LIVE));
+    t.track(startViewEvent('https://www.google.com/search?q=balloon+from+Windermere', LIVE));
+    expect(sent.length).toBe(5);
+    expect(sent.slice(3)).toEqual(['{"e":"link_open","landed":true,"ref":"www.linkedin.com"}', '{"e":"start_view","ref":"www.google.com"}']);
     for (const body of sent) {
-      expect(body).not.toMatch(/\d/); // no numbers at all: no coordinates, no times
+      expect(body).not.toMatch(/\d/); // no numbers at all: no coordinates, no times, no referrer paths
       // a featured city goes by its id ("tokyo"), never a place's name as shown
       expect(body).not.toMatch(/Windermere|Tokyo|Your location|"(lat|lon|name|start|hourly)"/);
       expect(parseBody(body)).not.toBeNull();
@@ -112,8 +114,12 @@ describe('no personal data in what is sent', () => {
   test('a link says only whether its balloon has landed (72 hours after the release)', () => {
     const release = Date.UTC(2026, 10, 10, 9);
     const b = { v: 1, name: 'x', start: { lat: 0, lon: 0 }, release, hourly: [], runId: 'r' } as SavedBalloon;
-    expect(linkOpenEvent(b, release + 71 * 3600e3)).toEqual({ e: 'link_open', landed: false });
-    expect(linkOpenEvent(b, release + 72 * 3600e3)).toEqual({ e: 'link_open', landed: true });
+    expect(linkOpenEvent(b, release + 71 * 3600e3, '', LIVE)).toEqual({ e: 'link_open', landed: false, ref: 'direct' });
+    expect(linkOpenEvent(b, release + 72 * 3600e3, 'https://t.co/x', LIVE)).toEqual({ e: 'link_open', landed: true, ref: 't.co' });
+  });
+
+  test('building an event that throws is swallowed: the press it counts still happens', () => {
+    expect(() => track(() => { throw new Error('bad balloon'); })).not.toThrow();
   });
 });
 

@@ -59,7 +59,7 @@ test('the live address counts (the control), and sends nothing with Global Priva
   const counted = await serveAs(page, LIVE, baseURL!);
   await asVisitor(page);
   await visit(page, LIVE);
-  await expect.poll(() => counted).toEqual(expect.arrayContaining(['{"e":"start_view"}', '{"e":"let_go","source":"featured","city":"london"}']));
+  await expect.poll(() => counted).toEqual(expect.arrayContaining(['{"e":"start_view","ref":"direct"}', '{"e":"let_go","source":"featured","city":"london"}']));
   // London's start is 51.5007, -0.1263: never a coordinate or the place as shown
   for (const body of counted) expect(body).not.toMatch(/51\.5|0\.12|London|"lat"|"lon"/);
 

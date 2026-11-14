@@ -3,7 +3,9 @@
  *
  * One small JSON event from the page (src/analytics/track.ts) becomes one row in the Workers
  * Analytics Engine dataset bound as LGOAB_EVENTS (wrangler.toml): the event, its one detail, a
- * featured city if any, and the country Cloudflare's edge read from the connection (request.cf).
+ * featured city if any, the country Cloudflare's edge read from the connection (request.cf), and
+ * for a visit the device class (mobile, tablet or desktop, from the User-Agent) and the referring
+ * site's bare hostname.
  *
  * - The answer is always 204 with no body, whatever arrives: nothing to learn from it.
  * - Stored only when the event is on the whitelist (src/analytics/events.ts), the body is small,
@@ -61,7 +63,8 @@ export async function onRequestPost({ request, env }: Context): Promise<Response
     const text = await readSmall(request, MAX_BODY);
     const ev = text === null ? null : parseBody(text);
     if (!ev) return done();
-    ds.writeDataPoint(toDataPoint(ev, request.cf?.country));
+    // the device class is read from the User-Agent here; the User-Agent itself is not kept
+    ds.writeDataPoint(toDataPoint(ev, request.cf?.country, request.headers.get('user-agent')));
   } catch {
     // counting never fails a request, and nothing is logged
   }

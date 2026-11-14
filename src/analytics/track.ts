@@ -12,7 +12,7 @@
 import { FLIGHT_HOURS } from '../config';
 import type { SavedBalloon } from '../flight/codec';
 import type { StartChoice } from '../ui/start';
-import { CITIES, parseEvent, secsBucket, type AnalyticsEvent, type City } from './events';
+import { CITIES, parseEvent, refHost, secsBucket, type AnalyticsEvent, type City } from './events';
 import { isProductionHost } from './hosts';
 
 export { PRODUCTION_HOSTS, isProductionHost } from './hosts';
@@ -86,9 +86,14 @@ export function letGoEvent(c: StartChoice): AnalyticsEvent {
   return { e: 'let_go', source: c.kind === 'gps' ? 'location' : 'search' };
 }
 
-/** A shared link opened: only whether its balloon has landed. */
-export function linkOpenEvent(b: SavedBalloon, now: number): AnalyticsEvent {
-  return { e: 'link_open', landed: now >= b.release + FLIGHT_HOURS * 3600e3 };
+/** The start screen seen first: and the referring site's bare hostname, or 'direct'. */
+export function startViewEvent(referrer: string, ownHost: string): AnalyticsEvent {
+  return { e: 'start_view', ref: refHost(referrer, ownHost) };
+}
+
+/** A shared link opened: only whether its balloon has landed, and the referring site's bare hostname. */
+export function linkOpenEvent(b: SavedBalloon, now: number, referrer: string, ownHost: string): AnalyticsEvent {
+  return { e: 'link_open', landed: now >= b.release + FLIGHT_HOURS * 3600e3, ref: refHost(referrer, ownHost) };
 }
 
 function beacon(body: string): void {
@@ -112,10 +117,13 @@ function tracker(): Tracker {
   return page;
 }
 
-/** Count one event (does nothing off the live site, with GPC on, or past the cap). */
-export function track(ev: AnalyticsEvent): void {
+/**
+ * Count one event (does nothing off the live site, with GPC on, or past the cap). Pass a function to
+ * build the event: if building it throws, nothing is counted and the caller carries on.
+ */
+export function track(ev: AnalyticsEvent | (() => AnalyticsEvent)): void {
   try {
-    tracker().track(ev);
+    tracker().track(typeof ev === 'function' ? ev() : ev);
   } catch {
     // never breaks the page
   }
