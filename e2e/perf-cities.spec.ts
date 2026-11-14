@@ -127,12 +127,14 @@ for (const city of CITIES) {
     if (city.winds) {
       await page.getByRole('button', { name: 'Let go', exact: true }).click();
       record('launch and first 40 s', await sample(page, 40_000));
-      if (process.env.PERF_SHOTS) await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-launch.png`, timeout: 120_000 });
+      // (a picture is best-effort: a busy software renderer can miss one, and that is no budget failure)
+      if (process.env.PERF_SHOTS) await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-launch.png`, timeout: 60_000 }).catch(() => console.log('perf-cities: no launch picture'));
     }
 
     // the climb, from links: 2, 5 and 10 minutes after release
     for (const min of [2, 5, 10]) {
-      const release = now - min * 60e3;
+      // minutes before the page's own clock (it has run on since the test set it), so the climb is as high as it says
+      const release = (await page.evaluate(() => Date.now())) - min * 60e3;
       const hourly = Array.from({ length: 73 }, (_, i) => destination(city.at, city.headingDeg, i * 12));
       const b: SavedBalloon = { v: 1, name: city.name, start: { ...city.at }, release, hourly, runId: '2026111218' };
       await page.goto('about:blank');
@@ -146,7 +148,7 @@ for (const city of CITIES) {
         for (const v of ['film', 'ride', 'above']) {
           await page.locator(`.view[data-view="${v}"]`).click().catch(() => {});
           await page.waitForTimeout(4000);
-          await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-${min}min-${v}.png`, timeout: 120_000 });
+          await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-${min}min-${v}.png`, timeout: 60_000 }).catch(() => console.log(`perf-cities: no ${v} picture`));
         }
       }
     }
