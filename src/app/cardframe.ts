@@ -28,15 +28,22 @@ import { M_PER_DEG } from '../world/frame';
 export const EARTH_R_M = EARTH_RADIUS_KM * 1000;
 /** The card's picture: 1080 x 1000 above the panel. */
 export const CARD_ASPECT = 1080 / 1000;
-export const CARD_FOV = 30;
+export const CARD_FOV = 34;
 /** The route's projection is kept inside this box (fractions of the picture, from its top left). */
 export const ROUTE_BOX = { left: 0.14, right: 0.86, top: 0.27, bottom: 0.77 };
+/** At least this many times the trip's length away, so the land round it shows (whatever the route's shape). */
+export const CONTEXT_K = 3;
 /** Never nearer than this: a short trip still shows its city region. */
 export const MIN_DIST_M = 110_000;
 const MAX_DIST_M = 14_000_000;
 /** Degrees from straight down: steep for a long trip (its far end stays readable), oblique for a short one. */
 export const TILT_MIN = 40;
 export const TILT_MAX = 56;
+/** From this high up (camera above the ground it looks at) the horizon shows: it is put at HORIZON_Y. */
+const HORIZON_FROM_M = 350_000;
+export const HORIZON_Y = 0.065;
+/** The camera turns no further from straight down than this to bring the horizon into the picture. */
+const TILT_HORIZON_MAX = 56;
 /** Looking across a route that comes back on itself: closer to straight down. */
 const TILT_ACROSS = 34;
 /** A route whose start-to-landing line is shorter than this share of its spread is looked at across. */
@@ -106,6 +113,19 @@ export function projectTo(cam: THREE.PerspectiveCamera, x: number, z: number, y 
   return { fx: (v.x + 1) / 2, fy: (1 - v.y) / 2, seen: facing && v.z < 1 && v.z > -1 };
 }
 
+/** Where the horizon crosses the middle of the picture, from its top (0: no sky in the picture). */
+export function horizonFy(cam: THREE.PerspectiveCamera): number {
+  if (groundHit(cam, 0.5, 0)) return 0;
+  if (!groundHit(cam, 0.5, 1)) return 1;
+  let a = 0, b = 1;
+  for (let i = 0; i < 20; i++) {
+    const m = (a + b) / 2;
+    if (groundHit(cam, 0.5, m)) b = m;
+    else a = m;
+  }
+  return (a + b) / 2;
+}
+
 type Local = { x: number; z: number };
 
 /** The route's spread: its start-to-landing vector, and its main axis (unit) and extent along it, m. */
@@ -155,8 +175,9 @@ function thin(pts: LatLon[], n = 160): LatLon[] {
  * The card's framing for a route (its points in order, start first). `aspect` and `box` default to the
  * card's picture; the 2D fallback has its own map and does not use this.
  */
-export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROUTE_BOX } = {}): CardShot {
+export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROUTE_BOX; fovDeg?: number } = {}): CardShot {
   const aspect = o.aspect ?? CARD_ASPECT;
+  const fovDeg = o.fovDeg ?? CARD_FOV;
   const box = o.box ?? ROUTE_BOX;
   const landing = route[route.length - 1];
   const pts = thin(route).map((p) => toCard(landing, p));
@@ -180,7 +201,7 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
     lo = { x: Math.min(lo.x, p.x), z: Math.min(lo.z, p.z) };
     hi = { x: Math.max(hi.x, p.x), z: Math.max(hi.z, p.z) };
   }
-  const pose: CardPose = { target: { x: (lo.x + hi.x) / 2, z: (lo.z + hi.z) / 2 }, headingDeg, tiltDeg, distM: MIN_DIST_M, fovDeg: CARD_FOV };
+  const pose: CardPose = { target: { x: (lo.x + hi.x) / 2, z: (lo.z + hi.z) / 2 }, headingDeg, tiltDeg, distM: MIN_DIST_M, fovDeg };
   const cam = new THREE.PerspectiveCamera();
   const bboxAt = (p: CardPose) => {
     poseCamera(p, aspect, cam);
@@ -211,26 +232,127 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
         if (fits({ ...pose, distM: m })) b = m;
         else a = m;
       }
-    pose.distM = b;
+    // and far enough off for the coast and countries round the route to show (a short trip: its region)
+    pose.distM = Math.max(b, CONTEXT_K * lengthKm * 1000);
+    // seen from high up, the horizon arcs across the top of the picture, at HORIZON_Y: the camera turns
+    // up or down to put it there (within the limits), and the distance is fitted again next round
+    if (!across && pose.distM * Math.cos(pose.tiltDeg * D2R) > HORIZON_FROM_M) {
+      let lo = TILT_MIN, hi = TILT_HORIZON_MAX;
+      for (let i = 0; i < 24; i++) {
+        const m = (lo + hi) / 2;
+        if (horizonFy(poseCamera({ ...pose, tiltDeg: m }, aspect, cam)) < HORIZON_Y) lo = m;
+        else hi = m;
+      }
+      pose.tiltDeg = Math.max(pose.tiltDeg, (lo + hi) / 2);
+    }
     // centre the route in the box: move the target across and along by the offsets, scaled to metres
     const bb = bboxAt(pose);
     const cx = (bb.x0 + bb.x1) / 2 - (box.left + box.right) / 2;
     const cy = (bb.y0 + bb.y1) / 2 - (box.top + box.bottom) / 2;
-    const span = 2 * pose.distM * Math.tan((CARD_FOV / 2) * D2R); // metres across the picture's height at the target
-    const along = (-cy * span) / Math.cos(tiltDeg * D2R);
+    const span = 2 * pose.distM * Math.tan((fovDeg / 2) * D2R); // metres across the picture's height at the target
+    const along = (-cy * span) / Math.cos(pose.tiltDeg * D2R);
     const side = cx * span * aspect;
     pose.target = { x: pose.target.x + right.x * side + fwd.x * along, z: pose.target.z + right.z * side + fwd.z * along };
   }
   // the last move may have pushed it a little out: back off until it fits again
   for (let i = 0; i < 30 && !fits(pose); i++) pose.distM *= 1.03;
-  return { ...pose, landing: { lat: landing.lat, lon: landing.lon }, across, altM: pose.distM * Math.cos(tiltDeg * D2R) };
+  return { ...pose, landing: { lat: landing.lat, lon: landing.lon }, across, altM: pose.distM * Math.cos(pose.tiltDeg * D2R) };
+}
+
+// ---- the tiles the card world draws ----
+
+/** The zoom levels the card world draws from (lod.ts levelFor knows each). */
+export const CARD_ZOOMS = [5, 6, 7, 10, 12];
+/** A tile is drawn about this many picture pixels across (its 64 ground cells a few pixels each). */
+const TILE_PX = 300;
+/** At most this many tiles in a card world. */
+export const CARD_MAX_TILES = 110;
+const CIRC_M = 2 * Math.PI * 6378137;
+
+/**
+ * Where a ray from the camera through picture point (fx, fy) meets the bent ground (a sphere through
+ * the landing), card-world metres, or null when it misses the Earth (the sky).
+ */
+export function groundHit(cam: THREE.PerspectiveCamera, fx: number, fy: number): { x: number; z: number; d: number } | null {
+  v.set(fx * 2 - 1, 1 - fy * 2, 0.5).unproject(cam).sub(cam.position).normalize();
+  // |C + t v - O|^2 = R^2, O = (0, -R, 0)
+  const ox = cam.position.x, oy = cam.position.y + EARTH_R_M, oz = cam.position.z;
+  const b = ox * v.x + oy * v.y + oz * v.z;
+  const cc = ox * ox + oy * oy + oz * oz - EARTH_R_M * EARTH_R_M;
+  const disc = b * b - cc;
+  if (disc < 0) return null;
+  const t = -b - Math.sqrt(disc);
+  if (t <= 0) return null;
+  return { x: cam.position.x + v.x * t, z: cam.position.z + v.z * t, d: t };
+}
+
+/** The card world's lat/lon of card-world metres (toCard's inverse). */
+export function fromCard(landing: LatLon, x: number, z: number): LatLon {
+  const lat = Math.max(-85, Math.min(85, landing.lat - z / M_PER_DEG));
+  const lon = landing.lon + x / (M_PER_DEG * Math.cos(landing.lat * D2R));
+  return { lat, lon: ((((lon + 180) % 360) + 360) % 360) - 180 };
+}
+
+function tileOf(p: LatLon, z: number): { z: number; x: number; y: number } {
+  const n = 2 ** z;
+  const lat = Math.max(-85.05, Math.min(85.05, p.lat)) * D2R;
+  const x = Math.floor(((p.lon + 180) / 360) * n);
+  const y = Math.floor(((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n);
+  return { z, x: ((x % n) + n) % n, y: Math.max(0, Math.min(n - 1, y)) };
+}
+
+/**
+ * The map tiles under the pictures seen from these poses (the card's, and the reveal's on its way up),
+ * each at the zoom whose tile is drawn about TILE_PX across where it shows: whole-region z5 and z6 tiles
+ * from far up, z10 and z12 round the balloon at the start of the reveal. The landing's and the start's
+ * tiles first, then nearest the route; at most CARD_MAX_TILES.
+ */
+export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o: { aspect?: number; heightPx?: number; max?: number } = {}): { z: number; x: number; y: number }[] {
+  const aspect = o.aspect ?? CARD_ASPECT, heightPx = o.heightPx ?? 1000;
+  const rank = new Map<string, { t: { z: number; x: number; y: number }; r: number }>();
+  const add = (t: { z: number; x: number; y: number }, r: number) => {
+    const k = `${t.z}/${t.x}/${t.y}`;
+    const had = rank.get(k);
+    if (!had || r < had.r) rank.set(k, { t, r });
+  };
+  const cam = new THREE.PerspectiveCamera();
+  const pts = thin(route, 40).map((p) => toCard(landing, p));
+  const near = (x: number, z: number) => Math.min(...pts.map((p) => Math.hypot(p.x - x, p.z - z)));
+  poses.forEach((pose, pi) => {
+    poseCamera(pose, aspect, cam);
+    const pxRad = (pose.fovDeg * D2R) / heightPx;
+    const N = 14;
+    for (let i = 0; i <= N; i++)
+      for (let j = 0; j <= N; j++) {
+        const hit = groundHit(cam, j / N, i / N);
+        if (!hit) continue;
+        const ll = fromCard(landing, hit.x, hit.z);
+        // metres per picture pixel there (looking down at a slant: a little more)
+        const mpp = hit.d * pxRad * 1.4;
+        const want = Math.log2((CIRC_M * Math.cos(ll.lat * D2R)) / (mpp * TILE_PX));
+        const z = CARD_ZOOMS.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
+        add(tileOf(ll, z), 10 + pi + near(hit.x, hit.z) / 1e6);
+      }
+  });
+  // the two ends and the line between them, at the zoom their part of the picture asked for, else z6
+  const zAt = (p: LatLon) => {
+    for (const z of [...CARD_ZOOMS].reverse()) {
+      const t = tileOf(p, z);
+      if (rank.has(`${z}/${t.x}/${t.y}`)) return z;
+    }
+    return 6;
+  };
+  add(tileOf(landing, zAt(landing)), 0);
+  add(tileOf(route[0], zAt(route[0])), 1);
+  for (const p of thin(route, 40)) add(tileOf(p, zAt(p)), 2);
+  return [...rank.values()].sort((a, b) => a.r - b.r).slice(0, o.max ?? CARD_MAX_TILES).map((e) => e.t);
 }
 
 // ---- the reveal's move ----
 
 /** Where the reveal starts: on the landed balloon, looking the way the card will, from REVEAL_START_M. */
-export const REVEAL_START_M = 4200;
-const START_TILT = 62;
+export const REVEAL_START_M = 9000;
+const START_TILT = 52;
 
 export function revealStart(shot: CardShot): CardPose {
   return { target: { x: 0, z: 0 }, headingDeg: shot.headingDeg, tiltDeg: START_TILT, distM: REVEAL_START_M, fovDeg: shot.fovDeg };
@@ -246,12 +368,14 @@ export function poseAt(from: CardPose, to: CardPose, k: number): CardPose {
   if (k <= 0) return { ...from, target: { ...from.target } };
   if (k >= 1) return { ...to, target: { ...to.target } };
   const distM = from.distM * (to.distM / from.distM) ** k;
-  // the share of the way out in plain distance: tiny while near, all of it at the end
+  // the share of the way out in plain distance (tiny while near, all of it at the end), squared for the
+  // look point, so the balloon stays near the middle until the land round it is small
   const w = (distM - from.distM) / (to.distM - from.distM || 1);
+  const wt = w * w;
   let dh = ((to.headingDeg - from.headingDeg + 540) % 360) - 180;
   if (dh === -180) dh = 180;
   return {
-    target: { x: from.target.x + (to.target.x - from.target.x) * w, z: from.target.z + (to.target.z - from.target.z) * w },
+    target: { x: from.target.x + (to.target.x - from.target.x) * wt, z: from.target.z + (to.target.z - from.target.z) * wt },
     headingDeg: (from.headingDeg + dh * k + 360) % 360,
     tiltDeg: from.tiltDeg + (to.tiltDeg - from.tiltDeg) * Math.sqrt(w),
     distM,

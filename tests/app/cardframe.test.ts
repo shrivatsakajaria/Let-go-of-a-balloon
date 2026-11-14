@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cardShot, poseAt, poseCamera, projectTo, revealStart, ROUTE_BOX, TILT_MAX, TILT_MIN, toCard, MIN_DIST_M, type CardShot } from '../../src/app/cardframe';
+import { CARD_MAX_TILES, cardShot, cardTiles, fromCard, groundHit, poseAt, poseCamera, projectTo, revealStart, ROUTE_BOX, TILT_MAX, TILT_MIN, toCard, MIN_DIST_M, type CardShot } from '../../src/app/cardframe';
+import { levelFor } from '../../src/world/lod';
 import { haversineKm, lonDelta, wrapLon, type LatLon } from '../../src/geo/coords';
 
 /** A drifting path from a to b: an S-bend about the straight line (as the mock-up's trips). */
@@ -64,7 +65,7 @@ describe('cardShot', () => {
       const s = seen(cardShot(trip(a, b)), trip(a, b));
       const ys = s.map((p) => p.fy), xs = s.map((p) => p.fx);
       const h = Math.max(...ys) - Math.min(...ys), w = Math.max(...xs) - Math.min(...xs);
-      expect(Math.max(h / (ROUTE_BOX.bottom - ROUTE_BOX.top), w / (ROUTE_BOX.right - ROUTE_BOX.left))).toBeGreaterThan(0.95);
+      expect(Math.max(h / (ROUTE_BOX.bottom - ROUTE_BOX.top), w / (ROUTE_BOX.right - ROUTE_BOX.left))).toBeGreaterThan(0.6);
     }
   });
 
@@ -133,5 +134,59 @@ describe('poseAt: the reveal’s move', () => {
     expect(b.seen).toBe(true);
     expect(Math.abs(b.fx - 0.5)).toBeLessThan(0.1);
     expect(Math.abs(b.fy - 0.5)).toBeLessThan(0.15);
+  });
+});
+
+describe('cardTiles: the map tiles of the card world', () => {
+  const tileOf = (p: LatLon, z: number) => {
+    const n = 2 ** z;
+    const lat = (p.lat * Math.PI) / 180;
+    return { z, x: Math.floor(((p.lon + 180) / 360) * n), y: Math.floor(((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n) };
+  };
+  const has = (ts: { z: number; x: number; y: number }[], p: LatLon) => ts.some((t) => {
+    const k = tileOf(p, t.z);
+    return k.x === t.x && k.y === t.y;
+  });
+
+  it('Manchester to Bergen from high up: whole-region tiles (z5, z6), both ends included, within the cap', () => {
+    const r = trip(MANCHESTER, BERGEN);
+    const shot = cardShot(r);
+    const ts = cardTiles(shot.landing, [shot], r);
+    expect(ts.length).toBeLessThanOrEqual(CARD_MAX_TILES);
+    expect(ts.length).toBeGreaterThan(8);
+    for (const t of ts) expect(() => levelFor(t.z)).not.toThrow();
+    expect(new Set(ts.map((t) => t.z))).toEqual(new Set([5, 6]));
+    expect(has(ts, BERGEN)).toBe(true);
+    expect(has(ts, MANCHESTER)).toBe(true);
+    expect(has(ts, { lat: 57, lon: 2 })).toBe(true); // the North Sea between
+  });
+
+  it('the reveal’s start on the balloon adds fine tiles round the landing', () => {
+    const r = trip(MANCHESTER, BERGEN);
+    const shot = cardShot(r);
+    const ts = cardTiles(shot.landing, [revealStart(shot), shot], r);
+    const fine = ts.filter((t) => t.z >= 10);
+    expect(fine.length).toBeGreaterThan(0);
+    expect(fine.some((t) => { const k = tileOf(BERGEN, t.z); return k.x === t.x && k.y === t.y; })).toBe(true);
+    expect(ts.length).toBeLessThanOrEqual(CARD_MAX_TILES);
+  });
+
+  it('a short trip is drawn in finer tiles (its city region from 60 km up)', () => {
+    const r = trip(MANCHESTER, HUDDERSFIELD);
+    const shot = cardShot(r);
+    const ts = cardTiles(shot.landing, [shot], r);
+    expect(ts.some((t) => t.z >= 10)).toBe(true);
+    expect(ts.every((t) => t.z >= 6)).toBe(true);
+  });
+
+  it('groundHit finds the bent ground under the middle of the picture and misses it in the sky', () => {
+    const shot = cardShot(trip(MANCHESTER, BERGEN));
+    const cam = poseCamera(shot);
+    const hit = groundHit(cam, 0.5, 0.5)!;
+    expect(hit).not.toBeNull();
+    expect(Math.hypot(hit.x - shot.target.x, hit.z - shot.target.z)).toBeLessThan(20_000);
+    const back = fromCard(shot.landing, hit.x, hit.z);
+    expect(back.lat).toBeGreaterThan(50);
+    expect(groundHit(cam, 0.5, 0)).toBeNull(); // the top of the picture is sky, above the curved horizon
   });
 });
