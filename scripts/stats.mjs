@@ -7,9 +7,10 @@
  *   node scripts/stats.mjs --yesterday      yesterday (UTC)
  *   node scripts/stats.mjs --date 2026-11-13
  *
- * Reads two things from Cloudflare, with a read-only token (Account Analytics Read):
- * - Web Analytics (GraphQL, rumPageloadEventsAdaptiveGroups): visits, countries, referrers, devices;
- * - Workers Analytics Engine (SQL API, dataset lgoab_events): the counted events.
+ * Reads Workers Analytics Engine (SQL API, dataset lgoab_events) with a read-only token (Account
+ * Analytics Read). Visits are the start screen seen first plus shared links opened, by country (from
+ * Cloudflare's edge), device class (from the User-Agent, at the edge) and referring site (hostname).
+ * At most 31 days at a time.
  *
  * The token comes from CF_ANALYTICS_TOKEN, or, with none set, from a proxy that adds the
  * Authorization header itself (a Claude session's saved credential). It is never printed.
@@ -43,7 +44,7 @@ export function parseArgs(argv, now = new Date()) {
   }
   const daysArg = at('--days');
   const days = daysArg === null ? 7 : Number(daysArg);
-  if (!Number.isInteger(days) || days < 1 || days > 92) throw new Error('--days wants a whole number from 1 to 92');
+  if (!Number.isInteger(days) || days < 1 || days > 31) throw new Error('--days wants a whole number from 1 to 31 (ask for longer ranges a month at a time)');
   return { start: new Date(now.getTime() - days * DAY), end: now, label: `the last ${days} day${days === 1 ? '' : 's'} to ${now.toISOString().slice(0, 16).replace('T', ' ')} UTC` };
 }
 
@@ -60,19 +61,9 @@ export function countriesSql(start, end) {
   return `SELECT blob4 AS country, SUM(_sample_interval) AS n FROM ${DATASET} WHERE ${where(start, end)} AND blob1 = 'let_go' GROUP BY country ORDER BY n DESC LIMIT 15 FORMAT JSON`;
 }
 
-export function rumQuery() {
-  const group = (name, limit, dims) =>
-    `${name}: rumPageloadEventsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: $start, datetime_lt: $end }${dims ? ', orderBy: [sum_visits_DESC]' : ''}) { count sum { visits }${dims ? ` dimensions { ${dims} }` : ''} }`;
-  return `query Stats($accountTag: string!, $start: Time!, $end: Time!) {
-  viewer {
-    accounts(filter: { accountTag: $accountTag }) {
-      ${group('total', 1, '')}
-      ${group('countries', 15, 'countryName')}
-      ${group('referers', 15, 'refererHost')}
-      ${group('devices', 10, 'deviceType')}
-    }
-  }
-}`;
+/** Visits (the start screen seen first, and shared links opened) by country, device and referrer. */
+export function visitsSql(start, end) {
+  return `SELECT blob4 AS country, blob5 AS device, blob6 AS ref, SUM(_sample_interval) AS n FROM ${DATASET} WHERE ${where(start, end)} AND blob1 IN ('start_view', 'link_open') GROUP BY country, device, ref ORDER BY n DESC FORMAT JSON`;
 }
 
 const headers = (token, extra = {}) => ({ ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) });
@@ -95,15 +86,6 @@ async function call(fetchFn, url, init) {
   return JSON.parse(text);
 }
 
-export async function fetchRum(fetchFn, token, account, start, end) {
-  const body = { query: rumQuery(), variables: { accountTag: account, start: start.toISOString(), end: end.toISOString() } };
-  const j = await call(fetchFn, `${API}/graphql`, { method: 'POST', headers: headers(token, { 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
-  if (j.errors?.length) throw new Error(j.errors.map((e) => e.message).join('; '));
-  const acc = j.data?.viewer?.accounts?.[0];
-  if (!acc) throw new Error('no such account, or the token cannot read it');
-  return acc;
-}
-
 export async function fetchSql(fetchFn, token, account, sql) {
   const j = await call(fetchFn, `${API}/accounts/${account}/analytics_engine/sql`, { method: 'POST', headers: headers(token, { 'Content-Type': 'text/plain' }), body: sql });
   return (j.data ?? []).map((r) => ({ ...r, n: Number(r.n) }));
@@ -112,22 +94,25 @@ export async function fetchSql(fetchFn, token, account, sql) {
 const SECS = ['<10s', '10-30s', '30-60s', '1-3m', '3-10m', '10m+'];
 const list = (pairs) => (pairs.length ? pairs.map(([k, n]) => `${k} ${n}`).join(', ') : 'none');
 
-/** The plain summary. rum/rows/countries may be null, with a reason in rumError/rowsError. */
-export function report({ label, rum, rumError, rows, rowsError, countries }) {
+/** Totals of n by one field, largest first (ties in the order first seen). */
+function totals(rows, key, limit = 15) {
+  const m = new Map();
+  for (const r of rows) m.set(r[key] || '(unknown)', (m.get(r[key] || '(unknown)') ?? 0) + r.n);
+  return [...m].sort((a, b) => b[1] - a[1]).slice(0, limit);
+}
+
+/** The plain summary. visits/rows/countries may be null, with the reason in error. */
+export function report({ label, visits, rows, error, countries }) {
   const out = [`Let Go of a Balloon: ${label}`, ''];
-  if (rum) {
-    const t = rum.total?.[0] ?? { count: 0, sum: { visits: 0 } };
-    const by = (g, dim, blank = '(unknown)') => list((g ?? []).map((r) => [r.dimensions[dim] || blank, r.sum.visits]));
-    out.push(`Visits: ${t.sum.visits} (${t.count} page views)`);
-    out.push(`  Countries: ${by(rum.countries, 'countryName')}`);
-    out.push(`  Came from: ${by(rum.referers, 'refererHost', '(direct)')}`);
-    out.push(`  Devices:   ${by(rum.devices, 'deviceType')}`);
-  } else out.push(`Visits: not available (${rumError ?? 'no data'})`);
-  out.push('');
-  if (!rows) {
-    out.push(`Events: not available (${rowsError ?? 'no data'})`);
+  if (!visits || !rows) {
+    out.push(`Not available (${error ?? 'no data'})`);
     return out.join('\n');
   }
+  out.push(`Visits: ${visits.reduce((a, r) => a + r.n, 0)} (the start screen, or a shared link, opened)`);
+  out.push(`  Countries: ${list(totals(visits, 'country'))}`);
+  out.push(`  Came from: ${list(totals(visits, 'ref'))}`);
+  out.push(`  Devices:   ${list(totals(visits, 'device'))}`);
+  out.push('');
   const of = (e) => rows.filter((r) => r.event === e);
   const sum = (rs) => rs.reduce((a, r) => a + r.n, 0);
   const details = (rs, order) => {
@@ -169,22 +154,18 @@ async function main() {
   const token = process.env.CF_ANALYTICS_TOKEN || '';
   const account = process.env.CF_ACCOUNT_ID || ACCOUNT_ID;
   const why = (e) => (e instanceof Error ? e.message : String(e));
-  let rum = null, rumError, rows = null, rowsError, countries = null;
+  let visits = null, rows = null, countries = null, error;
   try {
-    rum = await fetchRum(fetch, token, account, start, end);
-  } catch (e) {
-    rumError = why(e);
-  }
-  try {
+    visits = await fetchSql(fetch, token, account, visitsSql(start, end));
     rows = await fetchSql(fetch, token, account, eventsSql(start, end));
     countries = await fetchSql(fetch, token, account, countriesSql(start, end));
   } catch (e) {
-    rowsError = why(e);
+    error = why(e);
   }
-  console.log(report({ label, rum, rumError, rows, rowsError, countries }));
-  if (/Authorization|Authentication|9106|10000/i.test(`${rumError} ${rowsError}`))
-    console.error('\nNo working read-only token. See docs/for-sk/analytics.md, "Let Claude read the numbers".');
-  if (!rum && !rows) process.exitCode = 1;
+  console.log(report({ label, visits, rows, error, countries }));
+  if (/Authorization|Authentication|9106|10000/i.test(String(error)))
+    console.error('\nNo working read-only token. See docs/for-sk/analytics.md, "Asking me for the numbers".');
+  if (error) process.exitCode = 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
