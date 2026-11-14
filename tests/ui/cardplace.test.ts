@@ -118,8 +118,11 @@ describe('pickPlaces', () => {
     expect(got.length).toBeLessThanOrEqual(MAX_PLACES);
     expect(names[0]).toBe('NORTH SEA');
     expect(names).not.toContain('SWEDEN');
-    expect(names).not.toContain('MIDDLE');
-    expect(names).not.toContain('COVERED');
+    // a name whose own spot is on the route or under a big name moves a little way off, or is left out
+    for (const p of got) {
+      expect(lineHits(route, p.box, 16)).toBe(false);
+      expect(overlaps(p.box, { x0: 100, y0: 330, x1: 400, y1: 460 }, 14)).toBe(false);
+    }
     for (const a of got) for (const b of got) if (a !== b) expect(overlaps(a.box, b.box)).toBe(false);
   });
 

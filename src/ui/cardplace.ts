@@ -40,7 +40,8 @@ export function costGrid(px: Uint8ClampedArray | Uint8Array, w: number, h: numbe
       const i = (y * w + x) * 4;
       const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      const water = b > r + 0.04 && b >= g - 0.1;
+      // sea is blue to teal, and stays cool under the haze (grey-green, its blue not under its red); land is warmer
+      const water = b >= r - 0.01 && b >= g - 0.12;
       const c = (water ? 0.15 : 1) + Math.max(0, lum - 0.42) * 4;
       const k = Math.floor(y / cell) * cols + Math.floor(x / cell);
       cost[k] += c;
@@ -133,10 +134,10 @@ const SPOTS: Spot[] = [
   { name: 'left', place: (a, b, c) => ({ box: { x0: c.x0 - 22 - b.w, y0: a.y - b.h * 0.62, x1: c.x0 - 22, y1: a.y + b.h * 0.38 }, align: 'right' }) },
   { name: 'above', place: (a, b, c) => ({ box: { x0: a.x - b.w / 2, y0: c.y0 - 18 - b.h, x1: a.x + b.w / 2, y1: c.y0 - 18 }, align: 'center' }) },
   { name: 'below', place: (a, b, c) => ({ box: { x0: a.x - b.w / 2, y0: c.y1 + 18, x1: a.x + b.w / 2, y1: c.y1 + 18 + b.h }, align: 'center' }) },
-  { name: 'above-right', place: (a, b, c) => ({ box: { x0: c.x1 + 6, y0: c.y0 - 10 - b.h, x1: c.x1 + 6 + b.w, y1: c.y0 - 10 }, align: 'left' }) },
-  { name: 'above-left', place: (a, b, c) => ({ box: { x0: c.x0 - 6 - b.w, y0: c.y0 - 10 - b.h, x1: c.x0 - 6, y1: c.y0 - 10 }, align: 'right' }) },
-  { name: 'below-right', place: (a, b, c) => ({ box: { x0: c.x1 + 6, y0: c.y1 + 10, x1: c.x1 + 6 + b.w, y1: c.y1 + 10 + b.h }, align: 'left' }) },
-  { name: 'below-left', place: (a, b, c) => ({ box: { x0: c.x0 - 6 - b.w, y0: c.y1 + 10, x1: c.x0 - 6, y1: c.y1 + 10 + b.h }, align: 'right' }) },
+  { name: 'above-right', place: (_a, b, c) => ({ box: { x0: c.x1 + 6, y0: c.y0 - 10 - b.h, x1: c.x1 + 6 + b.w, y1: c.y0 - 10 }, align: 'left' }) },
+  { name: 'above-left', place: (_a, b, c) => ({ box: { x0: c.x0 - 6 - b.w, y0: c.y0 - 10 - b.h, x1: c.x0 - 6, y1: c.y0 - 10 }, align: 'right' }) },
+  { name: 'below-right', place: (_a, b, c) => ({ box: { x0: c.x1 + 6, y0: c.y1 + 10, x1: c.x1 + 6 + b.w, y1: c.y1 + 10 + b.h }, align: 'left' }) },
+  { name: 'below-left', place: (_a, b, c) => ({ box: { x0: c.x0 - 6 - b.w, y0: c.y1 + 10, x1: c.x0 - 6, y1: c.y1 + 10 + b.h }, align: 'right' }) },
 ];
 
 /** Slide a box into bounds (as little as it needs). */
@@ -147,6 +148,9 @@ function inside(b: Box, bounds: Box): Box {
 }
 
 export type NameInput = { block: NameBlock; at: Pt; clear: Box };
+
+/** The last placement's candidates and their scores (for checks). */
+export const lastSpots: string[] = [];
 
 /** The penalty for a name over something it must never cover (it is chosen only if nothing else fits). */
 const HIT = 100;
@@ -174,6 +178,8 @@ export function placeNames(o: { start: NameInput | null; landing: NameInput | nu
   };
   const cs = o.start ? candidates(o.start, o.bounds).map((c) => ({ ...c, s: score(c) })) : [null];
   const cl = o.landing ? candidates(o.landing, o.bounds).map((c) => ({ ...c, s: score(c) })) : [null];
+  lastSpots.length = 0;
+  for (const [who, list] of [['start', cs], ['landing', cl]] as const) for (const c of list) if (c) lastSpots.push(`${who}:${c.spot}:${c.s.toFixed(2)}`);
   let best: { a: (typeof cs)[number]; b: (typeof cl)[number]; s: number } | null = null;
   for (const a of cs)
     for (const b of cl) {
@@ -190,6 +196,8 @@ export function placeNames(o: { start: NameInput | null; landing: NameInput | nu
 // ---- the map's names ----
 
 export const PLACE_FONT: CardFont = { size: 22, weight: 600, condensed: false, spacing: 5 };
+/** Where a name may go if its own spot is taken: a little above, below or to the side. */
+const NUDGES: [number, number][] = [[0, 0], [0, -36], [0, 36], [-80, 0], [80, 0], [0, -72], [0, 72], [-80, -36], [80, 36]];
 /** At most this many country and sea names. */
 export const MAX_PLACES = 4;
 
@@ -218,14 +226,19 @@ export function pickPlaces(o: { places: PlaceCandidate[]; route: Pt[]; avoid: Bo
     if (out.length >= MAX_PLACES) break;
     const text = p.text.toUpperCase();
     const w = o.m(text, PLACE_FONT);
-    const box = { x0: p.x - w / 2, y0: p.y - 18, x1: p.x + w / 2, y1: p.y + 4 };
     const b = o.bounds;
-    if (box.x0 < b.x0 || box.x1 > b.x1 || box.y0 < b.y0 || box.y1 > b.y1) continue;
-    if (o.skyY !== undefined && box.y0 < o.skyY + 40) continue;
-    if (lineHits(o.route, box, 16)) continue;
-    if (o.avoid.some((a) => overlaps(box, a, 14))) continue;
-    if (out.some((q) => overlaps(box, q.box, 24))) continue;
-    out.push({ text, kind: p.kind, x: p.x, y: p.y, box });
+    // where the map puts it, else a little way off (a sea or a country is an area, not a point)
+    for (const [dx, dy] of NUDGES) {
+      const x = p.x + dx, y = p.y + dy;
+      const box = { x0: x - w / 2, y0: y - 18, x1: x + w / 2, y1: y + 4 };
+      if (box.x0 < b.x0 || box.x1 > b.x1 || box.y0 < b.y0 || box.y1 > b.y1) continue;
+      if (o.skyY !== undefined && box.y0 < o.skyY + 40) continue;
+      if (lineHits(o.route, box, 16)) continue;
+      if (o.avoid.some((a) => overlaps(box, a, 14))) continue;
+      if (out.some((q) => overlaps(box, q.box, 24))) continue;
+      out.push({ text, kind: p.kind, x, y, box });
+      break;
+    }
   }
   return out;
 }

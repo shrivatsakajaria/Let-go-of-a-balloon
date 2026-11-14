@@ -46,7 +46,6 @@ export type CardView = {
 
 export type CardLook = { light: Light; night: number; sunElevationDeg: number };
 
-const D2R = Math.PI / 180;
 const WATER_KINDS = new Set(['ocean', 'sea', 'bay', 'strait', 'gulf']);
 
 /** The look for the landing's local time: the sun's real height there, held inside the keyed range. */
@@ -178,7 +177,7 @@ export class CardWorld {
   /** The camera for a pose, its haze set for how far it sees. */
   private aim(pose: CardPose, w: number, h: number): THREE.PerspectiveCamera {
     const cam = poseCamera(pose, w / h, this.camera);
-    const alt = Math.max(1, cam.position.y + dropAt(cam.position.x, cam.position.z) * 0);
+    const alt = Math.max(1, Math.hypot(cam.position.x, cam.position.y + EARTH_R_M, cam.position.z) - EARTH_R_M);
     const horizon = Math.sqrt(2 * EARTH_R_M * alt + alt * alt);
     const far = Math.max(horizon * 1.05, pose.distM * 1.6);
     cam.far = far * 1.3;
@@ -298,4 +297,3 @@ export class CardWorld {
   }
 }
 
-export { D2R as CARD_D2R };

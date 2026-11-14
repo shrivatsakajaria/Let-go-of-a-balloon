@@ -321,10 +321,11 @@ export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o
   poses.forEach((pose, pi) => {
     poseCamera(pose, aspect, cam);
     const pxRad = (pose.fovDeg * D2R) / heightPx;
-    const N = 14;
+    // rows closer together toward the top, where a pixel covers the most ground (out to the horizon)
+    const N = 22, M = 18;
     for (let i = 0; i <= N; i++)
-      for (let j = 0; j <= N; j++) {
-        const hit = groundHit(cam, j / N, i / N);
+      for (let j = 0; j <= M; j++) {
+        const hit = groundHit(cam, j / M, (i / N) ** 1.7);
         if (!hit) continue;
         const ll = fromCard(landing, hit.x, hit.z);
         // metres per picture pixel there (looking down at a slant: a little more)

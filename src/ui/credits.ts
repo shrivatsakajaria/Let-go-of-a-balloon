@@ -32,7 +32,7 @@ export const CREDITS: Credit[] = [
 ];
 
 /** The landing card's footer line. */
-export const CARD_CREDIT = `Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Terrain: © Mapterhorn · ${COPY.stillSignal}`;
+export const CARD_CREDIT = `Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Natural Earth · Terrain: © Mapterhorn · ${COPY.stillSignal}`;
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 

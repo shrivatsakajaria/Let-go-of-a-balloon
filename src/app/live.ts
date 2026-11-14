@@ -31,7 +31,7 @@ import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
 import { LiveScene, type SceneFrame } from './scene';
 import { cardHook, homeFor, prepareCard, presentCard } from './landingcard';
-import { cardScene, farStats, isFarRoute, settledWorld } from './cardshot';
+import { cardScene, farStats } from './cardshot';
 import { closeCardView } from '../ui/cardview';
 import { watchContextLoss, type ContextWatch } from './contextloss';
 import { resumeAction, savedFor, type Handover } from './world';
@@ -144,16 +144,23 @@ export class Live {
    */
   onReplayEnd: (route: Route, landed?: boolean) => void = (route, landed) => {
     const run = this.replayRun;
+    this.dropReplayKey();
     const onKey = (e: KeyboardEvent) => {
-      if (this.replayRun !== run) return removeEventListener('keydown', onKey);
       if (e.key === 'Escape') this.backToLive();
     };
+    this.replayKey = onKey;
     addEventListener('keydown', onKey);
-    // once the card is up it owns Escape; if it never comes, Escape stays with the held replay
-    void this.showCard(route, { closeLabel: COPY.backToLive, onClose: () => this.backToLive(), waitMs: 0, landed, while: () => this.replayRun === run }).then((up) => {
-      if (up) removeEventListener('keydown', onKey);
+    // once the card is up it owns Escape; if it never comes, Escape stays with the held replay (until Back to live)
+    void this.showCard(route, { closeLabel: COPY.backToLive, onClose: () => this.backToLive(), waitMs: 0, landed, reveal: true, while: () => this.replayRun === run }).then((up) => {
+      if (up && this.replayKey === onKey) this.dropReplayKey();
     });
   };
+  /** The held replay's Escape (Back to live), until the card is up or the replay goes. */
+  private replayKey: ((e: KeyboardEvent) => void) | null = null;
+  private dropReplayKey(): void {
+    if (this.replayKey) removeEventListener('keydown', this.replayKey);
+    this.replayKey = null;
+  }
   /** Browser tests set window.__lgoabTest before the page loads; only then is window.__live kept up to date. */
   private unwatch: () => void = () => {};
   private readonly testing = !!(window as unknown as { __lgoabTest?: boolean }).__lgoabTest;
@@ -465,7 +472,7 @@ export class Live {
     const replaying = () => this.replayRun === ctl && this.flight === fl && !this.scene.gone;
     // the card for the state the replay began in: a balloon that lands meanwhile still ends on this one
     const landed = Date.now() >= landedAt(fl.route);
-    void prepareCard({ scene: cardScene(this.scene), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate, landed });
+    void prepareCard({ scene: cardScene(this.scene, { reveal: true }), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate, landed });
     void playReplay(fl.route, {
       host: {
         scene: this.scene,
@@ -490,6 +497,7 @@ export class Live {
   /** Back to live from the replay (or nothing, if none is on): the live clock and view, at now. */
   backToLive(): void {
     const run = this.replayRun;
+    this.dropReplayKey();
     if (!run) return;
     this.replayRun = null;
     run.abort();
@@ -631,8 +639,9 @@ export class Live {
       const fl = this.flight;
       fl.carded = true;
       this.hud.setCard(() => void this.showCard(fl.route));
+      // the trip's end: the card comes in with its reveal (the camera rising from the landed balloon)
       setTimeout(() => {
-        if (this.flight === fl && !this.replayRun) void this.showCard(fl.route);
+        if (this.flight === fl && !this.replayRun) void this.showCard(fl.route, { reveal: true });
       }, CARD_AFTER_MS);
     }
 
@@ -653,7 +662,7 @@ export class Live {
    * from "Show the card", and at the end of the replay. Resolves once the card is on screen (true), or
    * with false when it was not made (the visitor moved on meanwhile, or it could not be).
    */
-  async showCard(route?: Route, opts: { closeLabel?: string; onClose?: () => void; waitMs?: number; landed?: boolean; while?: () => boolean } = {}): Promise<boolean> {
+  async showCard(route?: Route, opts: { closeLabel?: string; onClose?: () => void; waitMs?: number; landed?: boolean; while?: () => boolean; reveal?: boolean } = {}): Promise<boolean> {
     const fl = this.flight;
     if (!fl) return false;
     const r = route ?? fl.route;
@@ -662,9 +671,9 @@ export class Live {
     const isCurrent = () => ticket === this.cardTicket && this.flight === fl && (opts.while?.() ?? true);
     cardHook.world = farStats;
     const view = await presentCard({
-      scene: cardScene(this.scene),
-      // a long route's card world is its own: no wait for the live world round the landing
-      settle: isFarRoute(r) ? undefined : () => settledWorld(this.scene, opts.waitMs ?? 8000, isCurrent),
+      // the card's world is its own (no wait for the live world round the landing)
+      scene: cardScene(this.scene, { reveal: !!opts.reveal }),
+      reveal: opts.reveal,
       route: r,
       saved: fl.saved,
       own: fl.own,
