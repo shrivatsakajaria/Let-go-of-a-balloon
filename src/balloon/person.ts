@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { LatLon } from '../geo/coords';
 import { buildFigure, OUTFITS, outfitFor, type Rig } from './figure';
-import { mixPose, poseAt, releaseTAt, type Phase, type Pose } from './gesture';
+import { copyPose, mixPose, newPose, poseAt, releaseTAt, type Phase, type Pose } from './gesture';
 
 /**
  * The person who lets go (spec 6.2, Task 26d, ruling R62): anonymous and faceless, so anyone can see
@@ -49,8 +49,10 @@ export interface StringGrip {
   /**
    * 0 while the fist is closed round the string (also before the hand opens, and on the start
    * screen); from the hand opening it runs 0 to 1 over the slip (about 0.2 s, starting 0.03 s after
-   * onRelease) as the end leaves the fingers; 1 once it is free, and it stays 1. While it is below 1
-   * the string's end belongs to the hand (pin it to `hand`); at 1 it is the string's own.
+   * onRelease) as the end leaves the fingers; 1 once it is free, and it stays 1 for the person's
+   * life (latched: a launch called off, a new play() or dispose() mid-slip never takes it back to 0;
+   * a new balloon is held by a new person). While it is below 1 the string's end belongs to the hand
+   * (pin it to `hand`); at 1 it is the string's own.
    */
   readonly releaseT: number;
 }
@@ -81,6 +83,7 @@ export type PersonOpts = {
 };
 
 type V3 = { x: number; y: number; z: number };
+type Arm = { side: 1 | -1; shoulder: THREE.Bone; roll: THREE.Bone; elbow: THREE.Bone; wrist: THREE.Bone; thumb: THREE.Bone; finger1: THREE.Bone; finger2: THREE.Bone };
 const RAD = Math.PI / 180;
 const smooth = (x: number) => x * x * (3 - 2 * x);
 
@@ -115,9 +118,18 @@ export class Person implements StringGrip {
   private startMs = 0;
   private held = 0;
   private look: V3 | null = null;
-  private last: Pose | null = null;
+  /** The pose applied last frame, and the one being built (scratch: a frame allocates nothing). */
+  private readonly cur: Pose = newPose();
+  private readonly from: Pose = newPose();
+  private posed = false;
   private lastKind: Phase['kind'] = 'idle';
-  private blend: { from: Pose; at: number } | null = null;
+  private blendAt = Number.NaN;
+  /** Released once: the string has gone (StringGrip.releaseT stays 1). */
+  private letGo = false;
+  private readonly phaseIdle: Phase = { kind: 'idle' };
+  private readonly phaseAnt: Phase & { kind: 'anticipate' } = { kind: 'anticipate', s: 0 };
+  private readonly phaseRel: Phase & { kind: 'released' } = { kind: 'released', s: 0 };
+  private readonly arms: Arm[];
   private head = { pitch: 0, yaw: 0, init: false };
   // scratch
   private readonly v1 = new THREE.Vector3();
@@ -134,6 +146,17 @@ export class Person implements StringGrip {
     this.rig = buildFigure(OUTFITS[this.outfit]);
     this.triangles = this.rig.triangles;
     this.wind = opts.wind && Number.isFinite(opts.wind.speedMs + opts.wind.headingDeg) ? { ...opts.wind } : { speedMs: 3, headingDeg: facingDeg + 200 };
+    const b = this.rig.bones;
+    this.arms = (['R', 'L'] as const).map((s) => ({
+      side: s === 'R' ? 1 : -1,
+      shoulder: b[`shoulder${s}`],
+      roll: b[`roll${s}`],
+      elbow: b[`elbow${s}`],
+      wrist: b[`wrist${s}`],
+      thumb: b[`thumb${s}`],
+      finger1: b[`finger1${s}`],
+      finger2: b[`finger2${s}`],
+    }));
     this.root.add(this.rig.mesh);
     this.root.rotation.y = -facingDeg * RAD; // model faces -z (north); compass heading clockwise
     if (feet) this.place(feet);
@@ -196,12 +219,13 @@ export class Person implements StringGrip {
 
   /** StringGrip.releaseT: 0 while the fist holds the string, 0 to 1 as it slips out, 1 once free. */
   get releaseT(): number {
-    return this.state === 'released' ? releaseTAt(this.sinceRelease()) : 0;
+    if (this.state === 'released') return releaseTAt(this.sinceRelease());
+    return this.letGo ? 1 : 0;
   }
 
   /** How far the person is looking up, in radians (head plus lean back). */
   get headPitch(): number {
-    return this.head.pitch + (this.last?.body.lean ?? 0);
+    return this.head.pitch + this.cur.body.lean;
   }
 
   update(dtSec: number): void {
@@ -219,6 +243,7 @@ export class Person implements StringGrip {
         cb?.();
       } else if (this.held >= HOLD_S - 1e-9 && this.ready) {
         this.state = 'released';
+        this.letGo = true;
         this.releasedAt = this.t;
         this.releasedMs = this.realNow ? this.realNow() : 0;
         const cb = this.onRelease;
@@ -243,30 +268,43 @@ export class Person implements StringGrip {
   }
 
   private phase(): Phase {
-    if (this.state === 'holding') return { kind: 'anticipate', s: this.held };
-    if (this.state === 'released') return { kind: 'released', s: this.sinceRelease() };
-    return { kind: 'idle' };
+    if (this.state === 'holding') {
+      this.phaseAnt.s = this.held;
+      return this.phaseAnt;
+    }
+    if (this.state === 'released') {
+      this.phaseRel.s = this.sinceRelease();
+      return this.phaseRel;
+    }
+    return this.phaseIdle;
   }
 
   /** The pose is about to jump (an interrupted launch): ease from where it is now. */
   private startBlend(): void {
-    if (this.last) this.blend = { from: this.last, at: this.clock };
+    if (!this.posed) return;
+    copyPose(this.cur, this.from);
+    this.blendAt = this.clock;
+  }
+
+  /** Whether an eased change-over from an interrupted launch is running. */
+  get blending(): boolean {
+    return !Number.isNaN(this.blendAt);
   }
 
   private pose(dt: number): void {
     const ph = this.phase();
-    let p = poseAt(ph, this.clock, this.reduced);
     // idle to anticipation and anticipation to release continue from the pose before; anything else
     // (a launch called off) eases over from where the body was
     const natural = ph.kind === this.lastKind || (this.lastKind === 'idle' && ph.kind === 'anticipate') || (this.lastKind === 'anticipate' && ph.kind === 'released');
-    if (!natural && !this.blend) this.startBlend();
+    if (!natural && !this.blending) this.startBlend();
     this.lastKind = ph.kind;
-    if (this.blend) {
-      const f = (this.clock - this.blend.at) / BLEND_S;
-      if (f >= 1) this.blend = null;
-      else p = mixPose(this.blend.from, p, smooth(Math.max(0, f)));
+    const p = poseAt(ph, this.clock, this.reduced, this.cur);
+    if (this.blending) {
+      const f = (this.clock - this.blendAt) / BLEND_S;
+      if (f >= 1) this.blendAt = Number.NaN;
+      else mixPose(this.from, p, smooth(Math.max(0, f)), p);
     }
-    this.last = p;
+    this.posed = true;
     this.apply(p, dt);
   }
 
@@ -280,23 +318,23 @@ export class Person implements StringGrip {
     const ch = body.chest;
     b.torso.scale.set(1 + 0.01 * ch, 1 + 0.005 * ch, 1 + 0.02 * ch);
 
-    for (const [s, side, a] of [['R', 1, p.r], ['L', -1, p.l]] as const) {
-      const sh = b[`shoulder${s}`];
-      sh.rotation.set(a.pitch, 0, a.out * side);
-      b[`roll${s}`].rotation.y = a.roll * side;
-      b[`elbow${s}`].rotation.x = a.elbow;
-      b[`wrist${s}`].rotation.set(a.dev, a.twist * side, -side * a.wrist, 'YXZ');
+    for (let i = 0; i < 2; i++) {
+      const arm = this.arms[i], a = i === 0 ? p.r : p.l, side = arm.side;
+      arm.shoulder.rotation.set(a.pitch, 0, a.out * side);
+      arm.roll.rotation.y = a.roll * side;
+      arm.elbow.rotation.x = a.elbow;
+      arm.wrist.rotation.set(a.dev, a.twist * side, -side * a.wrist, 'YXZ');
       // the thumb: splayed forward when open, across the front of the curled fingers when closed
-      b[`thumb${s}`].rotation.set(0.89 - 1.75 * a.thumb, 0, -side * (0.3 + 0.56 * a.thumb));
-      b[`finger1${s}`].rotation.z = -side * (0.06 + 1.5 * a.fingers);
-      b[`finger2${s}`].rotation.z = -side * (0.08 + 1.55 * a.fingers);
+      arm.thumb.rotation.set(0.89 - 1.75 * a.thumb, 0, -side * (0.3 + 0.56 * a.thumb));
+      arm.finger1.rotation.z = -side * (0.06 + 1.5 * a.fingers);
+      arm.finger2.rotation.z = -side * (0.08 + 1.55 * a.fingers);
     }
 
     // the head: up toward the balloon by `look` of the way (less what the body's lean already gives)
     let pitch = DEFAULT_LOOK, yaw = 0;
     if (this.look) {
-      this.root.updateMatrixWorld(true);
-      const headW = b.neck.getWorldPosition(this.v1);
+      // where the neck was drawn last frame (the one matrix update a frame is at the end)
+      const headW = this.v1.setFromMatrixPosition(b.neck.matrixWorld);
       const d = this.v2.set(this.look.x - headW.x, this.look.y - headW.y, this.look.z - headW.z);
       d.applyQuaternion(this.q1.copy(this.root.quaternion).invert()); // into the body frame (faces -z)
       const horiz = Math.hypot(d.x, d.z);
@@ -349,6 +387,7 @@ export class Person implements StringGrip {
     this.onRelease = null;
     this.onTimeout = null;
     this.state = 'idle';
+    this.letGo ||= this.releasedAt < Infinity;
     this.scene.remove(this.root);
     this.rig.mesh.geometry.dispose();
     this.rig.mesh.skeleton.dispose();

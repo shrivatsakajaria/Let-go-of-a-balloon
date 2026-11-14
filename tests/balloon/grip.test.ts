@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
-import { Balloon, BALLOON_RADIUS_M, KNOT_DROP } from '../../src/balloon/balloon';
+import { Balloon, BALLOON_RADIUS_M, KNOT_DROP, SLIP_MAX_S } from '../../src/balloon/balloon';
 import { Person } from '../../src/balloon/person';
 import { CLIMB_RATE_MS } from '../../src/config';
 import type { RoutePoint } from '../../src/flight/route';
@@ -79,6 +79,31 @@ describe('the hand and the string (StringGrip)', () => {
     const { frames } = launch(false);
     const f = frames.find((x) => x.s > 0.15)!;
     expect(f.end.distanceTo(f.hand)).toBeGreaterThan(0.002);
+  });
+
+  test('a grip that never finishes the slip lets go of the string after half a second all the same', () => {
+    const b = new Balloon(new THREE.Scene());
+    const hand = new THREE.Vector3(0, 1.3, 0);
+    const stuck = { releaseT: 0.5 };
+    b.hold(hand, stuck);
+    const pos = new THREE.Vector3(0, 1.5, 0);
+    const cam = new THREE.Vector3(2, 1.6, -3);
+    const pt: RoutePoint = { tSec: 0, lat: AT.lat, lon: AT.lon, altM: 1.5, groundM: 0, speedMs: 2, headingDeg: 90 };
+    const end = new THREE.Vector3();
+    for (let i = 0; i < 30; i++) b.setState(pt, DT, DAY, { pos, camera: cam });
+    b.release();
+    let t = 0;
+    const pinnedAt: number[] = [];
+    while (t < 1.5) {
+      t += DT;
+      pos.y = 1.5 + CLIMB_RATE_MS * t;
+      b.setState(pt, DT, DAY, { pos, camera: cam });
+      b.stringPoint(b.rope.segments, end);
+      if (end.distanceTo(hand) < 1e-3) pinnedAt.push(t);
+    }
+    expect(pinnedAt.length).toBeGreaterThan(5); // it did follow the grip at first
+    expect(Math.max(...pinnedAt)).toBeLessThan(SLIP_MAX_S + 2 * DT);
+    expect(end.distanceTo(hand)).toBeGreaterThan(0.2); // and then went with the balloon
   });
 
   test('the balloon leaves the hand smoothly: no pop at the release, a gentle rise from rest in the first half second', () => {

@@ -175,7 +175,9 @@ describe('person', () => {
     const head0 = p.headPitch;
     p.play(() => {});
     await runFor(p, 4, [], clock);
-    expect(p.headPitch).toBeGreaterThan(head0 + 0.4); // looking up (radians, chin up)
+    expect(head0).toBeGreaterThan(0.45); // on the start screen already looking up at it
+    expect(p.headPitch).toBeGreaterThan(head0 + 0.2); // and further up after it goes (radians, chin up)
+    expect(p.headPitch).toBeGreaterThan(0.8);
     expect(p.handPosition(hand).y).toBeGreaterThan(1.35); // arm raised toward the balloon
   });
 
@@ -289,6 +291,63 @@ describe('person', () => {
     for (let i = 0; i < 60; i++) p.update(DT);
     expect(p.state).toBe('idle');
   });
+
+  test('a call-off eases right through to the start screen pose, then holds it exactly', async () => {
+    const scene = new THREE.Scene();
+    const p = new Person(scene, AT, 0, new THREE.Vector3(0, 0, 0));
+    const still = new Person(scene, AT, 0, new THREE.Vector3(0, 0, 0)); // never launched: the same clock
+    p.play(() => {}, { readyAt: new Promise<void>(() => {}), holdS: Infinity });
+    for (let i = 0; i < 70; i++) {
+      p.update(DT);
+      still.update(DT);
+    }
+    p.holdIdle();
+    let prev = p.hand.clone(), worst = 0;
+    for (let i = 0; i < 90; i++) {
+      p.update(DT);
+      still.update(DT);
+      worst = Math.max(worst, p.hand.distanceTo(prev));
+      prev = p.hand.clone();
+    }
+    expect(worst).toBeLessThan(0.012); // m a frame: eased, no snap
+    expect(p.blending).toBe(false);
+    expect(p.hand.distanceTo(still.hand)).toBeLessThan(1e-6); // at rest in the start screen pose
+  });
+
+  test('a call-off after the release eases back with no snap, and the string stays let go', async () => {
+    const { p } = mk();
+    p.play(() => {});
+    for (let i = 0; i < Math.round((HOLD_S + 1) / DT); i++) p.update(DT);
+    expect(p.state).toBe('released');
+    p.holdIdle();
+    let prev = p.hand.clone(), worst = 0;
+    for (let i = 0; i < 90; i++) {
+      p.update(DT);
+      worst = Math.max(worst, p.hand.distanceTo(prev));
+      prev = p.hand.clone();
+      expect(p.releaseT).toBe(1);
+    }
+    expect(worst).toBeLessThan(0.03);
+    expect(p.blending).toBe(false);
+  });
+
+  for (const how of ['holdIdle', 'play', 'dispose'] as const) {
+    test(`releaseT latches at 1: ${how}() mid-slip never takes the string back into the fist`, async () => {
+      const { p } = mk();
+      p.play(() => {});
+      while (p.state !== 'released') p.update(DT);
+      p.update(DT);
+      p.update(DT);
+      expect(p.releaseT).toBeGreaterThan(0);
+      expect(p.releaseT).toBeLessThan(1);
+      if (how === 'holdIdle') p.holdIdle();
+      else if (how === 'play') p.play(() => {});
+      else p.dispose();
+      expect(p.releaseT).toBe(1);
+      for (let i = 0; i < 30; i++) p.update(DT);
+      expect(p.releaseT).toBe(1);
+    });
+  }
 
   test('dispose cancels the launch: a late route never releases', async () => {
     const { p } = mk();
