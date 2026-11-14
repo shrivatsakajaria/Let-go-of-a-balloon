@@ -35,7 +35,7 @@ export const SLIP_S = 0.22;
 /** The anticipation is complete this long after the tap (before the 1.2 s hand opening). */
 export const ANTICIPATE_S = 1.05;
 
-export type ArmPose = { pitch: number; out: number; roll: number; elbow: number; wrist: number; twist: number; fingers: number; thumb: number };
+export type ArmPose = { pitch: number; out: number; roll: number; elbow: number; wrist: number; dev: number; twist: number; fingers: number; thumb: number };
 export type BodyPose = { rise: number; heel: number; lean: number; chest: number; look: number; shift: number };
 export type Pose = { body: BodyPose; r: ArmPose; l: ArmPose };
 export type Phase = { kind: 'idle' } | { kind: 'anticipate'; s: number } | { kind: 'released'; s: number };
@@ -52,20 +52,20 @@ export function releaseTAt(s: number): number {
 // ---- the key poses ----
 
 // right arm: holding the string at chest height, in front and a little to the side
-const R_HOLD = { pitch: 0.62, out: 0.16, roll: 0.42, elbow: 1.3, wrist: -0.12, twist: 0.0 };
-const R_LIFT = { pitch: 0.88, out: 0.18, roll: 0.4, elbow: 1.2, wrist: -0.18, twist: 0.0 };
+const R_HOLD = { pitch: 0.25, out: 0.42, roll: 0.05, elbow: 2.0, wrist: -0.1, dev: -0.45, twist: -0.45 };
+const R_LIFT = { pitch: 0.48, out: 0.45, roll: 0.08, elbow: 2.0, wrist: -0.3, dev: -0.55, twist: -0.6 };
 // the hand loosened, the moment it lets go
-const R_OPEN = { pitch: 0.98, out: 0.19, roll: 0.36, elbow: 1.05, wrist: -0.32, twist: -0.45 };
+const R_OPEN = { pitch: 0.62, out: 0.46, roll: 0.08, elbow: 1.85, wrist: -0.4, dev: -0.3, twist: -0.75 };
 // following the balloon up, open palm toward it
-const R_REACH = { pitch: 2.05, out: 0.24, roll: 0.12, elbow: 0.38, wrist: -0.42, twist: -1.3 };
-const R_REACH_EASE = { pitch: 1.88, out: 0.24, roll: 0.1, elbow: 0.5, wrist: -0.3, twist: -1.15 };
-const R_REST = { pitch: 0.1, out: 0.11, roll: 0.0, elbow: 0.32, wrist: 0.08, twist: -0.35 };
+const R_REACH = { pitch: 1.95, out: 0.5, roll: 0.05, elbow: 0.42, wrist: -0.45, dev: 0, twist: -1.3 };
+const R_REACH_EASE = { pitch: 1.8, out: 0.5, roll: 0.05, elbow: 0.55, wrist: -0.3, dev: 0, twist: -1.15 };
+const R_REST = { pitch: 0.1, out: 0.11, roll: 0.0, elbow: 0.32, wrist: 0.08, dev: 0, twist: -0.35 };
 // left arm: relaxed at the side; then the hand to the chest
-const L_REST = { pitch: 0.05, out: 0.08, roll: 0.0, elbow: 0.2, wrist: 0.1, twist: 0.0 };
-const L_CHEST = { pitch: 0.42, out: 0.05, roll: 0.95, elbow: 2.05, wrist: 0.22, twist: 0.25 };
+const L_REST = { pitch: 0.05, out: 0.08, roll: 0.0, elbow: 0.2, wrist: 0.1, dev: 0, twist: 0.0 };
+const L_CHEST = { pitch: 0.21, out: 0.25, roll: 0.95, elbow: 2.05, wrist: 0.51, dev: 0.31, twist: -0.68 };
 
-const B_IDLE = { rise: 0, heel: 0, lean: 0.03, chest: 0, look: 0.55 };
-const B_UP = { rise: 0.032, heel: 0.24, lean: 0.06, chest: 0.85, look: 0.75 };
+const B_IDLE = { rise: 0, heel: 0, lean: 0.03, chest: 0, look: 0.42 };
+const B_UP = { rise: 0.032, heel: 0.15, lean: 0.06, chest: 0.85, look: 0.75 };
 const B_WATCH = { rise: 0.012, heel: 0.09, lean: 0.14, chest: 0.2, look: 1 };
 const B_SIGH = { rise: 0, heel: 0, lean: 0.12, chest: -0.7, look: 1 };
 const B_REST = { rise: 0, heel: 0, lean: 0.07, chest: 0, look: 0.85 };
@@ -177,6 +177,7 @@ export function poseAt(phase: Phase, clock: number, reduced = false): Pose {
     roll: lArm.roll,
     elbow: lArm.elbow,
     wrist: lArm.wrist,
+    dev: lArm.dev,
     twist: lArm.twist,
     fingers: lArm.fingers,
     thumb: lArm.fingers * 0.8,
@@ -193,4 +194,14 @@ export function poseAt(phase: Phase, clock: number, reduced = false): Pose {
     r,
     l,
   };
+}
+
+/** a + (b - a) * f, joint by joint. */
+export function mixPose(a: Pose, b: Pose, f: number): Pose {
+  const m = <T extends Rec>(x: T, y: T): T => {
+    const o: Rec = {};
+    for (const k in x) o[k] = x[k] + (y[k] - x[k]) * f;
+    return o as T;
+  };
+  return { body: m(a.body, b.body), r: m(a.r, b.r), l: m(a.l, b.l) };
 }
