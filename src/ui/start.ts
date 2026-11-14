@@ -77,15 +77,17 @@ export function fromLine(c: StartChoice): string {
 
 /**
  * The names in "Your balloons" (2.4.6): a balloon let go from "Your location" goes by its place once that is
- * known (as on its card), and one whose name another shares also says when it was let go. `place` is null
- * until looked up (the name stays as it was).
+ * known (as on its card), and balloons that share a name each say when they were let go ("Bristol · let go
+ * 14:05"). `place` is null until looked up (the name stays as it was).
  */
 export function mineNames(items: { name: string; place: string | null; letGo: string }[]): string[] {
   const names = items.map((i) => (i.name === COPY.yourLocation && i.place ? i.place : i.name));
-  return names.map((n, k) => {
-    const located = items[k].name === COPY.yourLocation && items[k].place;
-    return located && names.filter((m) => m === n).length > 1 ? `${n} · let go ${items[k].letGo}` : n;
-  });
+  return names.map((n, k) => (items[k].letGo && names.filter((m) => m === n).length > 1 ? `${n} · let go ${items[k].letGo}` : n));
+}
+
+/** Names that need the gazetteer or a time to tell them apart: a "Your location" balloon, or a name shared. */
+export function mineNeedsNaming(names: string[]): boolean {
+  return names.some((n, k) => n === COPY.yourLocation || names.indexOf(n) !== k);
 }
 
 /** WCAG relative luminance of a hex colour. */
@@ -282,7 +284,7 @@ export function mountStart(
       });
       mine.append(btn);
     }
-    if (list.some((b) => b.name === COPY.yourLocation)) void nameMine(list, nameEls, run);
+    if (mineNeedsNaming(list.map((b) => b.name))) void nameMine(list, nameEls, run);
   };
 
   // ---- search ----

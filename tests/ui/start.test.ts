@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { DEFAULT_START, LAST_PLACE_KEY, fromLine, luminance, mineNames, readLastPlace, shadeBoost, skyFor, writeLastPlace } from '../../src/ui/start';
+import { DEFAULT_START, LAST_PLACE_KEY, fromLine, luminance, mineNames, mineNeedsNaming, readLastPlace, shadeBoost, skyFor, writeLastPlace } from '../../src/ui/start';
 import { featuredCities } from '../../src/ui/featured';
 
 class MemStorage {
@@ -83,11 +83,18 @@ describe('"Your balloons" names', () => {
     ];
     expect(mineNames(items)).toEqual(['Manchester', 'Bristol · let go 14:05', 'Bristol · let go 16:40', 'Leeds']);
   });
-  test('a searched start that shares a name with a located one tells the located one apart', () => {
+  test('a searched start that shares a name with a located one: both say when they were let go', () => {
     expect(mineNames([{ name: 'Bristol', place: null, letGo: '08:00' }, { name: 'Your location', place: 'Bristol', letGo: '14:05' }])).toEqual([
-      'Bristol',
+      'Bristol · let go 08:00',
       'Bristol · let go 14:05',
     ]);
+  });
+  test('two balloons let go from the same searched town are told apart too', () => {
+    const two = [{ name: 'Manchester', place: null, letGo: '09:10' }, { name: 'Manchester', place: null, letGo: '17:42' }];
+    expect(mineNames(two)).toEqual(['Manchester · let go 09:10', 'Manchester · let go 17:42']);
+    expect(mineNeedsNaming(['Manchester', 'Manchester'])).toBe(true);
+    expect(mineNeedsNaming(['Manchester', 'Leeds'])).toBe(false);
+    expect(mineNeedsNaming(['Manchester', 'Your location'])).toBe(true);
   });
   test('until the place is known the name stays as it was', () => {
     expect(mineNames([{ name: 'Your location', place: null, letGo: '14:05' }])).toEqual(['Your location']);
