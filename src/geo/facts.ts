@@ -6,7 +6,7 @@
 import { FLIGHT_HOURS } from '../config';
 import { haversineKm, type LatLon } from './coords';
 import { nearestPlace, type Place } from './gazetteer';
-import { withArticle } from './places';
+import { countryLabel, withArticle, withCountry } from './places';
 import { nextSunEvent } from './sun';
 import { localTime } from './time';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
@@ -20,9 +20,11 @@ export type FactState = {
   /** Where the balloon is now: positionAt(route, nowUtcMs). */
   here: RoutePoint;
   /** The nearest town ahead along the heading, if any (see townAhead): the crossing fact needs it. */
-  nearestTown?: { name: string; population: number; distanceKm: number };
-  /** Where the route ends, from nearestPlace on the last point. */
-  landing?: Pick<Place, 'name' | 'kind'>;
+  nearestTown?: { name: string; population: number; distanceKm: number; country?: string };
+  /** Where the route ends, from nearestPlace on the last point (a town's country is always said). */
+  landing?: Pick<Place, 'name' | 'kind' | 'country'>;
+  /** The start's country: a town ahead in another country is named with its own (null: not known). */
+  homeCountry?: string | null;
 };
 
 /** Below this the crossing time is silly (hours to cross a village), so the fact is skipped. */
@@ -82,18 +84,19 @@ const dateParts = (utcMs: number, tz: string): string => {
   return `${get('weekday')} ${get('day')} ${get('month')}`;
 };
 
-/** "in the North Sea" / "near Bergen": where the balloon comes down. */
-function landingWhere(l: Pick<Place, 'name' | 'kind'>): string {
-  return l.kind === 'town' ? `near ${l.name}` : `in ${withArticle(l.name, l.kind)}`;
+/** "in the North Sea" / "near Bergen, Norway": where the balloon comes down (a town with its country, always). */
+function landingWhere(l: Pick<Place, 'name' | 'kind' | 'country'>): string {
+  if (l.kind !== 'town') return `in ${withArticle(l.name, l.kind)}`;
+  return l.country ? `near ${l.name}, ${countryLabel(l.country)}` : `near ${l.name}`;
 }
 
 /** "Expected to come down in the North Sea", "Expected to land near Bergen". */
-export function expectedLandingText(l: Pick<Place, 'name' | 'kind'>): string {
+export function expectedLandingText(l: Pick<Place, 'name' | 'kind' | 'country'>): string {
   return l.kind === 'sea' ? `Expected to come down ${landingWhere(l)}` : `Expected to land ${landingWhere(l)}`;
 }
 
 /** "Landed near Bergen on Sun 15 Nov", dated where it came down. */
-export function landedText(l: Pick<Place, 'name' | 'kind'> | undefined, landedAt: LatLon, utcMs: number): string {
+export function landedText(l: Pick<Place, 'name' | 'kind' | 'country'> | undefined, landedAt: LatLon, utcMs: number): string {
   const date = dateParts(utcMs, localTime(utcMs, landedAt).tz);
   if (!l) return `Landed on ${date}`;
   return `${l.kind === 'sea' ? 'Came down' : 'Landed'} ${landingWhere(l)} on ${date}`;
@@ -124,7 +127,11 @@ export function factsFor(s: FactState): string[] {
   const town = s.nearestTown;
   if (town && kmh >= MIN_CROSSING_KMH && town.distanceKm <= TOWN_AHEAD_KM) {
     const mins = (townDiameterKm(town.population) / kmh) * 60;
-    if (mins <= MAX_CROSSING_MIN) facts.push(`At this speed it would cross ${town.name} in ${crossingTime(mins)}`);
+    if (mins <= MAX_CROSSING_MIN) {
+      // "cross Rijssen, Netherlands, in about 8 minutes": the country set off by commas, as in a sentence
+      const where = withCountry(town.name, town.country, s.homeCountry);
+      facts.push(`At this speed it would cross ${where}${where === town.name ? '' : ','} in ${crossingTime(mins)}`);
+    }
   }
 
   const gone = fromHomeKm < 1 ? `Just let go from ${home.name}` : `${distanceText(fromHomeKm)} km from ${home.name} so far`;

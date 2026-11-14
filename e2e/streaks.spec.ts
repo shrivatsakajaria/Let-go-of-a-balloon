@@ -61,11 +61,11 @@ async function throughout(page: Page, ms: number, check: (h: Hook) => void) {
   }
 }
 
-test('streaks fade in at cruise and stay on screen in Ride, Above and Side-on, and while paused', async ({ context, page }) => {
+test('streaks fade in at cruise and stay on screen in Film, Above and Side-on, and while paused', async ({ context, page }) => {
   const { external } = await liveWorld(context);
   await forceStreaks(context);
   await cruise(page);
-  for (const name of ['Ride', 'Above', 'Side-on']) {
+  for (const name of ['Film', 'Above', 'Side-on']) {
     await page.getByRole('button', { name, exact: true }).click();
     await page.waitForTimeout(1500);
     const h = (await hook(page))!;

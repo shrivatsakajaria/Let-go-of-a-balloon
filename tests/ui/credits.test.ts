@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { COPY } from '../../src/ui/copy';
-import { CARD_CREDIT, CREDITS, MAP_CREDIT, creditHtml, creditText } from '../../src/ui/credits';
+import { CARD_CREDIT, CREDITS, MAP_CREDIT, MAP_LINE, creditHtml, creditText } from '../../src/ui/credits';
 
 const text = CREDITS.map((c) => creditText(c));
 
@@ -36,4 +36,10 @@ test('the card credit line is the plan text', () => {
 test('links open in a new tab without handing over the page, and text is escaped', () => {
   const html = creditHtml([{ text: 'A <b> & "c"', href: 'https://example.org/?a=1&b=2' }]);
   expect(html).toBe('<a href="https://example.org/?a=1&amp;b=2" target="_blank" rel="noopener">A &lt;b&gt; &amp; &quot;c&quot;</a>');
+});
+
+test('the one-line map credit (owner\'s decision, 14 November 2026): every map source, each linked', () => {
+  expect(creditText(MAP_LINE)).toBe('© OpenStreetMap · OpenMapTiles · Mapterhorn');
+  expect(creditHtml(MAP_LINE).match(/<a /g)).toHaveLength(3);
+  expect(creditHtml(MAP_LINE)).toContain('href="https://www.openstreetmap.org/copyright"');
 });

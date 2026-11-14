@@ -18,6 +18,16 @@ const GEONAMES = { text: 'GeoNames', href: 'https://www.geonames.org/' };
 /** "OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn", always visible over the map. */
 export const MAP_CREDIT: Credit = [OPENFREEMAP, ' ', OPENMAPTILES, ' ', OSM, ' ', MAPTERHORN];
 
+/**
+ * The short form, on one line wherever the map shows (owner's decision, 14 November 2026, panel review: the
+ * full credits, OpenFreeMap's among them, are in the About sheet): "© OpenStreetMap · OpenMapTiles · Mapterhorn".
+ */
+export const MAP_LINE: Credit = [
+  { text: '© OpenStreetMap', href: OSM.href }, ' · ',
+  { text: 'OpenMapTiles', href: OPENMAPTILES.href }, ' · ',
+  { text: 'Mapterhorn', href: MAPTERHORN.href },
+];
+
 /** The Credits page, one source a line. */
 export const CREDITS: Credit[] = [
   ['Map: ', OPENFREEMAP, ' ', OPENMAPTILES, ' ', OSM],

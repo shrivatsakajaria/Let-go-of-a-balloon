@@ -11,9 +11,12 @@ import { sunPosition } from '../geo/sun';
 import { lightFor, parseHex } from '../world/palette';
 import { COPY } from './copy';
 import { shadeBottomPx, shadeTopPx } from './shade';
-import { CREDITS, MAP_CREDIT, creditHtml } from './credits';
+import { CREDITS, MAP_LINE, creditHtml } from './credits';
 import { featuredCities } from './featured';
 import { mountSearch, type Place } from './search';
+import { aloftText, positionNow, whereText } from './mine';
+import { nearestPlace } from '../geo/gazetteer';
+import { countryAt } from '../geo/places';
 
 export type StartKind = 'default' | 'featured' | 'search' | 'gps';
 export type StartChoice = { name: string; lat: number; lon: number; kind: StartKind; cityId?: string };
@@ -124,6 +127,15 @@ const SEARCH_WAIT_MS = 600;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+/** Small line icons (stroke in the text colour, hidden from screen readers): a map pin, a chevron, a locate mark. */
+const svg = (cls: string, d: string) =>
+  `<svg class="icon ${cls}" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const PIN = svg('pin', '<path d="M8 14.5s-4.5-4.2-4.5-7.6a4.5 4.5 0 0 1 9 0c0 3.4-4.5 7.6-4.5 7.6z"/><circle cx="8" cy="6.9" r="1.6"/>');
+const CHEVRON = svg('chev', '<path d="M4.5 6.5 8 10l3.5-3.5"/>');
+const LOCATE = svg('loc', '<circle cx="8" cy="8" r="4.2"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/>');
+/** "About" opens the one About sheet from anywhere (the flight HUD's small print has one too). */
+export const ABOUT_EVENT = 'lgoab:about';
+
 export function mountStart(
   root: HTMLElement,
   handlers: StartHandlers,
@@ -146,34 +158,36 @@ export function mountStart(
   });
 
   root.classList.add('start');
+  // owner's decisions, 14 November 2026 (panel review): the place, "Use my location" and the cities look like
+  // the controls they are; the small print is one line, and the rest is in the About sheet
   root.innerHTML = `
     <header class="top">
       <div>
         <h1 class="title">${COPY.title}</h1>
         <p class="explainer">${esc(COPY.explainer)}</p>
       </div>
-      <button type="button" class="link credits-link">${COPY.credits}</button>
+      <button type="button" class="link credits-link about-link" aria-haspopup="dialog">${COPY.about}</button>
     </header>
     <div class="bottom">
-      <button type="button" class="link from"></button>
+      <button type="button" class="chip from"></button>
       <div class="go-row">
         <button type="button" class="letgo">${COPY.letGo}</button>
-        <button type="button" class="link locate">${COPY.useMyLocation}</button>
+        <button type="button" class="secondary locate">${COPY.useMyLocation}</button>
       </div>
       <ul class="cities" aria-label="${COPY.featured}">
-        ${cities.map((c) => `<li><button type="button" class="link city" data-city="${c.id}" aria-pressed="false">${esc(c.name)}</button></li>`).join('')}
+        ${cities.map((c) => `<li><button type="button" class="chip city" data-city="${c.id}" aria-pressed="false">${esc(c.name)}</button></li>`).join('')}
       </ul>
       <div class="mine" hidden></div>
-      <div class="fineprint">
-        <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
-      </div>
+      <p class="small fineprint"><span class="notice">${COPY.simulation}</span><span class="map-credit">${creditHtml(MAP_LINE)}</span></p>
     </div>
-    <dialog class="credits" aria-labelledby="credits-title">
+    <dialog class="credits about" aria-labelledby="credits-title">
       <div class="credits-head">
-        <h2 id="credits-title">${COPY.credits}</h2>
+        <h2 id="credits-title">${COPY.about}</h2>
         <button type="button" class="link credits-close">${COPY.close}</button>
       </div>
+      <p class="about-text">${esc(COPY.notice)}</p>
+      <p class="about-text">${esc(COPY.next)}</p>
+      <h3 class="about-sub">${COPY.credits}</h3>
       <footer>
         <ul>${CREDITS.map((c) => `<li>${creditHtml(c)}</li>`).join('')}</ul>
         <p class="sig">${COPY.stillSignal}</p>
@@ -184,6 +198,8 @@ export function mountStart(
   const fromBtn = $<HTMLButtonElement>('.from');
   const letGoBtn = $<HTMLButtonElement>('.letgo');
   const locateBtn = $<HTMLButtonElement>('.locate');
+  const setLocate = (label: string) => (locateBtn.innerHTML = `${LOCATE}<span>${esc(label)}</span>`);
+  setLocate(COPY.useMyLocation);
   const mine = $<HTMLElement>('.mine');
   const credits = $<HTMLDialogElement>('.credits');
   const bottom = $<HTMLElement>('.bottom');
@@ -220,7 +236,7 @@ export function mountStart(
 
   // ---- start place ----
   const render = () => {
-    fromBtn.innerHTML = `${COPY.from} <span class="place">${esc(start.kind === 'gps' ? COPY.yourLocation.toLowerCase() : start.name)}</span>`;
+    fromBtn.innerHTML = `${PIN}<span class="from-text">${COPY.from} <span class="place">${esc(start.kind === 'gps' ? COPY.yourLocation.toLowerCase() : start.name)}</span></span>${CHEVRON}`;
     fromBtn.setAttribute('aria-label', `${fromLine(start)}. Search for a town`);
     root.querySelectorAll<HTMLButtonElement>('.city').forEach((b) => {
       b.setAttribute('aria-pressed', String(start.kind === 'featured' && b.dataset.city === start.cityId));
@@ -239,7 +255,7 @@ export function mountStart(
   /** Name the "Your location" balloons by their place (looked up in the background; the code loads on demand). */
   const nameMine = async (list: SavedBalloon[], els: HTMLElement[], run: number) => {
     try {
-      const [{ startName }, { nearestPlace }, { localTime }] = await Promise.all([import('./card'), import('../geo/gazetteer'), import('../geo/time')]);
+      const [{ startName }, { localTime }] = await Promise.all([import('./card'), import('../geo/time')]);
       const places = await Promise.all(
         list.map((b) => (b.name === COPY.yourLocation ? nearestPlace(b.start).then((p) => startName(b.start, p), () => startName(b.start, null)) : null)),
       );
@@ -252,39 +268,84 @@ export function mountStart(
       /* the names stay as saved */
     }
   };
+  /** Where each balloon is now, looked up in the background (the gazetteer files load on demand). */
+  const whereMine = async (list: SavedBalloon[], els: HTMLElement[], run: number) => {
+    await Promise.all(
+      list.map(async (b, k) => {
+        try {
+          const t = now();
+          const [place, home] = await Promise.all([nearestPlace(positionNow(b, t)).catch(() => null), countryAt(b.start)]);
+          if (run !== mineRun) return;
+          const text = whereText(place, balloonStatus(b, t).landed, home);
+          if (els[k].textContent !== text) els[k].textContent = text;
+        } catch {
+          /* the row says where it started and how long it has been up */
+        }
+      }),
+    );
+  };
+  /**
+   * Rows shown before "Show all": the newest few, so the middle third stays clear for the person and the balloon
+   * (one on a short screen, such as a phone inside an in-app browser; three on a taller one).
+   */
+  const mineRows = () => ((window.innerHeight || 844) < 760 ? 1 : 3);
+  let mineAll = false;
   const renderMine = () => {
     const run = ++mineRun;
     const list = store.list();
     mine.hidden = list.length === 0;
     mine.replaceChildren();
     if (!list.length) return;
-    const label = document.createElement('span');
+    const head = document.createElement('div');
+    head.className = 'mine-head';
+    const label = document.createElement('h2');
     label.className = 'mine-label';
     label.id = 'mine-label';
     label.textContent = COPY.yourBalloons;
+    head.append(label);
     mine.setAttribute('role', 'group');
     mine.setAttribute('aria-labelledby', 'mine-label');
-    mine.append(label);
+    const ul = document.createElement('ul');
+    ul.className = 'mine-list';
+    mine.append(head, ul);
+    const rows = mineRows();
+    const shown = mineAll ? list : list.slice(0, rows);
     const nameEls: HTMLElement[] = [];
-    for (const b of list) {
-      const s = balloonStatus(b, now());
+    const whereEls: HTMLElement[] = [];
+    for (const b of shown) {
+      const li = document.createElement('li');
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'link';
-      const nm = document.createElement('span');
+      btn.className = 'mine-row';
+      // read as "London, Over the North Sea, 14 h aloft"; laid out as name and time, then where
+      btn.innerHTML = `<span class="mine-name"></span><span class="sr">, </span><span class="mine-where"></span><span class="sr">, </span><span class="mine-time"></span>${CHEVRON.replace('icon chev', 'icon chev mine-chev')}`;
+      const nm = btn.querySelector<HTMLElement>('.mine-name')!;
       nm.textContent = b.name;
       nameEls.push(nm);
-      btn.append(nm);
-      const st = document.createElement('span');
-      st.className = 'status';
-      st.textContent = ` · ${s.landed ? COPY.landed : COPY.aloft(Math.floor(s.hoursAloft))}`;
-      btn.append(st);
+      whereEls.push(btn.querySelector<HTMLElement>('.mine-where')!);
+      btn.querySelector<HTMLElement>('.mine-time')!.textContent = aloftText(b, now());
       btn.addEventListener('click', () => {
         handlers.onOpenBalloon(b);
       });
-      mine.append(btn);
+      li.append(btn);
+      ul.append(li);
     }
-    if (mineNeedsNaming(list.map((b) => b.name))) void nameMine(list, nameEls, run);
+    if (list.length > rows) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'link mine-more';
+      more.textContent = mineAll ? COPY.showFewer : COPY.showAll(list.length);
+      more.setAttribute('aria-expanded', String(mineAll));
+      more.addEventListener('click', () => {
+        mineAll = !mineAll;
+        renderMine();
+        fitShade();
+        mine.querySelector<HTMLButtonElement>('.mine-more')?.focus({ preventScroll: true });
+      });
+      head.append(more);
+    }
+    if (mineNeedsNaming(shown.map((b) => b.name))) void nameMine(shown, nameEls, run);
+    void whereMine(shown, whereEls, run);
   };
 
   // ---- search ----
@@ -338,7 +399,7 @@ export function mountStart(
     // 1 is PERMISSION_DENIED; 2 (unavailable) and 3 (timeout) may well work next time
     const denied = !e || e.code === 1 || e.code === undefined;
     if (denied) locationRefused = true;
-    locateBtn.textContent = COPY.useMyLocation;
+    setLocate(COPY.useMyLocation);
     locateBtn.removeAttribute('aria-busy');
     openSearch(denied ? COPY.locationOff : COPY.locationTimeout);
   };
@@ -353,11 +414,11 @@ export function mountStart(
       refuse();
       return;
     }
-    locateBtn.textContent = COPY.findingYou;
+    setLocate(COPY.findingYou);
     locateBtn.setAttribute('aria-busy', 'true');
     geo.getCurrentPosition(
       (pos) => {
-        locateBtn.textContent = COPY.useMyLocation;
+        setLocate(COPY.useMyLocation);
         locateBtn.removeAttribute('aria-busy');
         // the exact position, never rounded or moved (SK's decision)
         setStart({ name: COPY.yourLocation, lat: pos.coords.latitude, lon: pos.coords.longitude, kind: 'gps' });
@@ -377,12 +438,25 @@ export function mountStart(
   });
 
   // ---- credits ----
-  $<HTMLButtonElement>('.credits-link').addEventListener('click', () => credits.showModal());
+  const openAbout = () => {
+    if (!credits.open) credits.showModal();
+  };
+  $<HTMLButtonElement>('.credits-link').addEventListener('click', openAbout);
+  document.addEventListener(ABOUT_EVENT, openAbout);
   $<HTMLButtonElement>('.credits-close').addEventListener('click', () => credits.close());
   credits.addEventListener('click', (e) => {
     if (e.target === credits) credits.close(); // a tap on the veil itself
   });
 
+  // a phone turned on its side (or back) shows another number of rows
+  let rowsShown = mineRows();
+  const onResize = () => {
+    if (mineRows() === rowsShown) return;
+    rowsShown = mineRows();
+    renderMine();
+    fitShade();
+  };
+  window.addEventListener('resize', onResize);
   const onStorage = (e: StorageEvent) => {
     if (e.key === null || e.key === 'lgoab.balloons.v1') renderMine();
   };
@@ -407,6 +481,8 @@ export function mountStart(
       clearInterval(sceneTimer);
       ro?.disconnect();
       window.removeEventListener('storage', onStorage);
+      document.removeEventListener(ABOUT_EVENT, openAbout);
+      window.removeEventListener('resize', onResize);
       search.el.remove();
       shades.forEach((s) => s.remove());
       root.replaceChildren();
