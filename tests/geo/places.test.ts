@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { clearGazetteerCache } from '../../src/geo/gazetteer';
-import { overText, placeOver, withArticle } from '../../src/geo/places';
+import { countryName, overText, placeOver, withArticle } from '../../src/geo/places';
 import type { Label } from '../../src/world/meshjob';
 import { stubGazetteer } from './helpers';
 
@@ -71,4 +71,24 @@ test('a fountain or pond is not what the balloon is over, and a lake only counts
   const lake = [label('Serpentine', 'lake', 51.505, -0.165), label('London', 'city', 51.507, -0.1277)];
   expect(await placeOver(p, lake)).toBe('London'); // 2.7 km away: not under the balloon
   expect(await placeOver({ lat: 51.5055, lon: -0.166 }, lake)).toBe('Serpentine');
+});
+
+test('country names read naturally aloud: "the" where English uses it, and CLDR\'s long forms tidied', () => {
+  expect(countryName('United Kingdom')).toBe('the United Kingdom');
+  expect(countryName('United States')).toBe('the United States');
+  expect(countryName('Netherlands')).toBe('the Netherlands');
+  expect(countryName('Philippines')).toBe('the Philippines');
+  expect(countryName('Solomon Islands')).toBe('the Solomon Islands');
+  expect(countryName('France')).toBe('France');
+  expect(countryName('Norway')).toBe('Norway');
+  expect(countryName('Congo - Brazzaville')).toBe('the Republic of the Congo');
+  expect(countryName('Congo - Kinshasa')).toBe('the Democratic Republic of the Congo');
+  expect(countryName('Myanmar (Burma)')).toBe('Myanmar');
+  expect(countryName('Hong Kong SAR China')).toBe('Hong Kong');
+  expect(countryName('Macao SAR China')).toBe('Macao');
+  expect(countryName('St. Lucia')).toBe('St Lucia');
+  expect(countryName('U.S. Virgin Islands')).toBe('the US Virgin Islands');
+  expect(countryName('Bosnia & Herzegovina')).toBe('Bosnia and Herzegovina');
+  expect(countryName('Trinidad & Tobago')).toBe('Trinidad and Tobago');
+  expect(countryName('Palestinian Territories')).toBe('the Palestinian Territories');
 });
