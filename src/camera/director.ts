@@ -173,7 +173,7 @@ const STILL_LM_STEP_M = 5;
 /** The launch camera passing over the person keeps this high over their ground (m): the crane eases up within PERSON_EASE_M of them, the clamp holds it within PERSON_CLEAR_M. */
 const PERSON_OVER_M = 2.8;
 const PERSON_CLEAR_M = 1.2;
-const PERSON_EASE_M = 3;
+const PERSON_EASE_M = 3.5;
 /** The camera keeps this far out of a tree's crown (outOfCrowns). */
 const CROWN_GAP_M = 0.5;
 /**
@@ -310,7 +310,7 @@ export class Director {
    * unit vector) and its distance then and at the end, the smooth maximum's value then, the lift the
    * predicted path needs (every PLAN_STEP_S), and the balloon as the camera follows it (smoothed: Bs, Bv).
    */
-  private plan: { B: THREE.Vector3; az: THREE.Vector3; d0: number; dc: number; sm0: number; need: Float64Array; Bs: THREE.Vector3; Bv: THREE.Vector3 } | null = null;
+  private plan: { B: THREE.Vector3; az: THREE.Vector3; d0: number; dc: number; sm0: number; need: Float64Array; Bs: THREE.Vector3; Bv: THREE.Vector3; Bp: THREE.Vector3 } | null = null;
   /** The launch camera's lift over buildings (m) and its rate. */
   private lift = 0;
   private liftV = 0;
@@ -993,7 +993,8 @@ export class Director {
       const u = t - this.rel;
       if (!this.plan) this.plan = this.makePlan(b, B, B0, S, Hy, dir);
       const pl = this.plan;
-      spring3(pl.Bs, pl.Bv, B, FOLLOW_T_S, this.stepS);
+      follow3(pl.Bs, pl.Bv, pl.Bp, B, FOLLOW_T_S, this.stepS);
+      pl.Bp.copy(B);
       this.planAt(u, pl.Bs, S, Hy, p);
       // over buildings: the predicted path's need and the present one's, through the lift's spring
       const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
@@ -1063,7 +1064,7 @@ export class Director {
     const sm0 = softMax(B.y - dh * Math.tan(CRANE_ELEV) - Hy);
     const n = Math.round(PLAN_S / PLAN_STEP_S) + 1;
     const need = new Float64Array(n);
-    this.plan = { B: B.clone(), az, d0, dc, sm0, need, Bs: B.clone(), Bv: new THREE.Vector3() };
+    this.plan = { B: B.clone(), az, d0, dc, sm0, need, Bs: B.clone(), Bv: new THREE.Vector3(), Bp: B.clone() };
     // the predicted path: on with the wind, climbing (from rest: it leaves the hand at about half a second)
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
     const raw = new Float64Array(n);
@@ -1571,6 +1572,23 @@ function spring1(x: number, v: number, target: number, T: number, dt: number): [
   const d = x - target;
   const tmp = v + w * d;
   return [target + (d + tmp * dt) * ex, (v - w * tmp * dt) * ex];
+}
+/**
+ * Exact critically damped follow of a target that moved from `from` to `to` at an even speed over dt (a
+ * long frame lands where a run of short ones would: the target is not taken to have jumped).
+ */
+function follow3(x: THREE.Vector3, v: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, T: number, dt: number): void {
+  if (!(dt > 0)) return;
+  const w = 2 / T;
+  const e = Math.exp(-w * dt);
+  for (const k of ['x', 'y', 'z'] as const) {
+    const vt = (to[k] - from[k]) / dt;
+    // about the moving target, the error settles at -2 vt / w; what is left decays as a free spring
+    const z0 = x[k] - from[k] + (2 * vt) / w, zv = v[k] - vt;
+    const t = zv + w * z0;
+    x[k] = to[k] - (2 * vt) / w + (z0 + t * dt) * e;
+    v[k] = vt + (zv - w * t * dt) * e;
+  }
 }
 function spring3(x: THREE.Vector3, v: THREE.Vector3, target: THREE.Vector3, T: number, dt: number): void {
   for (const k of ['x', 'y', 'z'] as const) {
