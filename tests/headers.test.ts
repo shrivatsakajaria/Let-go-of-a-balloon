@@ -11,9 +11,8 @@ test('the page is served with a content security policy, enforced', () => {
   expect(page['content-security-policy-report-only']).toBeUndefined();
 });
 
-test('scripts only from this site and Cloudflare Web Analytics\' beacon: no inline scripts, no eval', () => {
-  // the beacon Pages adds when Web Analytics is on (spec 16); its path carries a version, so the host
-  expect(csp['script-src']).toEqual(["'self'", 'https://static.cloudflareinsights.com']);
+test('scripts only from this site: no inline scripts, no eval', () => {
+  expect(csp['script-src']).toEqual(["'self'"]);
   expect(csp['default-src']).toEqual(["'self'"]);
   expect(csp['object-src']).toEqual(["'none'"]);
   expect(csp['base-uri']).toEqual(["'self'"]);
@@ -29,10 +28,9 @@ test('connections go only to the services the app uses (spec 9)', () => {
     'https://tiles.mapterhorn.com',
     'https://s3.amazonaws.com/elevation-tiles-prod/',
     'https://geocoding-api.open-meteo.com',
-    'https://cloudflareinsights.com', // Web Analytics' beacon reports here (spec 16)
   ])
     expect(allowed.has(host), host).toBe(true);
-  expect(allowed.size).toBe(7);
+  expect(allowed.size).toBe(6);
   expect(csp['connect-src'].join(' ')).not.toMatch(/\*/);
 });
 
