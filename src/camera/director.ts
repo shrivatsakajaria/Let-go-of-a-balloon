@@ -107,12 +107,12 @@ const CLEAR_AHEAD_S = 8;
  *   Ride takes its bearing from the crane's (rideYaw) and comes round behind the balloon slowly afterwards.
  */
 const OPEN_S = 2.8;
-const HOLD_D_M = 6;
+const HOLD_D_M = 5;
 const HOLD_TOWARD_M = 4;
 const HOLD_TOWARD_S = 1;
-const HOLD_EYE_M = 1.35;
+const HOLD_EYE_M = 1;
 const HOLD_FOV = 40;
-const HOLD_FEET = -0.72;
+const HOLD_FEET = -0.8;
 const HOLD_S = 1.6;
 const RISE_Y0 = 0.45;
 const CRANE_ELEV = 22 * RAD;
@@ -131,8 +131,8 @@ const LANDMARK_S = 3;
 const LIFT_OVER_M = 2;
 const LIFT_T_S = 0.8;
 const LIFT_DOWN_T_S = 3;
-const LIFT_MAX_A = 1.5;
-const LIFT_MAX_V = 2;
+const LIFT_MAX_A = 3;
+const LIFT_MAX_V = 3;
 /**
  * A lift needed later counts now less LIFT_EASY_MS for each second until then past LIFT_LEAD_S (about the
  * spring's own lag): the rise is spread out, and done by the time it is needed.
@@ -1463,7 +1463,7 @@ export class Director {
     if (this._shot === 'launch') {
       // the street and the crane may be below the rooftops; the rules come in with the push back in
       const c = Number.isNaN(this.pushAt) || this.reduced ? 0 : smoother((this.launchT - this.pushAt) / PUSH_MOVE_S);
-      clearance = 1.2 + (8 - 1.2) * c;
+      clearance = 0.9 + (8 - 0.9) * c;
       wBuild = c;
     }
     let floor = this.deps.groundAt(ll) + clearance;
