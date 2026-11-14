@@ -1,10 +1,12 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
 
 /**
  * Wind streaks (Task 25, owner's decision, 14 November 2026): none on the start screen or in the
  * launch, there at cruise in every view, none with reduced motion. On fixture winds, map and terrain
- * (e2e/fixtures.ts), with WebGL on SwiftShader.
+ * (e2e/fixtures.ts), with WebGL on SwiftShader. A software renderer leaves them off, so these
+ * tests turn them on (window.__lgoabStreaks, read only by the scene); the last checks they are off
+ * without it.
  */
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 120_000 });
@@ -13,12 +15,18 @@ type Hook = { state: string; shot: string; aglM: number; streaks: number; streak
 const hook = (page: Page) => page.evaluate(() => (window as unknown as { __live?: Hook }).__live ?? null);
 const view = (page: Page) => page.evaluate(() => document.documentElement.dataset.view);
 
+/** Draw the streaks on this software renderer (they are off on one otherwise). */
+async function forceStreaks(context: BrowserContext) {
+  await context.addInitScript(() => ((window as unknown as { __lgoabStreaks: boolean }).__lgoabStreaks = true));
+}
+
 async function ready(page: Page) {
   await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 30_000 });
 }
 
 test('no streaks on the start screen or in the launch', async ({ context, page }) => {
   const { external } = await liveWorld(context);
+  await forceStreaks(context);
   await startAtAlbertSquare(context);
   await page.goto('/');
   await ready(page);
@@ -55,6 +63,7 @@ async function throughout(page: Page, ms: number, check: (h: Hook) => void) {
 
 test('streaks fade in at cruise and stay on screen in Ride, Above and Side-on, and while paused', async ({ context, page }) => {
   const { external } = await liveWorld(context);
+  await forceStreaks(context);
   await cruise(page);
   for (const name of ['Ride', 'Above', 'Side-on']) {
     await page.getByRole('button', { name, exact: true }).click();
@@ -73,6 +82,7 @@ test('streaks fade in at cruise and stay on screen in Ride, Above and Side-on, a
 
 test('none while the whole-trip replay plays; back to live they fade in again', async ({ context, page }) => {
   const { external } = await liveWorld(context);
+  await forceStreaks(context);
   await cruise(page);
   await page.getByRole('button', { name: 'Show me the whole trip' }).click();
   await expect.poll(async () => (await hook(page))!.replay, { timeout: 10_000 }).toBe(true);
@@ -89,6 +99,7 @@ test('none while the whole-trip replay plays; back to live they fade in again', 
 
 test('back to the start screen from cruise ("Let go of your own"): the streaks go at once', async ({ context, page }) => {
   const { external } = await liveWorld(context);
+  await forceStreaks(context);
   await cruise(page);
   await page.getByRole('button', { name: 'Let go of your own' }).click();
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
@@ -102,6 +113,7 @@ test('back to the start screen from cruise ("Let go of your own"): the streaks g
 test('reduced motion: no streaks at cruise', async ({ context, page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const { external } = await liveWorld(context);
+  await forceStreaks(context);
   await page.goto(await linkTo(eastward(14)));
   await ready(page);
   await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
@@ -109,5 +121,18 @@ test('reduced motion: no streaks at cruise', async ({ context, page }) => {
   const h = (await hook(page))!;
   expect(h.aglM).toBeGreaterThan(600);
   expect(h.streaks).toBe(0);
+  expect(external).toEqual([]);
+});
+
+test('on a software renderer they are off unless a test turns them on', async ({ context, page }) => {
+  const { external } = await liveWorld(context);
+  await page.goto(await linkTo(eastward(14)));
+  await ready(page);
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await page.waitForTimeout(5000);
+  const h = (await hook(page))!;
+  expect(h.aglM).toBeGreaterThan(600);
+  expect(h.streaks).toBe(0);
+  expect(h.streaksOnScreen).toBe(0);
   expect(external).toEqual([]);
 });

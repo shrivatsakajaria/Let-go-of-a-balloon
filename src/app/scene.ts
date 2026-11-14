@@ -194,7 +194,11 @@ export class LiveScene {
     this.landmarks = new LandmarkLayer({ scene: this.scene, toScene: (p, out) => this.stream.toScene(p, out), groundAt: (p) => this.stream.groundAt(p), zoomAt: (p) => this.stream.zoomAt(p), materials: this.stream.materials });
     this.budget = new FrameBudget(this.stream, this.sky.light, { frameTimes: !isSoftwareRenderer(this.renderer) });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
-    this.streaks = new WindStreaks(this.scene, { haze: this.sky.haze, enabled: !this.reduced, pixelRatio: this.renderer.getPixelRatio() });
+    // off with reduced motion, and on a software renderer, where they cost frames for nothing (the
+    // browser tests, which draw in software, turn them on with window.__lgoabStreaks)
+    const forceStreaks = typeof window !== 'undefined' && !!(window as unknown as { __lgoabStreaks?: boolean }).__lgoabStreaks;
+    const streaksOn = !this.reduced && (forceStreaks || !isSoftwareRenderer(this.renderer));
+    this.streaks = new WindStreaks(this.scene, { haze: this.sky.haze, enabled: streaksOn, pixelRatio: this.renderer.getPixelRatio() });
     this.stream.onRecentre = (e) => {
       this.clouds.shift(e.dx, e.dz);
       this.streaks.shift(e.dx, e.dz);

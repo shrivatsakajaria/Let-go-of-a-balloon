@@ -44,7 +44,7 @@ export const STREAK_SLAB = { below: 900, above: 400, fadeM: 250 } as const;
 export const STREAK_REL_MIN_MS = 5;
 export const STREAK_REL_GAIN = 2;
 /** Seconds: their direction eases toward the wind's with this time constant. */
-export const STREAK_TURN_S = 3;
+export const STREAK_TURN_S = 1;
 /** Heights above the ground (m) over which they come in. */
 export const STREAK_FADE_AGL = { from: 300, to: 600 } as const;
 /** Seconds before the landing over which they go. */
@@ -114,16 +114,15 @@ export function streakVelocity(u: number, v: number, dir: { x: number; z: number
 export function turnToward(dir: { x: number; z: number }, u: number, v: number, dtS: number): { x: number; z: number } {
   const s = Math.hypot(u, v);
   if (!(s > 1e-3) || !(dtS > 0)) return dir;
-  const k = 1 - Math.exp(-dtS / STREAK_TURN_S);
-  const x = dir.x + (u / s - dir.x) * k, z = dir.z + (-v / s - dir.z) * k;
-  const l = Math.hypot(x, z);
-  if (l > 1e-6) {
-    dir.x = x / l;
-    dir.z = z / l;
-  } else {
-    dir.x = u / s; // exactly about-face: take the wind's
-    dir.z = -v / s;
-  }
+  const tx = u / s, tz = -v / s;
+  // ease the signed angle (an exact about-face turns as fast as any other change)
+  const ang = Math.atan2(dir.x * tz - dir.z * tx, dir.x * tx + dir.z * tz);
+  const turn = ang * (1 - Math.exp(-dtS / STREAK_TURN_S));
+  const cs = Math.cos(turn), sn = Math.sin(turn);
+  const x = dir.x * cs - dir.z * sn, z = dir.x * sn + dir.z * cs;
+  const l = Math.hypot(x, z) || 1;
+  dir.x = x / l;
+  dir.z = z / l;
   return dir;
 }
 
@@ -166,6 +165,26 @@ export function layerDistance(size: number, fovDeg: number, aspect = 1): number 
 }
 
 const N_LAYERS = STREAK_LAYERS.length;
+/** Metres from the camera over which they come in; heights over the ground over which they come in. */
+const NEAR_FADE = [25, 70] as const;
+const GROUND_FADE = [60, 220] as const;
+
+/**
+ * How visible a streak is by where it is (0..1), exactly as the shader fades it: the faces of its
+ * box (q), near the camera, into the haze (fog, when given), the balloon's height band and the
+ * ground. Leaves out its own brightness and life cycle, and the fade in front of the balloon.
+ */
+export function placeFade(q: V3, c: V3, camera: V3, focusY: number, groundM: number, fog?: { near: number; far: number }): number {
+  let a = edgeFade(q);
+  const dc = Math.hypot(c.x - camera.x, c.y - camera.y, c.z - camera.z);
+  a *= smooth(NEAR_FADE[0], NEAR_FADE[1], dc);
+  if (fog) a *= 1 - smooth(fog.near, fog.far, dc);
+  const y = c.y - focusY;
+  a *= smooth(-STREAK_SLAB.below, -(STREAK_SLAB.below - STREAK_SLAB.fadeM), y);
+  a *= 1 - smooth(STREAK_SLAB.above - STREAK_SLAB.fadeM, STREAK_SLAB.above, y);
+  a *= smooth(groundM + GROUND_FADE[0], groundM + GROUND_FADE[1], c.y);
+  return a;
+}
 
 const VERT = /* glsl */ `
 uniform vec3 uCenter[${N_LAYERS}]; uniform vec3 uShift[${N_LAYERS}]; uniform float uSize[${N_LAYERS}];
@@ -185,14 +204,14 @@ void main() {
   // fades: the box's faces, near the camera, into the haze, the balloon's height band, the ground
   float a = 1.0 - smoothstep(0.32, 0.5, max(max(abs(q.x), abs(q.y)), abs(q.z)));
   float dc = length(c - cameraPosition);
-  a *= smoothstep(25.0, 70.0, dc);
+  a *= smoothstep(${NEAR_FADE[0].toFixed(1)}, ${NEAR_FADE[1].toFixed(1)}, dc);
   #ifdef USE_FOG
     a *= 1.0 - smoothstep(fogNear, fogFar, dc);
   #endif
   float y = c.y - uFocus.y;
   a *= smoothstep(-${STREAK_SLAB.below.toFixed(1)}, -${(STREAK_SLAB.below - STREAK_SLAB.fadeM).toFixed(1)}, y);
   a *= 1.0 - smoothstep(${(STREAK_SLAB.above - STREAK_SLAB.fadeM).toFixed(1)}, ${STREAK_SLAB.above.toFixed(1)}, y);
-  a *= smoothstep(uGround + 60.0, uGround + 220.0, c.y);
+  a *= smoothstep(uGround + ${GROUND_FADE[0].toFixed(1)}, uGround + ${GROUND_FADE[1].toFixed(1)}, c.y);
   // each one brightens and fades as it travels
   float life = fract(aSeed.w + uTime * aLook.z / ${LIFE_WRAP_S.toFixed(1)});
   a *= smoothstep(0.0, 0.3, life) * (1.0 - smoothstep(0.6, 1.0, life));
@@ -403,10 +422,11 @@ export class WindStreaks {
   }
 
   /**
-   * For checks: how many streaks are on screen now and well inside their box (their middle within
-   * the view, in front of the camera), worked out as the shader places them. 0 when not drawn.
+   * For checks: how many streaks are seen now: their middle within the view and in front of the
+   * camera, and visible there by where they are (placeFade, the shader's own fades, at least
+   * 0.3), worked out as the shader places them. 0 when not drawn. `fog`: the scene's haze.
    */
-  onScreen(camera: THREE.Camera): number {
+  onScreen(camera: THREE.Camera, fog?: { near: number; far: number }): number {
     if (!this.mesh.visible) return 0;
     const seed = this.mesh.geometry.getAttribute('aSeed') as THREE.InstancedBufferAttribute;
     const look = this.mesh.geometry.getAttribute('aLook') as THREE.InstancedBufferAttribute;
@@ -422,7 +442,7 @@ export class WindStreaks {
       q.x = (p.x - c.x) / size;
       q.y = (p.y - c.y) / size;
       q.z = (p.z - c.z) / size;
-      if (edgeFade(q) < 0.5) continue;
+      if (placeFade(q, p, camera.position, this.u.uFocus.value.y, this.u.uGround.value, fog) < 0.3) continue;
       p.project(camera);
       if (p.z > -1 && p.z < 1 && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1) n++;
     }

@@ -5,6 +5,7 @@ import {
   edgeFade,
   heightFade,
   layerDistance,
+  placeFade,
   STREAK_COUNT,
   STREAK_LAYERS,
   STREAK_REL_GAIN,
@@ -125,12 +126,47 @@ describe('wind streaks: the wind to their velocity', () => {
     }
   });
 
+  /** Degrees between the streaks' direction and the wind's (u east, v north). */
+  const off = (dir: { x: number; z: number }, u: number, v: number) => {
+    const s = Math.hypot(u, v);
+    return (Math.acos(Math.max(-1, Math.min(1, (dir.x * u - dir.z * v) / s))) * 180) / Math.PI;
+  };
+  /** Wind (u, v) blowing toward compass heading h at s m/s. */
+  const toward = (h: number, s: number) => ({ u: s * Math.sin((h * Math.PI) / 180), v: s * Math.cos((h * Math.PI) / 180) });
+
+  it('an exact about-face turns too, within 3 to 4 s at 60 fps, and never stands still on the way', () => {
+    const dir = { x: 1, z: 0 }; // east
+    const w = toward(270, 2.5); // the wind turns to blow west
+    const out = { x: 0, z: 0 };
+    let minSpeed = Infinity;
+    for (let i = 0; i < 4 * 60; i++) {
+      turnToward(dir, w.u, w.v, 1 / 60);
+      streakVelocity(w.u, w.v, dir, out);
+      minSpeed = Math.min(minSpeed, Math.hypot(out.x, out.z));
+      if (i === 3 * 60 - 1) expect(off(dir, w.u, w.v)).toBeLessThan(10);
+    }
+    expect(off(dir, w.u, w.v)).toBeLessThan(4);
+    expect(minSpeed).toBeGreaterThan(2);
+  });
+
+  it('a turn from 90 to 269 degrees (nearly about) settles within 3 to 4 s at 60 fps', () => {
+    const a = toward(90, 6);
+    const dir = { x: 0, z: 0 };
+    dir.x = a.u / 6;
+    dir.z = -a.v / 6;
+    const w = toward(269, 6);
+    for (let i = 0; i < 3 * 60; i++) turnToward(dir, w.u, w.v, 1 / 60);
+    expect(off(dir, w.u, w.v)).toBeLessThan(10);
+    for (let i = 0; i < 60; i++) turnToward(dir, w.u, w.v, 1 / 60);
+    expect(off(dir, w.u, w.v)).toBeLessThan(4);
+  });
+
   it('turn toward a new wind over a few seconds, staying a unit direction; a calm leaves them as they are', () => {
     const dir = { x: 1, z: 0 };
-    turnToward(dir, 0, 5, 1); // north: scene -z
+    turnToward(dir, 0, 5, 0.3); // north: scene -z
     expect(Math.hypot(dir.x, dir.z)).toBeCloseTo(1, 9);
     expect(dir.z).toBeLessThan(0);
-    expect(dir.x).toBeGreaterThan(0.5); // only part of the way after a second
+    expect(dir.x).toBeGreaterThan(0.5); // only part of the way after 0.3 s
     turnToward(dir, 0, 0, 1);
     const kept = { ...dir };
     turnToward(dir, 0, 0, 10);
@@ -239,6 +275,20 @@ describe('wind streaks: recycled round the view', () => {
     }
   });
 
+  it('fade by place as the shader does: the box faces, near the camera, the haze, the height band, the ground', () => {
+    const cam = { x: 0, y: 1500, z: 0 };
+    const mid = { x: 0, y: 0, z: 0 };
+    const at = (x: number, y: number, z: number) => ({ x, y, z });
+    expect(placeFade(mid, at(0, 1400, -300), cam, 1500, 0)).toBe(1);
+    expect(placeFade({ x: 0.5, y: 0, z: 0 }, at(0, 1400, -300), cam, 1500, 0)).toBe(0);
+    expect(placeFade(mid, at(0, 1500, -10), cam, 1500, 0)).toBe(0); // at the camera
+    expect(placeFade(mid, at(0, 1500, -300), cam, 1500, 0, { near: 100, far: 250 })).toBe(0); // in the haze
+    expect(placeFade(mid, at(0, 500, -300), cam, 1500, 0)).toBe(0); // 1,000 m below the balloon
+    expect(placeFade(mid, at(0, 1950, -300), cam, 1500, 0)).toBe(0); // 450 m above it
+    expect(placeFade(mid, at(0, 1250, -300), cam, 1500, 1200)).toBe(0); // 50 m over a hill
+    expect(placeFade(mid, at(0, 1450, -300), cam, 1500, 1200)).toBe(1); // 250 m over it
+  });
+
   it('a landscape screen is covered side to side: on 16:9 each box is as wide as the view', () => {
     const aspect = 16 / 9;
     for (const fov of [34, 40, 50])
@@ -292,6 +342,10 @@ describe('WindStreaks', () => {
     expect(streaks.opacity).toBeGreaterThan(0.99);
     expect(streaks.mesh.visible).toBe(true);
     expect(streaks.onScreen(camera)).toBeGreaterThan(200);
+    // the count is of streaks that can be seen: with the ground just under them, none
+    frame.groundM = 1450;
+    streaks.update(1 / 30, frame);
+    expect(streaks.onScreen(camera)).toBe(0);
   });
 
   it('pause holds them where they are, still shown; they flow again on resume', () => {

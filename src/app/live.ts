@@ -194,7 +194,7 @@ export class Live {
       // read when asked, not per frame: a starved renderer can go seconds without one
       Object.defineProperty(this.hook, 'replay', { enumerable: true, get: () => this.replayRun !== null });
       Object.defineProperty(this.hook, 'streaks', { enumerable: true, get: () => (this.scene.streaks.mesh.visible ? this.scene.streaks.opacity : 0) });
-      Object.defineProperty(this.hook, 'streaksOnScreen', { enumerable: true, get: () => this.scene.streaks.onScreen(this.scene.camera) });
+      Object.defineProperty(this.hook, 'streaksOnScreen', { enumerable: true, get: () => this.scene.streaks.onScreen(this.scene.camera, this.scene.sky.fog) });
       Object.defineProperty(this.hook, 'trail', { enumerable: true, get: () => !!this.scene.scene.getObjectByName('replay-trail') });
       (window as unknown as { __live: LiveHook }).__live = this.hook;
       // for the browser test of dispose: how many objects are left in the 3D scene afterwards
