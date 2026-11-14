@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import build_tiles
+import gfs_fetch
 from build_tiles import decode_tile, encode_tile, tile_names, tile_slice
 from gfs_fetch import parse_idx, select_ranges, to_global_grid
 
@@ -68,7 +69,25 @@ def test_decode_rejects_bad_magic():
 def test_cruise_windows_are_inclusive_24h():
     assert build_tiles.window_hours(0) == [0, 3, 6, 9, 12, 15, 18, 21, 24]
     assert build_tiles.window_hours(3) == [72, 75, 78, 81, 84, 87, 90, 93, 96]
-    assert all(len(build_tiles.window_hours(w)) == 9 for w in range(4))
+    assert build_tiles.window_hours(4) == [96, 99, 102, 105, 108, 111, 114, 117, 120]
+    assert all(len(build_tiles.window_hours(w)) == 9 for w in range(5))
+
+
+def test_runs_reach_f120_so_a_run_carries_a_whole_flight_for_48_h():
+    """R59: the site uses a run up to 48 h old, so its winds must reach 48 + 72 = 120 h."""
+    src = (REPO / 'src' / 'config.ts').read_text()
+    flight_hours = int(re.search(r'export const FLIGHT_HOURS = (\d+);', src).group(1))
+    assert build_tiles.RUN_HOURS == list(range(0, 121, 3))
+    assert build_tiles.RUN_HOURS[-1] - flight_hours == 48
+    assert build_tiles.N_WINDOWS == 5
+    assert build_tiles.window_hours(build_tiles.N_WINDOWS - 1)[-1] == build_tiles.RUN_HOURS[-1]
+
+
+def test_a_run_is_ready_only_once_its_f120_files_exist(monkeypatch):
+    asked = []
+    monkeypatch.setattr(gfs_fetch, 'http_exists', lambda url, **kw: asked.append(url) or True)
+    assert gfs_fetch.run_is_ready('2026111218')
+    assert {u.split('.pgrb2.')[1] for u in asked} == {'1p00.f120.idx', '0p25.f120.idx'}
 
 
 def test_tile_slices_have_shared_edges_and_reach_poles_and_dateline():
@@ -194,7 +213,7 @@ def test_manifest_lists_newest_four_complete_runs(tmp_path):
 def test_run_entry_shape():
     e = build_tiles.run_entry('2026111218')
     assert e == {
-        'id': '2026111218', 'issued': '2026-11-12T18:00:00Z', 'hours': list(range(0, 97, 3)),
+        'id': '2026111218', 'issued': '2026-11-12T18:00:00Z', 'hours': list(range(0, 121, 3)),
         'climb': {'tileDeg': 5, 'res': 0.25, 'hours': [3, 6, 9, 12, 15, 18, 21, 24], 'scale': 0.5},
         'cruise': {'tileDeg': 20, 'res': 1.0, 'windowHours': 24, 'scale': 1.0},
     }
@@ -245,12 +264,15 @@ def test_build_run_with_synthetic_fields(tmp_path):
     climb = sorted(p.name for p in (path / 'climb').glob('*.bin.gz'))
     assert climb == ['50_-5.bin.gz']
     assert json.loads((path / 'climb' / 'tiles.json').read_text()) == ['50_-5']
-    assert len(list((path / 'cruise').glob('*.bin.gz'))) == 9 * 18 * 4
+    assert len(list((path / 'cruise').glob('*.bin.gz'))) == 9 * 18 * 5
     t = decode_tile(gzip.decompress((path / 'cruise' / '50_-20_3.bin.gz').read_bytes()))
     assert t.hours.tolist() == build_tiles.window_hours(3)
     assert t.levels.tolist() == build_tiles.CRUISE_LEVELS
     assert (t.lat0, t.lon0, t.res, t.scale) == (50, -20, 1.0, 1.0)
     assert t.u[0, 0, 0, 0] == 24 and t.u[8, 0, 0, 0] == 32            # hour 72 / 3, hour 96 / 3
+    t4 = decode_tile(gzip.decompress((path / 'cruise' / '50_-20_4.bin.gz').read_bytes()))
+    assert t4.hours.tolist() == build_tiles.window_hours(4)
+    assert t4.u[8, 0, 0, 0] == 40                                       # hour 120 / 3
     assert t.v[0, 0, 3, 0] == 5 and t.gh[0, 1, 0, 0] == 10000 - 8000  # lat 53 / 10; level 800
     c = decode_tile(gzip.decompress((path / 'climb' / '50_-5.bin.gz').read_bytes()))
     assert c.u.shape == (8, 6, 21, 21) and c.scale == 0.5 and c.res == 0.25

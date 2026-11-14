@@ -36,9 +36,9 @@ export type Outfit = {
 
 export const OUTFITS: readonly Outfit[] = [
   { name: 'camel', coat: '#b48e6a', trim: '#8f6e50', scarf: '#4d6585', trousers: '#555b68', shoes: '#2e2b2a', skin: '#e3c2a6', hair: '#5a4334', hat: '#4d6585', headwear: 'beanie' },
-  { name: 'plum', coat: '#7c5a63', trim: '#62444c', scarf: '#e8dcc4', trousers: '#4f566b', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
+  { name: 'plum', coat: '#93707a', trim: '#765860', scarf: '#e8dcc4', trousers: '#4f566b', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
   { name: 'ochre', coat: '#ab8b56', trim: '#8a6c40', scarf: '#3e6b6e', trousers: '#5f5a53', shoes: '#2b2b2d', skin: '#8f6249', hair: '#241d1a', hat: '#4b4b52', headwear: 'cap' },
-  { name: 'chestnut', coat: '#73564a', trim: '#5b4239', scarf: '#9bb3c4', trousers: '#55565c', shoes: '#262424', skin: '#d9ab8c', hair: '#1f1a18', hat: '#1f1a18', headwear: 'bun' },
+  { name: 'chestnut', coat: '#8c6a56', trim: '#6e5242', scarf: '#9bb3c4', trousers: '#55565c', shoes: '#262424', skin: '#d9ab8c', hair: '#1f1a18', hat: '#1f1a18', headwear: 'bun' },
 ];
 
 /** The outfit for a start place: the same place always gets the same one. */
@@ -202,7 +202,7 @@ export function buildFigure(outfit: Outfit): Rig {
   }
 
   // the scarf: a chunky wrap round the neck, one end down the front, one over the back on the wind
-  const wrap = lathe([[0.062, 1.425], [0.1, 1.43], [0.115, 1.458], [0.11, 1.5], [0.088, 1.528], [0.058, 1.532]], 10, { sz: 0.92 });
+  const wrap = lathe([[0.062, 1.42], [0.1, 1.425], [0.115, 1.45], [0.108, 1.484], [0.084, 1.502], [0.056, 1.505]], 10, { sz: 0.92 });
   P.add(wrap, o.scarf, idx('torso'), mul(T(0, -HIP_Y, 0), T(0, 1.47, 0), RX(0.12), T(0, -1.47, 0)));
   const front = block(0.034, 0.011, 0.25, 0.01, 6);
   P.add(front, o.scarf, idx('torso'), mul(T(-0.055, 1.46 - HIP_Y, -0.112), RZ(-0.08), RX(0.16)));
@@ -214,13 +214,23 @@ export function buildFigure(outfit: Outfit): Rig {
   const fringe = block(0.033, 0.008, 0.03, 0.006, 6);
   P.add(fringe, o.scarf, idx('tail2'), T(0, -0.13, 0));
 
-  // the head: a faceless, slightly large egg on a short neck
-  const HC = 0.15; // head centre above the neck bone
-  const neck = lathe([[0.046, -0.02], [0.044, 0.04], [0.048, 0.07]], 8);
+  // the head: a faceless, slightly large egg on a neck that clears the scarf
+  const HC = 0.176; // head centre above the neck bone
+  const neck = lathe([[0.046, -0.02], [0.043, 0.05], [0.047, 0.095]], 8);
   P.add(neck, o.skin, idx('neck'));
   const headProf: Prof = [[0, -0.112], [0.05, -0.104], [0.083, -0.07], [0.099, -0.02], [0.102, 0.025], [0.092, 0.07], [0.064, 0.108], [0.03, 0.124], [0, 0.128]];
   const head = lathe(headProf, 12, { sx: 1.03, sz: 1.08 });
   P.add(head, o.skin, idx('neck'), T(0, HC, 0.006));
+  // no features, only a slightly lighter oval where a face would be, so which way they look reads
+  const cap: Prof = [];
+  for (let i = 0; i <= 3; i++) {
+    const a = (0.6 * i) / 3;
+    cap.push([0.104 * Math.sin(a), 0.104 * Math.cos(a)]);
+  }
+  const face = lathe(cap.reverse(), 10, { sx: 0.94 });
+  face.applyMatrix4(RX(-Math.PI / 2)); // the cap's axis toward the front (-z)
+  face.scale(1, 1.14, 1.08);
+  P.add(face, lighten(o.skin, 0.13), idx('neck'), T(0, HC - 0.014, 0.006));
   addHeadwear(P, o, idx('neck'), HC);
 
   // arms: soft sleeves with a turned-back cuff, big friendly hands (palm, thumb, four fingers in two
@@ -276,6 +286,11 @@ export function buildFigure(outfit: Outfit): Rig {
   return { mesh, bones, gripIn, gripOut, material, triangles: geo.getAttribute('position').count / 3 };
 }
 
+/** A hex colour a little toward white. */
+function lighten(hex: string, f: number): string {
+  return '#' + new THREE.Color(hex).lerp(new THREE.Color('#ffffff'), f).getHexString();
+}
+
 /** Move each vertex from its bone's local frame to where that bone sits in the rest pose. */
 function bindLocal(geo: THREE.BufferGeometry, bones: THREE.Bone[]): void {
   const p = geo.getAttribute('position') as THREE.BufferAttribute;
@@ -301,11 +316,11 @@ function addHeadwear(P: Parts, o: Outfit, neck: number, HC: number): void {
     // hair just showing at the back, a knitted beanie with a turned-up cuff and a small bobble
     P.add(skirt(0.0, -0.06, 0.1, 2.6), o.hair, neck, at);
     const dome = lathe([[0.104, 0.012], [0.108, 0.05], [0.1, 0.095], [0.078, 0.128], [0.04, 0.146], [0, 0.15]], 12, { sz: 1.08 });
-    P.add(dome, o.hat, neck, mul(at, RX(-0.18)));
+    P.add(dome, o.hat, neck, mul(at, RX(0.2)));
     const cuff = lathe([[0.1, -0.006], [0.112, -0.002], [0.115, 0.022], [0.112, 0.042], [0.104, 0.046]], 12, { sz: 1.08 });
-    P.add(cuff, o.hat, neck, mul(at, RX(-0.18)));
+    P.add(cuff, o.hat, neck, mul(at, RX(0.2)));
     const bobble = lathe([[0, -0.022], [0.018, -0.016], [0.024, 0], [0.018, 0.016], [0, 0.022]], 6);
-    P.add(bobble, o.hat, neck, mul(at, RX(-0.18), T(0, 0.16, 0)));
+    P.add(bobble, o.hat, neck, mul(at, RX(0.2), T(0, 0.16, 0)));
   } else if (o.headwear === 'bob') {
     // a chin-length bob with a soft side fringe
     P.add(crown(0.138, 0.02, 0.106), o.hair, neck, at);
@@ -316,9 +331,9 @@ function addHeadwear(P: Parts, o: Outfit, neck: number, HC: number): void {
     // short hair under a flat cap with a little peak
     P.add(skirt(0.02, -0.05, 0.101, 2.4), o.hair, neck, at);
     const cap = lathe([[0.104, 0.02], [0.112, 0.05], [0.112, 0.075], [0.09, 0.112], [0.04, 0.128], [0, 0.13]], 12, { sz: 1.1 });
-    P.add(cap, o.hat, neck, mul(at, RX(0.12)));
+    P.add(cap, o.hat, neck, mul(at, RX(0.22)));
     const peak = lathe([[0.1, 0.0], [0.155, -0.004], [0.158, 0.002], [0.1, 0.012]], 8, { phi0: Math.PI - 0.95, phiLen: 1.9, sz: 1.0 });
-    P.add(peak, o.hat, neck, mul(at, RX(0.12), T(0, 0.045, 0)));
+    P.add(peak, o.hat, neck, mul(at, RX(0.22), T(0, 0.045, 0)));
   } else {
     // hair drawn back into a bun
     P.add(crown(0.134, 0.0, 0.105), o.hair, neck, at);

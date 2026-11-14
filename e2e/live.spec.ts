@@ -436,7 +436,7 @@ test('the page keeps no test hook unless a test asks for one', async ({ context,
   expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
 });
 
-test('the live site\'s build does not read window.__lgoabStreaks (only test and preview builds do)', async () => {
+test('the live site\'s build does not read window.__lgoabStreaks or ?backdrop= (only test and preview builds do)', async () => {
   test.setTimeout(240_000);
   // both builds made here, each into its own folder (the one under test is not assumed to be either)
   const build = (env: Record<string, string>) => {
@@ -448,20 +448,22 @@ test('the live site\'s build does not read window.__lgoabStreaks (only test and 
     });
     return out;
   };
-  const reads = (dir: string) => {
+  const reads = (dir: string, needle = '__lgoabStreaks') => {
     const assets = join(dir, 'assets');
     const js = existsSync(assets) ? readdirSync(assets).filter((f) => f.endsWith('.js')) : [];
     expect(js.length).toBeGreaterThan(0);
-    return js.some((f) => readFileSync(join(assets, f), 'utf8').includes('__lgoabStreaks'));
+    return js.some((f) => readFileSync(join(assets, f), 'utf8').includes(needle));
   };
   const dirs: string[] = [];
   try {
     // a test build (DEBUG_PAGES=1) has the switch: the streak tests use it
     dirs.push(build({ DEBUG_PAGES: '1', BRANCH: '' }));
     expect(reads(dirs[0])).toBe(true);
+    expect(reads(dirs[0], 'backdrop')).toBe(true);
     // the live site's build (main, no proof pages) leaves it out
     dirs.push(build({ DEBUG_PAGES: '0', BRANCH: 'main' }));
     expect(reads(dirs[1])).toBe(false);
+    expect(reads(dirs[1], 'backdrop')).toBe(false);
   } finally {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   }

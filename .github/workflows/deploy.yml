@@ -2,12 +2,22 @@ name: Deploy
 
 on:
   push:
+    branches: ['**'] # branches only: a pushed tag does not deploy
   workflow_dispatch:
+  # GitHub starts timer runs late, or skips them, when it is busy (every 5 to 9 hours on some days),
+  # so there are two timers half an hour apart. A run with no newer GFS run to add ends in seconds.
   schedule:
     - cron: '17 * * * *'
+    - cron: '47 * * * *'
 
+# One queue per Pages branch the run publishes to: "main" (the live site: every timer run, and every
+# push or manual run on main) or the preview branch. A preview run can never cancel or hold up a
+# live one. Within a queue one run goes at a time, and a newer queued run cancels a waiting one
+# (never a running one). So a timer run can cancel a waiting push or manual run on main. That timer
+# run still deploys main's newest commit: check-new-run.sh deploys whenever the live site's
+# /build.json names another commit than the one checked out, even with no newer GFS run.
 concurrency:
-  group: deploy
+  group: deploy-${{ github.event_name == 'schedule' && 'main' || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -19,8 +29,6 @@ jobs:
     timeout-minutes: 45
     env:
       BRANCH: ${{ github.event_name == 'schedule' && 'main' || github.ref_name }}
-      # The public address of the site; scripts/check-cors.mjs and scripts/check-new-run.sh read it.
-      SITE_URL: https://let-go-of-a-balloon.pages.dev
     steps:
       # The live site is the Pages branch "main", so the hourly wind refresh must build main's code.
       # A scheduled run starts on the repository's default branch, which is not main until launch,
@@ -43,6 +51,12 @@ jobs:
         with:
           ref: ${{ steps.ref.outputs.ref }}
 
+      # The public address of the site, set once in src/config.ts (SITE_URL). The check scripts read it.
+      - name: Read the site address
+        run: |
+          url=$(./scripts/site-url.sh)
+          echo "SITE_URL=$url" >> "$GITHUB_ENV"
+
       - name: Check for Cloudflare secrets
         id: cf
         env:
@@ -62,7 +76,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Check for a newer GFS run (scheduled runs only)
+      # Deploys when a newer GFS run is ready, or when the live site runs another commit than main's.
+      - name: Check for a newer GFS run or newer code (scheduled runs only)
         id: newrun
         if: github.event_name == 'schedule' && steps.cf.outputs.has_cf == 'true'
         run: ./scripts/check-new-run.sh | tee -a "$GITHUB_OUTPUT"
@@ -70,7 +85,7 @@ jobs:
       - name: Skip note
         if: github.event_name == 'schedule' && steps.newrun.outputs.new != 'true'
         run: |
-          echo "Scheduled run - nothing to do (Cloudflare secrets missing, or no newer GFS run than the deployed one)." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Scheduled run - nothing to do (Cloudflare secrets missing, or no newer GFS run and the live site already runs this commit)." | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Everything below runs for push and manual runs, or for scheduled runs with a new GFS run.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -118,9 +133,22 @@ jobs:
           pytest pipeline/tests -q
 
       # Vite empties dist/, so the site is built first and the winds are written into it after.
+      # Push and manual runs build with `npm run build`, which type-checks everything first, tests
+      # included. A timer run only builds the site (`vite build`): a type slip in a test file must
+      # never stop the winds being refreshed (it did once, on 13 November).
+      # dist/build.json names the commit built, which check-new-run.sh compares with main. (It is the
+      # checkout's HEAD, not GITHUB_SHA: a timer run's GITHUB_SHA is the default branch, not main.)
       - name: Build site
         if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
-        run: npm run build
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "schedule" ]; then
+            npx vite build
+          else
+            npm run build
+          fi
+          printf '{"sha":"%s"}\n' "$(git rev-parse HEAD)" > dist/build.json
 
       # The wind store keeps the newest four built runs between workflow runs. The key never
       # matches exactly, so the newest saved store is restored through the prefix.
@@ -147,6 +175,20 @@ jobs:
         with:
           path: .winds-store
           key: winds-store-${{ steps.winds.outputs.newest }}
+
+      # Cloudflare Pages takes at most 20,000 files per deploy. About 9,500 today: ~1,070 for the
+      # site and 2,106 per wind run (1,295 climb tiles, their list, 810 cruise tiles), four runs.
+      - name: Count the files to deploy
+        if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
+        run: |
+          n=$(find dist -type f | wc -l)
+          echo "Files to deploy: $n (Cloudflare Pages allows 20,000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$n" -ge 20000 ]; then
+            echo "::error title=Too many files::$n files; Cloudflare Pages takes at most 20,000."
+            exit 1
+          elif [ "$n" -ge 15000 ]; then
+            echo "::warning title=Many files::$n files; Cloudflare Pages takes at most 20,000."
+          fi
 
       - name: Cross-origin check (does not block)
         if: github.event_name != 'schedule'
@@ -187,3 +229,13 @@ jobs:
             echo
             echo "Preview link: $DEPLOY_URL"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # R59: the site offers a flight only while it has a wind run under 48 h old. Every run that
+      # publishes to the live site (every timer run, even one with nothing new to add) checks the
+      # newest live run, and fails when it is over 18 h old, so GitHub emails while there is still
+      # more than a day to put it right. After a deploy it reads what was just deployed.
+      - name: Check the live winds are fresh
+        if: steps.cf.outputs.has_cf == 'true' && env.BRANCH == 'main'
+        env:
+          MANIFEST: ${{ steps.deploy.outcome == 'success' && 'dist/winds/manifest.json' || '' }}
+        run: ./scripts/check-wind-age.sh

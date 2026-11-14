@@ -21,6 +21,12 @@ import { resumeAction, type Handover, type World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
 
 const params = new URLSearchParams(location.search);
+/**
+ * ?backdrop=noon|snow|sand: a solid worst-case colour behind the chrome for the contrast checks
+ * (e2e/contrast.spec.ts), with no world loading. Read in a test or preview build only: the live
+ * site's build leaves it out (__LGOAB_TEST_HOOKS__, vite.config.ts).
+ */
+const testBackdrop = __LGOAB_TEST_HOOKS__ ? params.get('backdrop') : null;
 const html = document.documentElement;
 const sceneEl = document.getElementById('scene')!;
 const appEl = document.getElementById('app')!;
@@ -189,7 +195,7 @@ const start = mountStart(
       live?.setStart(c);
     },
   },
-  { backdrop: params.get('backdrop') },
+  { backdrop: testBackdrop },
 );
 
 function showBroken() {
@@ -234,5 +240,5 @@ window.addEventListener('hashchange', () => {
 
 // the world loads once the first frame of the chrome is on screen (not under a ?backdrop= test colour,
 // which the contrast checks need to see)
-if (!params.has('backdrop')) requestAnimationFrame(() => setTimeout(() => void loadLive().catch(() => {}), 0));
+if (testBackdrop === null) requestAnimationFrame(() => setTimeout(() => void loadLive().catch(() => {}), 0));
 if (params.get('fps') === '1') void import('./ui/fps').then((m) => m.mountFps());

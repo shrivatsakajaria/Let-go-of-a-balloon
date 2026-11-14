@@ -57,15 +57,15 @@ const R_LIFT = { pitch: 0.48, out: 0.45, roll: 0.08, elbow: 2.0, wrist: -0.3, de
 // the hand loosened, the moment it lets go
 const R_OPEN = { pitch: 0.62, out: 0.46, roll: 0.08, elbow: 1.85, wrist: -0.4, dev: -0.3, twist: -0.75 };
 // following the balloon up, open palm toward it
-const R_REACH = { pitch: 1.95, out: 0.5, roll: 0.05, elbow: 0.42, wrist: -0.45, dev: 0, twist: -1.3 };
-const R_REACH_EASE = { pitch: 1.8, out: 0.5, roll: 0.05, elbow: 0.55, wrist: -0.3, dev: 0, twist: -1.15 };
+const R_REACH = { pitch: 1.95, out: 0.5, roll: 0.05, elbow: 0.42, wrist: -0.45, dev: 0, twist: -2.0 };
+const R_REACH_EASE = { pitch: 1.8, out: 0.5, roll: 0.05, elbow: 0.55, wrist: -0.3, dev: 0, twist: -1.8 };
 const R_REST = { pitch: 0.1, out: 0.11, roll: 0.0, elbow: 0.32, wrist: 0.08, dev: 0, twist: -0.35 };
 // left arm: relaxed at the side; then the hand to the chest
 const L_REST = { pitch: 0.05, out: 0.08, roll: 0.0, elbow: 0.2, wrist: 0.1, dev: 0, twist: 0.0 };
 const L_CHEST = { pitch: 0.21, out: 0.25, roll: 0.95, elbow: 2.05, wrist: 0.51, dev: 0.31, twist: -0.68 };
 
-const B_IDLE = { rise: 0, heel: 0, lean: 0.03, chest: 0, look: 0.42 };
-const B_UP = { rise: 0.032, heel: 0.15, lean: 0.06, chest: 0.85, look: 0.75 };
+const B_IDLE = { rise: 0, heel: 0, lean: 0.03, chest: 0, look: 0.6 };
+const B_UP = { rise: 0.032, heel: 0.15, lean: 0.06, chest: 0.85, look: 0.9 };
 const B_WATCH = { rise: 0.012, heel: 0.09, lean: 0.14, chest: 0.2, look: 1 };
 const B_SIGH = { rise: 0, heel: 0, lean: 0.12, chest: -0.7, look: 1 };
 const B_REST = { rise: 0, heel: 0, lean: 0.07, chest: 0, look: 0.85 };
@@ -73,21 +73,39 @@ const B_REST = { rise: 0, heel: 0, lean: 0.07, chest: 0, look: 0.85 };
 type Rec = Record<string, number>;
 type Key<T extends Rec> = readonly [number, T];
 
-/** Eased pose to pose through the keys (holding before the first and after the last). */
-function track<T extends Rec>(keys: readonly Key<T>[], s: number): T {
-  if (s <= keys[0][0]) return { ...keys[0][1] };
-  for (let i = 1; i < keys.length; i++) {
-    const [t1, b] = keys[i];
-    if (s < t1) {
-      const [t0, a] = keys[i - 1];
-      const f = ease((s - t0) / (t1 - t0));
-      const o: Rec = {};
-      for (const k in a) o[k] = a[k] + (b[k] - a[k]) * f;
-      return o as T;
+/** Eased pose to pose through the keys (holding before the first and after the last), into `out`. */
+function track<T extends Rec>(keys: readonly Key<T>[], s: number, out: T): T {
+  const o = out as Rec;
+  let a: Rec = keys[0][1], b: Rec = a, f = 0;
+  if (s > keys[0][0]) {
+    a = b = keys[keys.length - 1][1];
+    for (let i = 1; i < keys.length; i++) {
+      if (s < keys[i][0]) {
+        a = keys[i - 1][1];
+        b = keys[i][1];
+        f = ease((s - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+        break;
+      }
     }
   }
-  return { ...keys[keys.length - 1][1] };
+  for (const k in a) o[k] = a[k] + (b[k] - a[k]) * f;
+  return out;
 }
+
+/** One eased value through [time, value] keys. */
+function trackV(keys: readonly (readonly [number, number])[], s: number): number {
+  if (s <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (s < keys[i][0]) return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * ease((s - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+  }
+  return keys[keys.length - 1][1];
+}
+
+// ---- the anticipation (s from the tap) ----
+
+const R_ARM_BEFORE: Key<typeof R_HOLD>[] = [[0, R_HOLD], [ANTICIPATE_S, R_LIFT]];
+const B_BEFORE: Key<typeof B_IDLE>[] = [[0, B_IDLE], [ANTICIPATE_S, B_UP]];
+const AMP_BEFORE: [number, number][] = [[0, 1], [ANTICIPATE_S, 0.4]];
 
 // ---- the released timeline (s from the hand opening) ----
 
@@ -98,14 +116,15 @@ const R_ARM_AFTER: Key<typeof R_HOLD>[] = [
   [2.5, R_REACH_EASE],
   [4.7, R_REST],
 ];
-const R_FINGERS: Key<{ v: number }>[] = [[0, { v: 1 }], [HAND_OPEN_S, { v: 0 }], [1.6, { v: 0.04 }], [4.7, { v: 0.38 }]];
-const R_THUMB: Key<{ v: number }>[] = [[0, { v: 1 }], [0.23, { v: 0 }], [1.6, { v: 0 }], [4.7, { v: 0.3 }]];
-const L_ARM_AFTER: Key<typeof L_REST & { fingers: number }>[] = [
-  [0, { ...L_REST, fingers: 0.35 }],
-  [3.0, { ...L_REST, fingers: 0.35 }],
+const R_FINGERS: [number, number][] = [[0, 1], [HAND_OPEN_S, 0], [1.6, 0.04], [4.7, 0.38]];
+const R_THUMB: [number, number][] = [[0, 1], [0.23, 0], [1.6, 0], [4.7, 0.3]];
+const L_REST_F = { ...L_REST, fingers: 0.35 };
+const L_ARM_AFTER: Key<typeof L_REST_F>[] = [
+  [0, L_REST_F],
+  [3.0, L_REST_F],
   [4.3, { ...L_CHEST, fingers: 0.12 }],
   [5.9, { ...L_CHEST, fingers: 0.12 }],
-  [7.6, { ...L_REST, fingers: 0.35 }],
+  [7.6, L_REST_F],
 ];
 const B_AFTER: Key<typeof B_IDLE>[] = [
   [0, B_UP],
@@ -115,93 +134,98 @@ const B_AFTER: Key<typeof B_IDLE>[] = [
   [8.5, B_REST],
 ];
 /** How much the idle breath and sway play (they quieten while the breath is held). */
-const AMP_AFTER: Key<{ v: number }>[] = [[0, { v: 0.4 }], [1.6, { v: 0.4 }], [3.4, { v: 1 }]];
+const AMP_AFTER: [number, number][] = [[0, 0.4], [1.6, 0.4], [3.4, 1]];
 /** The held arm gives a little with the balloon's tug; none once the string is gone. */
-const TUG_AFTER: Key<{ v: number }>[] = [[0, { v: 1 }], [0.3, { v: 0 }]];
+const TUG_AFTER: [number, number][] = [[0, 1], [0.3, 0]];
 
 const TAU = 2 * Math.PI;
 /** Reduced motion: this share of the body's movement away from the idle pose, and of the breath and sway. */
 const REDUCED = 0.35;
 
-export function poseAt(phase: Phase, clock: number, reduced = false): Pose {
-  let rArm: typeof R_HOLD, body: typeof B_IDLE, lArm: typeof L_REST & { fingers: number };
+/** A pose to write into (poseAt's `out`), so a frame allocates nothing. */
+export function newPose(): Pose {
+  const arm = (): ArmPose => ({ pitch: 0, out: 0, roll: 0, elbow: 0, wrist: 0, dev: 0, twist: 0, fingers: 0, thumb: 0 });
+  return { body: { rise: 0, heel: 0, lean: 0, chest: 0, look: 0, shift: 0 }, r: arm(), l: arm() };
+}
+
+// scratch for poseAt
+const sR = { ...R_HOLD };
+const sL = { ...L_REST_F };
+const sB = { ...B_IDLE };
+
+/** The pose at a moment of the performance, written into `out` (a new one if not given). */
+export function poseAt(phase: Phase, clock: number, reduced = false, out: Pose = newPose()): Pose {
   let fingers = 1, thumb = 1, amp = 1, tug = 1;
   if (phase.kind === 'idle') {
-    rArm = R_HOLD;
-    body = B_IDLE;
-    lArm = { ...L_REST, fingers: 0.35 };
+    Object.assign(sR, R_HOLD);
+    Object.assign(sB, B_IDLE);
+    Object.assign(sL, L_REST_F);
   } else if (phase.kind === 'anticipate') {
     const s = phase.s;
-    rArm = track([[0, R_HOLD], [ANTICIPATE_S, R_LIFT]], s);
+    track(R_ARM_BEFORE, s, sR);
     // a touch down before the rise onto the toes
-    body = track([[0, B_IDLE], [ANTICIPATE_S, B_UP]], s);
-    body.rise += -0.008 * Math.sin(Math.PI * clamp01(s / 0.45));
-    lArm = { ...L_REST, fingers: 0.35 };
-    amp = track([[0, { v: 1 }], [ANTICIPATE_S, { v: 0.4 }]], s).v;
+    track(B_BEFORE, s, sB);
+    sB.rise += -0.008 * Math.sin(Math.PI * clamp01(s / 0.45));
+    Object.assign(sL, L_REST_F);
+    amp = trackV(AMP_BEFORE, s);
   } else {
     const s = phase.s;
-    rArm = track(R_ARM_AFTER, s);
-    fingers = track(R_FINGERS, s).v;
-    thumb = track(R_THUMB, s).v;
-    lArm = track(L_ARM_AFTER, s);
-    body = track(B_AFTER, s);
-    amp = track(AMP_AFTER, s).v;
-    tug = track(TUG_AFTER, s).v;
+    track(R_ARM_AFTER, s, sR);
+    fingers = trackV(R_FINGERS, s);
+    thumb = trackV(R_THUMB, s);
+    track(L_ARM_AFTER, s, sL);
+    track(B_AFTER, s, sB);
+    amp = trackV(AMP_AFTER, s);
+    tug = trackV(TUG_AFTER, s);
   }
 
   if (reduced) {
     const k = REDUCED;
-    const toward = <T extends Rec>(base: T, v: T): T => {
-      const o: Rec = {};
-      for (const key in v) o[key] = base[key] + (v[key] - base[key]) * k;
-      return o as T;
+    const toward = (base: Rec, v: Rec, skip?: string) => {
+      for (const key in base) if (key !== skip) v[key] = base[key] + (v[key] - base[key]) * k;
     };
-    rArm = toward(R_HOLD, rArm);
-    lArm = toward({ ...L_REST, fingers: lArm.fingers }, lArm);
-    body = { ...toward(B_IDLE, body), look: body.look };
+    toward(R_HOLD, sR);
+    toward(L_REST_F, sL, 'fingers');
+    toward(B_IDLE, sB, 'look');
     amp *= k;
   }
 
   // the idle life on top: a breath, a slow weight shift, the arm giving with the balloon's tug
   const c = clock;
   const breath = Math.sin((TAU * c) / 3.9);
-  const r: ArmPose = {
-    ...rArm,
-    elbow: rArm.elbow + amp * tug * (0.04 * Math.sin(c * 0.9) + 0.015 * Math.sin(c * 2.1 + 1)),
-    fingers,
-    thumb,
-  };
-  const l: ArmPose = {
-    pitch: lArm.pitch + amp * 0.02 * Math.sin((TAU * c) / 4.6 + 0.6),
-    out: lArm.out,
-    roll: lArm.roll,
-    elbow: lArm.elbow,
-    wrist: lArm.wrist,
-    dev: lArm.dev,
-    twist: lArm.twist,
-    fingers: lArm.fingers,
-    thumb: lArm.fingers * 0.8,
-  };
-  return {
-    body: {
-      rise: body.rise,
-      heel: body.heel,
-      lean: body.lean + amp * 0.006 * Math.sin((TAU * c) / 6.1 + 1),
-      chest: body.chest + amp * 0.5 * breath,
-      look: body.look,
-      shift: amp * 0.016 * Math.sin((TAU * c) / 4.6),
-    },
-    r,
-    l,
-  };
+  const r = out.r, l = out.l, b = out.body;
+  Object.assign(r, sR);
+  r.elbow = sR.elbow + amp * tug * (0.04 * Math.sin(c * 0.9) + 0.015 * Math.sin(c * 2.1 + 1));
+  r.fingers = fingers;
+  r.thumb = thumb;
+  l.pitch = sL.pitch + amp * 0.02 * Math.sin((TAU * c) / 4.6 + 0.6);
+  l.out = sL.out;
+  l.roll = sL.roll;
+  l.elbow = sL.elbow;
+  l.wrist = sL.wrist;
+  l.dev = sL.dev;
+  l.twist = sL.twist;
+  l.fingers = sL.fingers;
+  l.thumb = sL.fingers * 0.8;
+  b.rise = sB.rise;
+  b.heel = sB.heel;
+  b.lean = sB.lean + amp * 0.006 * Math.sin((TAU * c) / 6.1 + 1);
+  b.chest = sB.chest + amp * 0.5 * breath;
+  b.look = sB.look;
+  b.shift = amp * 0.016 * Math.sin((TAU * c) / 4.6);
+  return out;
 }
 
-/** a + (b - a) * f, joint by joint. */
-export function mixPose(a: Pose, b: Pose, f: number): Pose {
-  const m = <T extends Rec>(x: T, y: T): T => {
-    const o: Rec = {};
+/** a + (b - a) * f, joint by joint, into `out` (which may be a or b). */
+export function mixPose(a: Pose, b: Pose, f: number, out: Pose = newPose()): Pose {
+  for (const part of ['body', 'r', 'l'] as const) {
+    const x = a[part] as Rec, y = b[part] as Rec, o = out[part] as Rec;
     for (const k in x) o[k] = x[k] + (y[k] - x[k]) * f;
-    return o as T;
-  };
-  return { body: m(a.body, b.body), r: m(a.r, b.r), l: m(a.l, b.l) };
+  }
+  return out;
+}
+
+/** Copy a pose into `out`. */
+export function copyPose(a: Pose, out: Pose): Pose {
+  return mixPose(a, a, 0, out);
 }

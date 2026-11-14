@@ -93,13 +93,14 @@ export function mockFetch(files: Files, htmlFallback = false): MockFetch {
   return { fn, requests };
 }
 
+/** A manifest; each run's forecast hours go 0, 3, ... lastHour (default 96, the runs built before f120). */
 export function manifestJson(
-  runs: { id: string; issued: string }[],
+  runs: { id: string; issued: string; lastHour?: number }[],
 ): string {
   return JSON.stringify({
-    runs: runs.map((r) => ({
+    runs: runs.map(({ lastHour = 96, ...r }) => ({
       ...r,
-      hours: Array.from({ length: 33 }, (_, k) => 3 * k),
+      hours: Array.from({ length: lastHour / 3 + 1 }, (_, k) => 3 * k),
       climb: { tileDeg: 5, res: 0.25, hours: [3, 6, 9, 12, 15, 18, 21, 24], scale: 0.5 },
       cruise: { tileDeg: 20, res: 1.0, windowHours: 24, scale: 1.0 },
     })),

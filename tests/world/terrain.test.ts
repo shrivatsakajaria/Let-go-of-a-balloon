@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import {
   decodeTerrarium,
   terraceHeight,
@@ -11,7 +11,7 @@ import { overzoomTile, makeRouteGround, makeRouteTileLoader, type TerrainTile } 
 import { CONTOUR, parseHex } from '../../src/world/palette';
 import { lonLatToTile } from '../../src/geo/coords';
 import { tileFrame } from '../../src/world/frame';
-import { BALLOON_HEX, ROUTE_GROUND_ZOOM } from '../../src/config';
+import { BALLOON_HEX, ROUTE_GROUND_MAX_TILES, ROUTE_GROUND_ZOOM } from '../../src/config';
 
 function saturation(hex: string): number {
   const [r, g, b] = parseHex(hex).map((v) => v / 255);
@@ -194,6 +194,58 @@ test('routeGround.peek answers only once every tile of the 3x3 window is loaded,
   expect(rg.peek(edge)).toBeUndefined();
   const v = await rg(edge);
   expect(rg.peek(edge)).toBe(v);
+});
+
+describe('routeGround keeps at most ROUTE_GROUND_MAX_TILES tiles, least recently used out first (I3)', () => {
+  const n = 2 ** ROUTE_GROUND_ZOOM;
+  /** The centre of route-ground tile (x, y): its 3 x 3 window stays inside the tile. */
+  const centreOf = (x: number, y: number) => {
+    const yy = y + 0.5;
+    return { lat: (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n))) * 180) / Math.PI, lon: ((x + 0.5) / n) * 360 - 180 };
+  };
+  /** A loader that counts loads per tile and gives each tile its own height (x + 100 y). */
+  const counting = () => {
+    const loads: string[] = [];
+    const rg = makeRouteGround(async (_z, x, y) => {
+      loads.push(`${x}/${y}`);
+      return { heights: new Float32Array(64).fill(x + 100 * y), size: 8 };
+    });
+    return { rg, loads };
+  };
+
+  test('the cap is 48 tiles (a z5 tile is 512 x 512 heights, 1 MiB)', () => {
+    expect(ROUTE_GROUND_MAX_TILES).toBe(48);
+  });
+
+  test('past the cap the oldest tile is dropped and loaded again when asked for', async () => {
+    const { rg, loads } = counting();
+    const tiles = Array.from({ length: ROUTE_GROUND_MAX_TILES + 1 }, (_, k) => [k % n, 10 + Math.floor(k / n)] as const);
+    for (const [x, y] of tiles) await rg(centreOf(x, y));
+    expect(loads).toHaveLength(ROUTE_GROUND_MAX_TILES + 1);
+    const [x0, y0] = tiles[0], [x1, y1] = tiles[1];
+    expect(rg.peek(centreOf(x0, y0))).toBeUndefined(); // dropped
+    expect(rg.peek(centreOf(x1, y1))).toBe(x1 + 100 * y1); // still in
+    expect(await rg(centreOf(x0, y0))).toBe(x0 + 100 * y0);
+    expect(loads).toHaveLength(ROUTE_GROUND_MAX_TILES + 2);
+  });
+
+  test('a tile read again counts as recent and stays', async () => {
+    const { rg, loads } = counting();
+    for (let k = 0; k < ROUTE_GROUND_MAX_TILES; k++) await rg(centreOf(k % n, 10 + Math.floor(k / n)));
+    await rg(centreOf(0, 10)); // the oldest, read again: now the newest
+    expect(loads).toHaveLength(ROUTE_GROUND_MAX_TILES);
+    await rg(centreOf(5, 20)); // one more tile: tile 1/10 goes, not 0/10
+    expect(rg.peek(centreOf(0, 10))).toBe(1000);
+    expect(rg.peek(centreOf(1, 10))).toBeUndefined();
+  });
+
+  test('peek counts as a read too', async () => {
+    const { rg } = counting();
+    for (let k = 0; k < ROUTE_GROUND_MAX_TILES; k++) await rg(centreOf(k % n, 10 + Math.floor(k / n)));
+    expect(rg.peek(centreOf(0, 10))).toBe(1000);
+    await rg(centreOf(5, 20));
+    expect(rg.peek(centreOf(0, 10))).toBe(1000);
+  });
 });
 
 test('routeGround.peek stays unknown after a failed load', async () => {
