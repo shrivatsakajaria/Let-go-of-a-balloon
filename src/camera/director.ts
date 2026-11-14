@@ -19,6 +19,9 @@ export type DirectorMode = 'film' | 'ride' | 'above' | 'side' | 'launch' | 'repl
 export type ShotName = 'launch' | 'ride' | 'circling' | 'side' | 'down' | 'replay';
 export type DirectorEvent = 'coast' | 'sunset' | 'sunrise' | 'city' | 'landmark';
 
+/** A tree's crown: a cone from its foot (base) to its top, `radius` across at the foot, its trunk at (lat, lon). */
+export type Crown = { lat: number; lon: number; radius: number; base: number; top: number };
+
 export type DirectorDeps = {
   toScene(p: LatLon): { x: number; z: number };
   groundAt(p: LatLon): number;
@@ -26,6 +29,8 @@ export type DirectorDeps = {
   buildingTopAt?(p: LatLon, radiusM: number): number;
   /** Highest tree top (absolute) within radiusM; -Infinity where there is none. Only for choosing eye-height spots. */
   treeTopAt?(p: LatLon, radiusM: number): number;
+  /** The tree whose crown reaches nearest p within radiusM, written into out (trunk, foot radius, foot and top); false if none. */
+  crownNear?(p: LatLon, radiusM: number, out: Crown): boolean;
   balloonRadius(distM: number): number;
   reducedMotion?: boolean;
 };
@@ -130,6 +135,8 @@ const STILL_EDGE = 0.85;
 const PERSON_OVER_M = 2.8;
 const PERSON_CLEAR_M = 1.2;
 const PERSON_EASE_M = 4;
+/** The launch camera keeps this far out of a tree's crown (outOfCrowns). */
+const CROWN_GAP_M = 0.5;
 /** No building within this radius of the camera's ground point, or the camera goes over its roof. */
 const STREET_CLEAR_M = 1.5;
 /** The start screen frames the person and the held balloon: feet to the top of the balloon, about 3 m. */
@@ -267,6 +274,9 @@ export class Director {
   private stillLost = false;
   private readonly craneT: Target = { pos: new THREE.Vector3(), y0: 0, x0: 0, fov: 50, anchor: { x: 0, y: 0, z: 0 } };
   private readonly ll: LatLon = { lat: 0, lon: 0 };
+  private readonly crown: Crown = { lat: 0, lon: 0, radius: 0, base: 0, top: 0 };
+  /** fromScene's Jacobian and the base point it was worked out for. */
+  private readonly jac = { lat: Number.NaN, lon: Number.NaN, bx: Number.NaN, bz: Number.NaN, a: 0, c: 0, e: 0, f: 0, det: 0 };
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
   private readonly v3 = new THREE.Vector3();
@@ -1344,6 +1354,32 @@ export class Director {
       floor = Math.max(floor, this.deps.buildingTopAt(ll, STREET_CLEAR_M) + 1);
     }
     if (p.y < floor) p.y = floor;
+    if (this._shot === 'launch') this.outOfCrowns(p, b, B0);
+  }
+
+  /**
+   * The launch camera, low among trees (a park), never inside a tree's crown: below a crown's top and
+   * within its cone there, it is pushed out sideways to the cone plus CROWN_GAP_M (not lifted: a lift
+   * would be a jump). Twice, for a camera between two crowns. No allocation.
+   */
+  private outOfCrowns(p: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): void {
+    const near = this.deps.crownNear;
+    if (!near) return;
+    const cr = this.crown;
+    for (let k = 0; k < 2; k++) {
+      if (!near(this.fromScene(p.x, p.z, b, B0, this.ll), CROWN_GAP_M, cr)) return;
+      const H = cr.top - cr.base;
+      if (!(H > 0) || p.y >= cr.top) return;
+      const rAt = cr.radius * Math.min(1, Math.max(0, 1 - (p.y - cr.base) / H)) + CROWN_GAP_M;
+      const t = this.deps.toScene(cr);
+      let dx = p.x - t.x, dz = p.z - t.z;
+      const dh = Math.hypot(dx, dz);
+      if (dh >= rAt) return;
+      if (dh < 1e-6) [dx, dz] = [1, 0];
+      const f = rAt / Math.max(1e-6, Math.hypot(dx, dz));
+      p.x = t.x + dx * f;
+      p.z = t.z + dz * f;
+    }
   }
 
   /** What stands at an eye-height camera spot or on its sightline: buildings, landmarks and trees (absolute top). */
@@ -1365,19 +1401,24 @@ export class Director {
 
   /** Inverse of toScene near the balloon, from a finite-difference Jacobian. */
   private fromScene(x: number, z: number, b: RoutePoint, B: THREE.Vector3, out: LatLon = { lat: 0, lon: 0 }): LatLon {
-    // B is the route's own scene position (not a drawn-balloon override)
-    const h = 0.001;
-    const dN = this.deps.toScene({ lat: b.lat + h, lon: b.lon });
-    const dE = this.deps.toScene({ lat: b.lat, lon: b.lon + h });
-    const a = (dN.x - B.x) / h, c = (dN.z - B.z) / h; // d(x,z)/dLat
-    const e = (dE.x - B.x) / h, f = (dE.z - B.z) / h; // d(x,z)/dLon
-    const det = a * f - e * c;
+    // B is the route's own scene position (not a drawn-balloon override). The Jacobian is worked out once
+    // for a base point (in practice once a frame), not on every lookup.
+    const J = this.jac;
+    if (J.lat !== b.lat || J.lon !== b.lon || J.bx !== B.x || J.bz !== B.z) {
+      const h = 0.001;
+      const dN = this.deps.toScene({ lat: b.lat + h, lon: b.lon });
+      const dE = this.deps.toScene({ lat: b.lat, lon: b.lon + h });
+      J.a = (dN.x - B.x) / h; J.c = (dN.z - B.z) / h; // d(x,z)/dLat
+      J.e = (dE.x - B.x) / h; J.f = (dE.z - B.z) / h; // d(x,z)/dLon
+      J.det = J.a * J.f - J.e * J.c;
+      J.lat = b.lat; J.lon = b.lon; J.bx = B.x; J.bz = B.z;
+    }
     out.lat = b.lat;
     out.lon = b.lon;
-    if (Math.abs(det) < 1e-9) return out;
+    if (!(Math.abs(J.det) >= 1e-9)) return out;
     const dx = x - B.x, dz = z - B.z;
-    out.lat += (f * dx - e * dz) / det;
-    out.lon += (-c * dx + a * dz) / det;
+    out.lat += (J.f * dx - J.e * dz) / J.det;
+    out.lon += (-J.c * dx + J.a * dz) / J.det;
     return out;
   }
 }

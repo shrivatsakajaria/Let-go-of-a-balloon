@@ -426,6 +426,45 @@ describe('Director', () => {
     }
   });
 
+  // (the reviewer's reproduction: the real crane in a park, a 14 m grid of trees with crowns 3.4 m in radius, 11 m tall)
+  test.each([[225, 0, 3], [225, 1.3, 5.3], [180, 0.4, 5], [270, -2.5, 4], [200, 3, 2]])('the launch in a park (wind %d deg, grid offset %d m, %d m/s): the camera is never inside a tree\'s crown', (heading, ox, speed) => {
+    const trees: [number, number][] = [];
+    for (let i = -8; i <= 8; i++) for (let j = -8; j <= 8; j++) trees.push([i * 14 + ox, j * 14 + 4.2]);
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) <= r + 3.4) ? 11 : -Infinity;
+    };
+    const crownNear = (p: LatLon, r: number, out: { lat: number; lon: number; radius: number; base: number; top: number }) => {
+      const s = toScene(p);
+      let best = -1, gap = Infinity;
+      trees.forEach(([x, z], i) => {
+        const g = Math.hypot(s.x - x, s.z - z) - 3.4;
+        if (g <= r && g < gap) { gap = g; best = i; }
+      });
+      if (best < 0) return false;
+      Object.assign(out, fromScene(trees[best][0], trees[best][1]), { radius: 3.4, base: 0, top: 11 });
+      return true;
+    };
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, buildingTopAt: () => 0, treeTopAt, crownNear }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 315, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 1.2 }, cueRelease: true });
+    const h = (heading * Math.PI) / 180;
+    const mk = (t: number): RoutePoint => {
+      const fl = Math.max(0, t - 1.2);
+      const ll = fromScene(Math.sin(h) * speed * fl, -Math.cos(h) * speed * fl);
+      return { tSec: t, lat: ll.lat, lon: ll.lon, altM: 2.4 + 1.5 * fl, groundM: 0, speedMs: speed, headingDeg: heading };
+    };
+    for (let i = 0; i < 30; i++) d.update(mk(0), 0.05);
+    d.go();
+    for (let i = 1; i <= 20 / 0.05; i++) {
+      const t = i * 0.05;
+      if (Math.abs(t - 1.2) < 1e-6) d.release();
+      d.update(mk(t), 0.05);
+      const c = cam.position;
+      for (const [x, z] of trees) if (c.y < 11) expect(Math.hypot(c.x - x, c.z - z), `${t.toFixed(2)} ${d.shot}`).toBeGreaterThanOrEqual(3.4 * (1 - c.y / 11) - 1e-6);
+    }
+  });
+
   test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     let ground = 60; // the coarse fallback before any tile is in

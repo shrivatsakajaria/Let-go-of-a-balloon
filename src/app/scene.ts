@@ -222,6 +222,7 @@ export class LiveScene {
       groundAt: (p) => standableGround(this.ground, p),
       buildingTopAt: (p, r) => Math.max(this.stream.buildingTopAt(p, r), this.landmarks.topAt(p, r)),
       treeTopAt: (p, r) => this.stream.treeTopAt(p, r),
+      crownNear: (p, r, out) => this.stream.crownNear(p, r, out),
       balloonRadius: (d) => 0.15 * displayScale(d),
       reducedMotion: this.reduced,
     });
