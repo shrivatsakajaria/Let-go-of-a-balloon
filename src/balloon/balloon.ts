@@ -291,17 +291,19 @@ export class Balloon {
       this.tiltV.set(0, 0);
     } else {
       this.sinceRelease += dt;
+      const de = Math.min(rawDt, 0.25);
       if (this.restAt && this.started) {
-        // the hand has just opened: the balloon starts at rest where it was drawn, and eases onto the
-        // route (which already drifts with the wind and climbs) from there
+        // the hand has just opened (as this frame began): the balloon starts at rest where it was drawn,
+        // and eases onto the route, which already drifts with the wind and climbs
         this.restAt = false;
-        this.offset.set(cur.x - pos.x, cur.y - pos.y, cur.z - pos.z);
-        this.offsetV.set(-Math.sin(hd) * sp, -CLIMB_RATE_MS, Math.cos(hd) * sp);
-      } else {
-        // ease the release offset away: critically damped, about 0.7 s
-        for (const k of ['x', 'y', 'z'] as const) {
-          [this.offset[k], this.offsetV[k]] = damp(this.offset[k], this.offsetV[k], 3, dt);
-        }
+        const vx = Math.sin(hd) * sp, vz = -Math.cos(hd) * sp;
+        this.offset.set(cur.x - pos.x + vx * de, cur.y - pos.y + CLIMB_RATE_MS * de, cur.z - pos.z + vz * de);
+        this.offsetV.set(-vx, -CLIMB_RATE_MS, -vz);
+      }
+      // ease the release offset away: critically damped, about 0.7 s (an exact step, so in real time
+      // even at a few frames a second)
+      for (const k of ['x', 'y', 'z'] as const) {
+        [this.offset[k], this.offsetV[k]] = damp(this.offset[k], this.offsetV[k], 3, de);
       }
       cur.set(pos.x + this.offset.x, pos.y + this.offset.y, pos.z + this.offset.z);
       this.scale = displayScale(Math.hypot(cur.x - cam.x, cur.y - cam.y, cur.z - cam.z));

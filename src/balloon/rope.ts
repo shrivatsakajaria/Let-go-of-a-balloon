@@ -16,7 +16,7 @@ import type * as THREE from 'three';
  * display scale never changes what is simulated. The air is given relative to the knot (the
  * balloon rides the wind; what the string feels is the climb and what crosswind is left). It runs
  * at a fixed 120 Hz substep so it behaves the same at any frame rate. A long frame (a paused or
- * hidden tab) simulates at most its last 0.1 s and carries the string along the rest of the
+ * hidden tab) simulates at most its last 0.25 s and carries the string along the rest of the
  * knot's way as it hangs, and a knot that jumps far in one frame (a floating-origin shift, a skip
  * along the route) carries the whole string with it instead of whipping it.
  */
@@ -24,7 +24,7 @@ export const ROPE_SEGMENTS = 20;
 export const ROPE_SEG_M = 0.06;
 
 const H = 1 / 120;
-const MAX_SUBSTEPS = 12; // at most 0.1 s of simulation per call
+const MAX_SUBSTEPS = 30; // at most 0.25 s of simulation per call (the scene's own longest frame)
 const ITERATIONS = 16;
 const GRAVITY = 9.81;
 /** Damping rate (1/s) toward the air the string feels: about critical for its swing (a heavy ribbon). */
@@ -97,7 +97,7 @@ export class Rope {
       this.solve(top, end);
       return;
     }
-    // a long frame simulates only its last 0.1 s: the knot's way before that carries the string as it hangs
+    // a long frame simulates only its last 0.25 s: the knot's way before that carries the string as it hangs
     const sim = Math.min(dt, MAX_SUBSTEPS * H);
     if (dt > sim) {
       const carry = 1 - sim / dt;

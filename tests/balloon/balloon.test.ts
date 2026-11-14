@@ -90,9 +90,10 @@ describe('the string, through a scripted flight', () => {
 
     test(`at ${hz} Hz the end of the string never flicks: it turns at most 90 deg/s, frame by frame`, () => {
       const run = fly({ hz, untilS: 18 });
-      const worst = run.reduce((a, r) => (r.turnDeg > a.turnDeg ? r : a));
-      // the same limit per second at either frame rate (3 deg a frame at 30 Hz, 0.75 at 120 Hz)
-      expect(worst.turnDeg, `at t=${worst.t.toFixed(2)} s`).toBeLessThanOrEqual(90 / hz);
+      // the same limit per second at either frame rate (3 deg a frame at 30 Hz, 0.75 at 120 Hz; a
+      // paused tab's 0.25 s frame, 22 deg)
+      const worst = run.reduce((a, r) => (r.turnDeg / r.dt > a.turnDeg / a.dt ? r : a));
+      expect(worst.turnDeg / worst.dt, `at t=${worst.t.toFixed(2)} s`).toBeLessThanOrEqual(90);
     });
   }
 
@@ -114,6 +115,14 @@ describe('the string, through a scripted flight', () => {
     for (const t of [1, 3, 8, 10, 13, 17.5]) {
       const ra = a.find((r) => r.t >= t)!, rb = b.find((r) => r.t >= t)!;
       expect(Math.acos(Math.min(1, ra.dir.dot(rb.dir))) / RAD, `t=${t}`).toBeLessThan(4);
+    }
+  });
+
+  test('at a few frames a second (the software renderer) the let-go plays out in real time, as at 120 Hz', () => {
+    const slow = fly({ hz: 4, untilS: 4, quiet: true }), fast = fly({ hz: 120, untilS: 4, quiet: true });
+    for (const t of [0.5, 1, 1.5, 2, 3]) {
+      const ra = slow.find((r) => r.t >= t - 1e-9)!, rb = fast.find((r) => r.t >= t - 1e-9)!;
+      expect(Math.acos(Math.min(1, ra.dir.dot(rb.dir))) / RAD, `t=${t}`).toBeLessThan(6);
     }
   });
 
