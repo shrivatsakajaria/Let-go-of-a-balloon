@@ -48,6 +48,12 @@ const CLIMB_LAT_MAX = 85;
 /**
  * Whether `run` can carry a whole flight released at `releaseMs` (or up to RELEASE_SLACK_MS later):
  * issued less than 48 h before, and its last forecast hour at or after the landing, 72 h on.
+ *
+ * The fine climb winds (0.25°, 1000-850 hPa) only reach forecast hour 24. A release from a run
+ * 24-48 h old (only when the wind refresh has been failing) has none: the first minutes' climb
+ * reads the cruise tiles instead (sample() falls back to them), coarser near the ground, and the
+ * rest of the flight is unchanged. Climb hours to 51 would double every climb tile (~25-40 KB
+ * each, nine per release) for every visitor, to serve that rare case, so they stay at 3-24.
  */
 export function runCoversFlight(run: ManifestRun, releaseMs: number): boolean {
   const issued = Date.parse(run.issued);
@@ -73,7 +79,9 @@ export async function loadManifest(
   try {
     const res = await fetchFn(`${base}/manifest.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    m = (await res.json()) as Manifest;
+    const body = (await res.json()) as unknown;
+    if (typeof body !== 'object' || body === null) throw new Error('not a manifest');
+    m = body as Manifest;
   } catch (e) {
     throw new WindUnavailableError(`wind manifest unavailable: ${(e as Error).message}`);
   }

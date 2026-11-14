@@ -89,6 +89,13 @@ describe('f120 runs (R59): a run is usable up to 48 h old, while it covers the w
   });
 });
 
+test('a manifest that is JSON null, or not an object, is unavailable', async () => {
+  for (const body of ['null', '42', '"runs"']) {
+    const m = mockFetch({ [`${BASE}/manifest.json`]: body });
+    await expect(loadManifest(BASE, m.fn, ISSUED)).rejects.toBeInstanceOf(WindUnavailableError);
+  }
+});
+
 test('manifest served as HTML (Pages fallback) is unavailable', async () => {
   const m = mockFetch({}, true);
   await expect(loadManifest(BASE, m.fn, ISSUED)).rejects.toBeInstanceOf(WindUnavailableError);

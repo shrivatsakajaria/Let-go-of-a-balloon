@@ -269,7 +269,8 @@ export type RouteGroundFn = ((p: LatLon) => Promise<number>) & { peek: (p: LatLo
  * tiles, so the cap never drops one it is still using.)
  */
 export function makeRouteGround(load: TileLoader): RouteGroundFn {
-  // both in least-recently-used order: a Map iterates in insertion order, and a read re-inserts
+  // `cache` is the least-recently-used order (a Map iterates in insertion order, and a read
+  // re-inserts); `ready` holds the loaded tiles of the same keys and loses one whenever `cache` does
   const cache = new Map<string, Promise<TerrainTile>>();
   const ready = new Map<string, TerrainTile>();
   const touch = (k: string, p: Promise<TerrainTile>) => {
