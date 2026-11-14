@@ -400,18 +400,19 @@ Approved by SK on 14 November 2026 (Task 30). SK wants to know how many people v
 
 **The promise.** No cookies, no ids in storage, no fingerprinting, no IP address kept. No coordinates or place names that could locate a person: a featured city goes by its id (one of the seven on the start screen, picked by everyone); a searched place and "Use my location" are counted only by kind. The country comes from Cloudflare's edge (`request.cf.country`), never from the page. A browser with Global Privacy Control on (`navigator.globalPrivacyControl`) sends nothing. The About sheet says: "Visits are counted anonymously: no cookies, nothing that identifies you."
 
-**Two parts.**
+**One counter, our own.** Cloudflare Web Analytics was considered and dropped (Task 30 review): its beacon ignores Global Privacy Control and would also run on previews. Instead the site's own events count visits too. The page (`src/analytics/track.ts`) sends tiny JSON with `sendBeacon` to this site's Pages Function `POST /api/e` (`functions/api/e.ts`), which writes to Workers Analytics Engine (dataset `lgoab_events`, bound as `LGOAB_EVENTS` in `wrangler.toml`). It sends only from the live hosts (the pages.dev address and `SITE_URL`), never from previews, localhost or the browser tests, and at most 30 events a page. The CSP needs nothing new: `/api/e` is `'self'`.
 
-1. **Cloudflare Web Analytics** for visits, countries, referrers and devices: Pages' own one-click setup (it adds Cloudflare's beacon to the page; no cookies). The CSP allows exactly the beacon: `script-src https://static.cloudflareinsights.com` and `connect-src https://cloudflareinsights.com` (and its `/cdn-cgi/rum` on this site, which `'self'` covers). Cloudflare's beacon does not itself look at Global Privacy Control.
-2. **Our own events**, through this site's Pages Function `POST /api/e` (`functions/api/e.ts`) into Workers Analytics Engine (dataset `lgoab_events`, bound as `LGOAB_EVENTS` in `wrangler.toml`). The page (`src/analytics/track.ts`) sends tiny JSON with `sendBeacon`, only from the live hosts (the pages.dev address and `SITE_URL`), never from previews, localhost or the browser tests, at most 30 events a page.
+A visit is a `start_view` or a `link_open`. Each carries the referring site as a bare hostname only (from `document.referrer`, lower case, no path or query; `direct` when there is none or it is this site; `other` when it is not a plain public hostname or is over 64 characters). The counter adds the device class (mobile, tablet or desktop), read from the User-Agent at the edge; the User-Agent itself is never stored.
+
+If a deploy fails with `wrangler.toml`, the Deploy workflow sets it aside and deploys once more without it, with a warning: analytics never stops the winds being published, and with no dataset bound the counter stores nothing.
 
 **The events** (`src/analytics/events.ts` is the whitelist; anything else is dropped):
 
 | Event | Detail | When |
 | --- | --- | --- |
-| `start_view` | | The start screen is the first thing shown |
+| `start_view` | `ref`: referring hostname, direct or other | The start screen is the first thing shown |
 | `let_go` | `source`: featured, search or location; `city` (featured only) | Let go pressed |
-| `link_open` | `landed`: true or false | A shared balloon link opened |
+| `link_open` | `landed`: true or false; `ref` as above | A shared balloon link opened |
 | `replay_done` | | "Show me the whole trip" played to the end |
 | `card_shown` | | The landing card on screen |
 | `card_share` | `method`: share, save or copy | A card button pressed |
@@ -419,9 +420,9 @@ Approved by SK on 14 November 2026 (Task 30). SK wants to know how many people v
 | `view_change` | `view`: film, above or side | A view button pressed |
 | `session_end` | `secs`: <10s, 10-30s, 30-60s, 1-3m, 3-10m, 10m+ | The page goes away (pagehide) |
 
-Each stored row is: event, detail, featured city (or empty), country. The counter always answers 204 with no body, sets no cookie and logs nothing; it stores an event only when it is on the whitelist, the body is under 160 characters, and it arrived at a live host from the same origin. With no dataset bound it stores nothing and the site carries on.
+Each stored row is: event, detail, featured city (or empty), country, and for a visit the device class and the referrer. The counter always answers 204 with no body, sets no cookie and logs nothing; it stores an event only when it is on the whitelist, the body is under 160 characters, and it arrived at a live host from the same origin. With no dataset bound it stores nothing and the site carries on.
 
-**Reading it.** `node scripts/stats.mjs [--days N | --yesterday | --date YYYY-MM-DD]` prints a plain summary from the Web Analytics GraphQL API and the Analytics Engine SQL API, with a read-only token (Account Analytics Read) from `CF_ANALYTICS_TOKEN` or a proxy that adds it. SK's steps are in `docs/for-sk/analytics.md`.
+**Reading it.** `node scripts/stats.mjs [--days N (up to 31) | --yesterday | --date YYYY-MM-DD]` prints a plain summary (visits by country, device and referrer, then each event) from the Analytics Engine SQL API, with a read-only token (Account Analytics Read) from `CF_ANALYTICS_TOKEN` or a proxy that adds it. SK's steps are in `docs/for-sk/analytics.md`.
 
-**Cost.** Free: Analytics Engine on the Workers Free plan allows 100,000 data points written and 10,000 queries a day, and keeps data for three months; Web Analytics is free.
+**Cost.** Free: Analytics Engine on the Workers Free plan allows 100,000 data points written and 10,000 queries a day, and keeps data for three months. Bots that run scripts can inflate the numbers; a rate-limit rule is possible later, once the site has a custom domain.
 

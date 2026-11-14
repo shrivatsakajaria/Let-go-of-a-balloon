@@ -1,6 +1,6 @@
 # Going live
 
-This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: say yes, then switch one job off and on and check one email setting (about two minutes), and switch on visitor numbers in Cloudflare (about a minute). There is one more setting you might be asked to change yourself, also about a minute.
+This page says what "going live" means for Let go of a balloon, what I (Claude) will do once you say yes, and what you have to click. The short answer: say yes, then switch one job off and on and check one email setting (about two minutes). There is one more setting you might be asked to change yourself, also about a minute.
 
 Written 14 November 2026.
 
@@ -37,7 +37,7 @@ This change is on my work branch, in its own commit: "ci: the hourly wind refres
 ## What does not need changing
 
 - **The GitHub secrets.** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` belong to the whole project, so `main` can use them too. The token is allowed to publish to Cloudflare Pages, which covers the live site.
-- **Cloudflare.** The live branch is already set to `main`. Apart from one switch for visitor numbers (below), you do not need to open Cloudflare.
+- **Cloudflare.** The live branch is already set to `main`. You do not need to open Cloudflare at all.
 - **Money.** The live site costs the same as the preview: nothing.
 
 ## What I will do when you say yes
@@ -67,18 +67,9 @@ One thing, about two minutes, just after go-live: make sure GitHub's "run failed
 
 The same steps, with a little more explanation, are under "Make sure the emails reach you" in `03-keep-it-running.md`.
 
-## Visitor numbers (after go-live, about a minute)
+## Visitor numbers
 
-The site counts visits and a few presses anonymously (no cookies, nothing that identifies anyone). The counting of presses starts by itself on the live site. For visits, countries and devices, switch on Cloudflare Web Analytics once:
-
-1. Open https://dash.cloudflare.com and sign in.
-2. In the left-hand menu, click **Workers & Pages**.
-3. Click **let-go-of-a-balloon**.
-4. Click the **Metrics** tab.
-5. Find **Web Analytics** and click **Enable**.
-6. Tell me in chat "Web Analytics is on".
-
-Later, ask me "how many people let go yesterday?" in any session. The first time, I show you a secure form for a read-only key; you never paste it in chat. `analytics.md` has the details, including how to make that key.
+The site counts visits and a few presses anonymously (no cookies, nothing that identifies anyone). It starts by itself on the live site: there is nothing to click. Later, ask me "how many people let go yesterday?" in any session. The first time, I show you a secure form for a read-only key; you never paste it in chat. `analytics.md` has the details.
 
 ## What you might have to click
 

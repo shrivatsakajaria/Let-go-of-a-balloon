@@ -1,44 +1,39 @@
 # Visitor numbers
 
-This page says what the site counts, what it never counts, the one switch you click in Cloudflare, and how to ask me (Claude) for the numbers later. You never paste a password or token into the chat.
+This page says what the site counts, what it never counts, and how to ask me (Claude) for the numbers later. There is nothing to switch on. You never paste a password or token into the chat.
 
 Written 14 November 2026.
 
 ## What is counted
 
-Two kinds of number, both anonymous.
+Everything comes from the site's own small counter, and all of it is anonymous.
 
-1. **Visits**, from Cloudflare Web Analytics: how many people visit, which country they are in, which site sent them (for example LinkedIn or X), and whether they use a phone, tablet or computer.
-2. **What people do**, from the site's own small counter: how many press Let go (and whether from a featured city, a searched place or their own location), watch the whole trip, see the landing card, share it, save it or copy its link, add the calendar reminder, open a shared link (and whether that balloon had already landed), switch views, and roughly how long they stay (in bands: under 10 seconds, 10 to 30 seconds, and so on up to over 10 minutes).
+1. **Visits**: how many people open the site or a shared balloon link, which country they are in, which site sent them (just its name, for example `www.linkedin.com` or `t.co`, never the page they were on), and whether they use a phone, tablet or computer.
+2. **What people do**: how many press Let go (and whether from a featured city, a searched place or their own location), watch the whole trip, see the landing card, share it, save it or copy its link, add the calendar reminder, open a shared link (and whether that balloon had already landed), switch views, and roughly how long they stay (in bands: under 10 seconds, 10 to 30 seconds, and so on up to over 10 minutes).
 
 ## What is never counted
 
 - No cookies, and nothing saved on the visitor's phone to recognise them next time.
 - No IP address is kept, and nothing that could identify a person.
 - No positions and no place names. A featured city (London, Paris, New York, Tokyo, Sydney, Rio de Janeiro, Cappadocia) is counted by name, because everyone sees those. A searched place or "Use my location" is only counted as "a search" or "a location", never which one.
-- Anyone whose browser has **Global Privacy Control** switched on sends nothing at all to our counter. (Cloudflare's visit counter is anonymous too, but it does not look at that setting.)
+- Anyone whose browser has **Global Privacy Control** switched on sends nothing at all.
 - The previews, and my automatic tests, never count.
 
 The About sheet on the site says: "Visits are counted anonymously: no cookies, nothing that identifies you."
 
 ## Cost
 
-Nothing. Web Analytics is free. The counter uses Cloudflare's Workers Analytics Engine, which on the free plan allows 100,000 counts and 10,000 look-ups a day, far more than the site needs. Cloudflare keeps the counts for three months.
+Nothing. The counter uses Cloudflare's Workers Analytics Engine, which on the free plan allows 100,000 counts and 10,000 look-ups a day, far more than the site needs. Cloudflare keeps the counts for three months.
 
-## What you click: switch on Web Analytics
+## What you click
 
-Once, about a minute. Do it after the site has gone live (see `go-live.md`).
+Nothing. The counter starts by itself the first time someone opens the live site.
 
-1. Open https://dash.cloudflare.com and sign in.
-2. In the left-hand menu, click **Workers & Pages**. (It may be under **Compute** or **Build**.)
-3. Click **let-go-of-a-balloon** in the list.
-4. Click the **Metrics** tab.
-5. Find **Web Analytics** and click **Enable**.
-6. Tell me in chat "Web Analytics is on". It starts with the next publish of the site, which happens within the hour by itself.
+If, a day after go-live, I tell you the numbers say "dataset not found", there is one place to look: in https://dash.cloudflare.com, click **Workers & Pages**, then **Analytics Engine** in the left-hand menu or on the overview page. If it shows a **Set up** button, click it. Older accounts sometimes needed this; newer ones do not.
 
-That is all. The site's own counter needs no switching on: it starts the first time someone presses something on the live site.
+## How far to trust the numbers
 
-If, a day after go-live, I tell you the counter's numbers say "dataset not found", there is one more place to look: **Workers & Pages**, then **Analytics Engine** in the left-hand menu or on the overview page. If it shows a **Set up** button, click it. Older accounts sometimes needed this; newer ones do not.
+They are good for trends, not exact. Someone could run a program that pretends to visit the site, and that would make the numbers look bigger than they are. If that ever happens and you have your own web address by then, I can add a Cloudflare rule that limits how often one visitor can be counted.
 
 ## Asking me for the numbers
 
@@ -71,7 +66,8 @@ If you lose it or want to stop me reading the numbers, go back to https://dash.c
 
 ## For me (Claude): reading the numbers
 
-- `node scripts/stats.mjs --yesterday` (or `--days 7`, `--date 2026-11-13`) prints the summary. It reads the key from `CF_ANALYTICS_TOKEN`, or relies on the session's saved credential for `api.cloudflare.com` (the proxy adds the header). It never prints the key.
+- `node scripts/stats.mjs --yesterday` (or `--days 7` up to `--days 31`, `--date 2026-11-13`) prints the summary. It reads the key from `CF_ANALYTICS_TOKEN`, or relies on the session's saved credential for `api.cloudflare.com` (the proxy adds the header). It never prints the key.
 - No key yet: ask for one with the secure credential form for host `api.cloudflare.com`. Never ask SK to paste it in chat.
-- The account is `d09a4e2d2ffe34fc1dc94d13f30da27d` (not a secret). The events are in the Analytics Engine dataset `lgoab_events` (blob1 event, blob2 detail, blob3 featured city, blob4 country; weight rows by `_sample_interval`). Visits are Web Analytics' `rumPageloadEventsAdaptiveGroups`.
-- Counts are presses, not people: one visitor who opens the card twice counts twice. "Visits" come from Web Analytics.
+- The account is `d09a4e2d2ffe34fc1dc94d13f30da27d` (not a secret). The events are in the Analytics Engine dataset `lgoab_events` (blob1 event, blob2 detail, blob3 featured city, blob4 country, and for `start_view` and `link_open` blob5 device class and blob6 referrer hostname; weight rows by `_sample_interval`).
+- Counts are presses, not people: one visitor who opens the card twice counts twice. A visit is a `start_view` or a `link_open` (a page load), not a unique person.
+- If a deploy ever failed with `wrangler.toml`, the Deploy workflow retried without it and warned ("Deployed without analytics"): then nothing is counted until that is fixed.
