@@ -15,10 +15,11 @@ import type * as THREE from 'three';
  * Works in real metres: the caller magnifies the drawn string about the knot (Balloon), so the
  * display scale never changes what is simulated. The air is given relative to the knot (the
  * balloon rides the wind; what the string feels is the climb and what crosswind is left). It runs
- * at a fixed 120 Hz substep so it behaves the same at any frame rate. A long frame (a paused or
- * hidden tab) simulates at most its last 0.25 s and carries the string along the rest of the
- * knot's way as it hangs, and a knot that jumps far in one frame (a floating-origin shift, a skip
- * along the route) carries the whole string with it instead of whipping it.
+ * in fixed 120 Hz substeps, its knot a little behind the real one so it moves at an even speed
+ * whatever the frame rate and however the frames fall (see step). A long frame (a paused or hidden
+ * tab) simulates at most its last 0.25 s, and a jump far beyond any real motion (a floating-origin
+ * shift, a skip along the route) or a stall's sudden leap carries the string as it hangs instead
+ * of whipping it.
  */
 export const ROPE_SEGMENTS = 20;
 export const ROPE_SEG_M = 0.06;
@@ -35,6 +36,14 @@ const AIR_SHARE = 0.25;
 const TIP_MASS = 4;
 /** Every point stays under the knot by at least this slope of its distance out from under it (tan 8 deg). */
 const BELOW = 0.14;
+/**
+ * The most the knot's velocity may change in a frame: MAX_ACCEL m/s for each second of it, counted
+ * up to 1/15 s, plus MAX_DV. Above what the balloon does at real frame rates (its release eases at up
+ * to about 25 m/s/s), far below the leap of a stalled frame told as 0.25 s (the scene caps its frame
+ * time while the route goes on by the clock; Balloon passes the real time, this is the backstop).
+ */
+const MAX_ACCEL = 30;
+const MAX_DV = 0.3;
 
 type V3 = { x: number; y: number; z: number };
 export type RopeStepOpts = {
@@ -44,14 +53,32 @@ export type RopeStepOpts = {
   end?: V3 | null;
 };
 
+const ZERO: Readonly<V3> = { x: 0, y: 0, z: 0 };
+function set(o: V3, v: V3): void {
+  o.x = v.x;
+  o.y = v.y;
+  o.z = v.z;
+}
+
 export class Rope {
   readonly segments: number;
   readonly segLen: number;
   private p: Float64Array;
   private q: Float64Array; // previous positions
   private w: Float64Array; // inverse masses (0: pinned)
-  private top = { x: 0, y: 0, z: 0 };
+  /** The simulated knot (point 0's pin), the real one as last given, and the knot's velocity (m/s). */
+  private knot: V3 = { x: 0, y: 0, z: 0 };
+  private real: V3 = { x: 0, y: 0, z: 0 };
+  private vel: V3 = { x: 0, y: 0, z: 0 };
+  /** Just reset: the first frame's velocity is taken as it comes. */
+  private fresh = true;
+  /** Simulation time not yet run (s): the simulated knot is this far behind the real one. */
   private acc = 0;
+  // scratch, so a frame allocates nothing
+  private t0: V3 = { x: 0, y: 0, z: 0 };
+  private air: V3 = { x: 0, y: 0, z: 0 };
+  private endOff: V3 = { x: 0, y: 0, z: 0 };
+  private endAt: V3 = { x: 0, y: 0, z: 0 };
 
   constructor(segments = ROPE_SEGMENTS, segLenM = ROPE_SEG_M) {
     this.segments = segments;
@@ -75,7 +102,10 @@ export class Rope {
       this.p[k + 1] = this.q[k + 1] = top.y - i * this.segLen;
       this.p[k + 2] = this.q[k + 2] = top.z;
     }
-    this.top = { x: top.x, y: top.y, z: top.z };
+    set(this.knot, top);
+    set(this.real, top);
+    set(this.vel, ZERO);
+    this.fresh = true;
     this.acc = 0;
   }
 
@@ -84,52 +114,91 @@ export class Rope {
     return out.set(this.p[k], this.p[k + 1], this.p[k + 2]);
   }
 
+  /**
+   * One frame of dtSec, the knot now at `top`. The simulation runs in whole 120 Hz substeps, so it
+   * stops short of now by up to a substep (60 Hz with half a millisecond of jitter is 1, 3, 2
+   * substeps a frame, and 144 Hz is 0 or 1). Its knot runs that far behind the real one, at the
+   * frame's velocity, so it moves at an even speed however the frames fall; the end pin keeps its
+   * place relative to the knot. Point 0 is that simulated knot: draw the string from point 0.
+   */
   step(dtSec: number, top: V3, opts: RopeStepOpts = {}): void {
     if (!Number.isFinite(top.x + top.y + top.z)) return;
     const dt = Number.isFinite(dtSec) ? Math.max(dtSec, 0) : 0;
-    const t0 = this.top;
-    const end = opts.end ?? null;
-    let dx = top.x - t0.x, dy = top.y - t0.y, dz = top.z - t0.z;
-    if (Math.hypot(dx, dy, dz) > Math.max(5, 10 * this.length)) {
-      // a jump far beyond any real motion carries the string as it hangs, and takes no time
-      this.translate(dx, dy, dz);
-      this.top = { x: top.x, y: top.y, z: top.z };
-      this.solve(top, end);
+    const R = this.real, K = this.knot, v = this.vel;
+    let pinEnd: V3 | null = null;
+    if (opts.end) {
+      const e = opts.end;
+      this.endOff.x = e.x - top.x;
+      this.endOff.y = e.y - top.y;
+      this.endOff.z = e.z - top.z;
+      pinEnd = this.endOff;
+    }
+    const dx = top.x - R.x, dy = top.y - R.y, dz = top.z - R.z;
+    set(R, top);
+    if (!(dt > 0) || Math.hypot(dx, dy, dz) > Math.max(5, 10 * this.length)) {
+      // a jump far beyond any real motion (or a frame of no time) carries the string as it hangs
+      this.carry(dx, dy, dz);
+      this.solve(K, pinEnd);
       return;
     }
-    // a long frame simulates only its last 0.25 s: the knot's way before that carries the string as it hangs
-    const sim = Math.min(dt, MAX_SUBSTEPS * H);
-    if (dt > sim) {
-      const carry = 1 - sim / dt;
-      this.translate(dx * carry, dy * carry, dz * carry);
-      t0.x += dx * carry;
-      t0.y += dy * carry;
-      t0.z += dz * carry;
-      dx = top.x - t0.x;
-      dy = top.y - t0.y;
-      dz = top.z - t0.z;
+    // the knot's velocity this frame; a sudden change no balloon makes is a stall or a skip, and the
+    // part of it past a plausible change is carried
+    let vx = dx / dt, vy = dy / dt, vz = dz / dt;
+    if (!this.fresh) {
+      const ex = vx - v.x, ey = vy - v.y, ez = vz - v.z;
+      const e = Math.hypot(ex, ey, ez);
+      const lim = MAX_ACCEL * Math.min(dt, 1 / 15) + MAX_DV;
+      if (e > lim) {
+        vx = v.x + (ex * lim) / e;
+        vy = v.y + (ey * lim) / e;
+        vz = v.z + (ez * lim) / e;
+      }
     }
+    this.fresh = false;
+    v.x = vx;
+    v.y = vy;
+    v.z = vz;
+    // a long frame simulates only its last 0.25 s: the knot's way before that, and anything past the
+    // plausible velocity, carries the string as it hangs
+    const sim = Math.min(dt, MAX_SUBSTEPS * H);
+    this.carry(dx - vx * sim, dy - vy * sim, dz - vz * sim);
     this.acc = Math.min(this.acc + sim, (MAX_SUBSTEPS + 0.5) * H);
     const n = Math.min(MAX_SUBSTEPS, Math.floor(this.acc / H + 1e-9));
     this.acc -= n * H;
-    const rel = opts.air ?? { x: 0, y: 0, z: 0 };
-    // the air the string feels: moving with the knot through these substeps, plus its share of the air going past
+    if (n === 0) {
+      this.solve(K, pinEnd); // no substep this frame: the simulated knot waits (it is behind by acc)
+      return;
+    }
+    // the simulated knot goes from where it was to the real one less the time not yet simulated
+    const t0 = this.t0;
+    set(t0, K);
+    const sx = R.x - vx * this.acc - t0.x, sy = R.y - vy * this.acc - t0.y, sz = R.z - vz * this.acc - t0.z;
     const sn = n * H;
-    const vk = sn > 0 ? { x: dx / sn, y: dy / sn, z: dz / sn } : { x: 0, y: 0, z: 0 };
-    const air = { x: vk.x + AIR_SHARE * rel.x, y: vk.y + AIR_SHARE * rel.y, z: vk.z + AIR_SHARE * rel.z };
+    // the air the string feels: moving with the knot through these substeps, plus its share of the air going past
+    const rel = opts.air ?? ZERO;
+    const air = this.air;
+    air.x = sx / sn + AIR_SHARE * rel.x;
+    air.y = sy / sn + AIR_SHARE * rel.y;
+    air.z = sz / sn + AIR_SHARE * rel.z;
     const keep = Math.exp(-DRAG * H);
-    const a = { x: t0.x, y: t0.y, z: t0.z };
     for (let s = 1; s <= n; s++) {
       // the knot moves along a straight line through this frame's substeps
       const f = s / n;
-      a.x = t0.x + dx * f;
-      a.y = t0.y + dy * f;
-      a.z = t0.z + dz * f;
+      K.x = t0.x + sx * f;
+      K.y = t0.y + sy * f;
+      K.z = t0.z + sz * f;
       this.integrate(keep, air);
-      this.solve(a, end);
+      this.solve(K, pinEnd);
     }
-    if (n === 0) this.solve(top, end); // still honour the pins on a zero-length frame
-    this.top = { x: top.x, y: top.y, z: top.z };
+  }
+
+  /** The string and its simulated knot moved as one: it hangs as it was. */
+  private carry(dx: number, dy: number, dz: number): void {
+    if (dx === 0 && dy === 0 && dz === 0) return;
+    this.translate(dx, dy, dz);
+    this.knot.x += dx;
+    this.knot.y += dy;
+    this.knot.z += dz;
   }
 
   private integrate(keep: number, air: V3): void {
@@ -146,7 +215,8 @@ export class Rope {
     }
   }
 
-  private solve(top: V3, end: V3 | null): void {
+  /** Satisfy the pins (the knot; the end at `endOff` from the knot, when held) and the segment lengths. */
+  private solve(top: V3, endOff: V3 | null): void {
     const { p, segments: n, segLen: len, w } = this;
     const pin = (i: number, v: V3) => {
       p[i * 3] = v.x;
@@ -154,7 +224,13 @@ export class Rope {
       p[i * 3 + 2] = v.z;
     };
     pin(0, top);
-    if (end) pin(n, end);
+    const end = endOff ? this.endAt : null;
+    if (end && endOff) {
+      end.x = top.x + endOff.x;
+      end.y = top.y + endOff.y;
+      end.z = top.z + endOff.z;
+      pin(n, end);
+    }
     for (let it = 0; it < ITERATIONS; it++) {
       const down = it % 2 === 0;
       for (let j = 0; j < n; j++) {

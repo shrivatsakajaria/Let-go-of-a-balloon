@@ -147,3 +147,78 @@ describe('the string, through a scripted flight', () => {
     for (let i = 0; i < near.pts.length; i++) expect(near.pts[i].distanceTo(far.pts[i])).toBeLessThan(0.01);
   });
 });
+
+/** A seeded generator (a jittered run is the same every time). */
+function rng(seed = 1) {
+  return () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+}
+
+/**
+ * A balloon drifting east at 8 m/s and climbing, the camera alongside, for 12 s of frames: frame f
+ * lasts dtAt(f) as the scene counts it, while the route (which follows the clock) moves on by
+ * moveAt(f, dt) seconds. The worst and mean turn of the string's end (deg/s) after fromS, and how far
+ * its end goes out to the side then (real metres of its 1.2).
+ */
+function drift(dtAt: (f: number) => number, moveAt: (f: number, dt: number) => number = (_f, dt) => dt, fromS = 5, tellElapsed = true) {
+  const b = new Balloon(new THREE.Scene());
+  const pos = new THREE.Vector3(0, 100, 0), cam = new THREE.Vector3();
+  const k = new THREE.Vector3(), p = new THREE.Vector3(), d = new THREE.Vector3(), prev = new THREE.Vector3();
+  let t = 0, worst = 0, sum = 0, n = 0, side = 0;
+  for (let f = 0; t < 12; f++) {
+    const dt = dtAt(f);
+    const move = moveAt(f, dt);
+    t += move;
+    pos.x += 8 * move;
+    pos.y += 1.5 * move;
+    cam.set(pos.x - 5, pos.y, pos.z + 1.5);
+    // as the scene does: the frame's time capped at 0.25 s, and the time that really went by
+    b.setState({ tSec: 60 + t, lat: 51.5, lon: 0, altM: pos.y, groundM: 0, speedMs: 8, headingDeg: 90 }, dt, DAY, { pos, camera: cam, elapsedS: tellElapsed ? move : undefined });
+    b.stringPoint(0, k);
+    b.stringPoint(b.rope.segments, p);
+    d.copy(p).sub(k).divideScalar(b.scale).normalize();
+    if (t > fromS) {
+      const turn = Math.acos(Math.min(1, d.dot(prev))) / RAD / dt;
+      worst = Math.max(worst, turn);
+      sum += turn;
+      n++;
+      side = Math.max(side, Math.abs(p.x - k.x) / b.scale);
+    }
+    prev.copy(d);
+  }
+  return { worst, mean: sum / n, side };
+}
+
+describe('the string at real frame timings', () => {
+  const timings: [string, () => (f: number) => number][] = [
+    ['50 Hz', () => () => 1 / 50],
+    ['90 Hz', () => () => 1 / 90],
+    ['144 Hz', () => () => 1 / 144],
+    ['60 Hz with 0.5 ms of jitter', () => { const r = rng(); return () => 1 / 60 + (r() - 0.5) * 0.001; }],
+    ['120 Hz with 0.5 ms of jitter', () => { const r = rng(); return () => 1 / 120 + (r() - 0.5) * 0.001; }],
+    ['irregular frames of 12 to 22 ms', () => { const r = rng(); return () => 0.012 + r() * 0.01; }],
+  ];
+  for (const [name, make] of timings) {
+    test(`${name}: a steady drift leaves the string still (its end turns under 10 deg/s)`, () => {
+      const r = drift(make());
+      expect(r.worst).toBeLessThan(10);
+      expect(r.mean).toBeLessThan(3);
+    });
+  }
+
+  for (const stall of [0.5, 1, 1.5]) {
+    test(`a ${stall} s stall (the scene's frame capped at 0.25 s, the route on by ${stall} s) does not fling the string`, () => {
+      const at = 300; // 5 s of calm drift first
+      const r = drift((f) => (f === at ? 0.25 : 1 / 60), (f, dt) => (f === at ? stall : dt), 4);
+      expect(r.side).toBeLessThan(0.3);
+      expect(r.worst).toBeLessThan(40);
+    });
+
+    test(`a ${stall} s stall, even untold (no elapsed time given), does not fling the string: the leap is carried`, () => {
+      const at = 300;
+      const r = drift((f) => (f === at ? 0.25 : 1 / 60), (f, dt) => (f === at ? stall : dt), 4, false);
+      // (it leans about 0.13 m out in this drift anyway)
+      expect(r.side).toBeLessThan(0.3);
+      expect(r.worst).toBeLessThan(90); // the flight's own limit (the scene does say: the stall above)
+    });
+  }
+});

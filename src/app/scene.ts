@@ -492,7 +492,9 @@ export class LiveScene {
   private readonly frame = (t: number): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
-    const dt = Math.min(0.25, Math.max(0, (t - this.last) / 1000));
+    // the frame's time, capped; the time that really went by (the live route follows the clock)
+    const elapsed = Math.max(0, (t - this.last) / 1000);
+    const dt = Math.min(0.25, elapsed);
     this.last = t;
     this.resize();
     const rp = this.replay;
@@ -553,7 +555,7 @@ export class LiveScene {
     this.pos.set(sx, y, sz);
 
     // the balloon (sized for last frame's camera), then the camera framing it as drawn
-    this.balloon.setState(pt, dt, this.sky.current, { pos: this.pos, camera: this.camera.position });
+    this.balloon.setState(pt, dt, this.sky.current, { pos: this.pos, camera: this.camera.position, elapsedS: rp ? dt : elapsed });
     this.balloon.mesh.getWorldPosition(this.target);
     const dp = this.dirPoint;
     dp.tSec = pt.tSec;

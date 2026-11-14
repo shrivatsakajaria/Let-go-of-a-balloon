@@ -3,7 +3,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BALLOON_HEX, CLIMB_RATE_MS } from '../config';
 import type { RoutePoint } from '../flight/route';
 import { parseHex, type Light } from '../world/palette';
-import { Rope, ROPE_SEGMENTS, ROPE_SEG_M } from './rope';
+import { Rope, ROPE_SEGMENTS, ROPE_SEG_M, type RopeStepOpts } from './rope';
 
 /**
  * The balloon (spec 6.2 and 7): a real 30 cm party balloon in glossy #ff5a12, the one bright thing.
@@ -77,7 +77,12 @@ export function squashScale(s: number): { y: number; xz: number } {
 
 type V3 = { x: number; y: number; z: number };
 export type BalloonOpts = { reducedMotion?: boolean };
-export type BalloonAt = { pos: V3; camera?: V3 };
+/**
+ * pos and camera: see the class comment. elapsedS: the time that really went by since the last frame
+ * (s), when the frame's dt is capped (the scene counts at most 0.25 s, while the route follows the
+ * clock); the string and the release ease follow it, so a stalled frame does not fling the string.
+ */
+export type BalloonAt = { pos: V3; camera?: V3; elapsedS?: number };
 
 /** Exact critically damped spring step toward 0 (offset x, velocity v, angular frequency w). */
 function damp(x: number, v: number, w: number, dt: number): [number, number] {
@@ -132,7 +137,12 @@ export class Balloon {
   /** The knot's velocity, smoothed, and the air going past it (filtered), m/s. */
   private knotV = new THREE.Vector3();
   private airRel = new THREE.Vector3();
+  // scratch, so the string's part of a frame allocates nothing
   private tmpV = new THREE.Vector3();
+  private drop = new THREE.Vector3();
+  private airWant = new THREE.Vector3();
+  private endReal = new THREE.Vector3();
+  private ropeOpts: RopeStepOpts = {};
   private ribbonPts = Array.from({ length: ROPE_SEGMENTS + 1 }, () => new THREE.Vector3());
 
   constructor(scene: THREE.Object3D, opts: BalloonOpts = {}) {
@@ -253,13 +263,17 @@ export class Balloon {
     this.hand = null;
     this.sinceRelease = 0;
     this.offsetV.set(0, -CLIMB_RATE_MS, 0); // start at rest while the route already climbs
-    this.restAt = true; // (and drifts: the next frame sets it from the route's own speed and heading)
+    // (and drifts: setState's next frame sets the whole start from the route's own speed and heading,
+    // which this call does not have; see restAt there)
+    this.restAt = true;
     this.squashV -= 1.2; // a small kick into the squash
   }
 
   setState(p: RoutePoint, dtSec: number, light: Light, at: BalloonAt): void {
-    const rawDt = Number.isFinite(dtSec) ? Math.max(dtSec, 0) : 0;
-    const dt = Math.min(rawDt, 0.1);
+    const frameDt = Number.isFinite(dtSec) ? Math.max(dtSec, 0) : 0;
+    // the time that really went by (the route moved by it), at least the frame's own
+    const rawDt = at.elapsedS !== undefined && Number.isFinite(at.elapsedS) ? Math.max(frameDt, at.elapsedS) : frameDt;
+    const dt = Math.min(frameDt, 0.1);
     const pos = at.pos;
     if (!Number.isFinite(pos.x + pos.y + pos.z)) return;
     this.clock += dt;
@@ -291,10 +305,13 @@ export class Balloon {
       this.tiltV.set(0, 0);
     } else {
       this.sinceRelease += dt;
-      const de = Math.min(rawDt, 0.25);
+      const de = Math.min(rawDt, 10);
       if (this.restAt && this.started) {
         // the hand has just opened (as this frame began): the balloon starts at rest where it was drawn,
-        // and eases onto the route, which already drifts with the wind and climbs
+        // and eases onto the route, which already drifts with the wind and climbs. (release() is called
+        // between frames, with no route point to hand: it sets restAt, and the first frame without the
+        // hand does this, from that frame's speed and heading. Before any frame, started is false, and
+        // release() leaves the climb's offsetV alone to ease from.)
         this.restAt = false;
         const vx = Math.sin(hd) * sp, vz = -Math.cos(hd) * sp;
         this.offset.set(cur.x - pos.x + vx * de, cur.y - pos.y + CLIMB_RATE_MS * de, cur.z - pos.z + vz * de);
@@ -361,7 +378,7 @@ export class Balloon {
     // the string: pinned at the knot, and at the hand while held. It is simulated at real size, hung
     // from where the knot of a real-size balloon would be, and drawn magnified about the drawn knot,
     // so the display scale (the camera's distance) never moves it
-    const drop = new THREE.Vector3(0, -KNOT_DROP * k.y * BALLOON_RADIUS_M, 0).applyQuaternion(this.mesh.quaternion);
+    const drop = this.drop.set(0, -KNOT_DROP * k.y * BALLOON_RADIUS_M, 0).applyQuaternion(this.mesh.quaternion);
     this.knotReal.copy(cur).add(drop);
     this.knotDrawn.copy(cur).addScaledVector(drop, this.scale);
     const knot = this.knotReal;
@@ -374,12 +391,12 @@ export class Balloon {
     // from a jump), so the string trails below a climbing balloon and a crosswind leans it gently.
     // Capped, and eased over most of a second, plus a slow sway: no flicks
     if (this.started && !jumped && rawDt > 0) {
-      const kv = this.knotPrev.clone().sub(knot).multiplyScalar(-1 / rawDt);
+      const kv = this.tmpV.subVectors(knot, this.knotPrev).divideScalar(rawDt);
       if (kv.length() < 200) this.knotV.lerp(kv, 1 - Math.exp(-rawDt / KNOT_V_TAU_S));
     }
     this.knotPrev.copy(knot);
     const sway = AIR_SWAY_MS * w;
-    const want = new THREE.Vector3(
+    const want = this.airWant.set(
       Math.sin(hd) * sp - this.knotV.x + sway * (Math.sin(t * 0.37 + 0.4) + 0.5 * Math.sin(t * 0.83)),
       Math.max(-AIR_MAX_UP_MS, Math.min(0, -this.knotV.y)),
       -Math.cos(hd) * sp - this.knotV.z + sway * (Math.sin(t * 0.29 + 2.1) + 0.5 * Math.sin(t * 0.71 + 1)),
@@ -391,8 +408,10 @@ export class Balloon {
     }
     if (!this.started) this.airRel.copy(want);
     else this.airRel.lerp(want, 1 - Math.exp(-rawDt / AIR_TAU_S));
-    const end = this.hand ? this.knotDrawn.clone().sub(this.hand).multiplyScalar(-1 / this.scale).add(knot) : null;
-    this.rope.step(rawDt, knot, { air: this.airRel, end });
+    const end = this.hand ? this.endReal.set(this.hand.x, this.hand.y, this.hand.z).sub(this.knotDrawn).divideScalar(this.scale).add(knot) : null;
+    this.ropeOpts.air = this.airRel;
+    this.ropeOpts.end = end;
+    this.rope.step(rawDt, knot, this.ropeOpts);
     this.started = true;
     this.updateRibbon(cam);
 
