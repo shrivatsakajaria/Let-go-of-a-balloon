@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { clearGazetteerCache } from '../../src/geo/gazetteer';
-import { countryLabel, countryName, overText, placeOver, withArticle, withCountry } from '../../src/geo/places';
+import { countryLabel, countryName, overText, placeOver, placeOverAt, withArticle, withCountry } from '../../src/geo/places';
 import type { Label } from '../../src/world/meshjob';
 import { stubGazetteer } from './helpers';
 
@@ -109,5 +109,30 @@ describe('countries people can place (owner\'s decision, 14 November 2026, panel
     // generic names stay lower case and alone (R56); a name that is the country is not said twice
     expect(withCountry('open countryside', 'France', 'United Kingdom')).toBe('open countryside');
     expect(withCountry('Luxembourg', 'Luxembourg', 'Belgium')).toBe('Luxembourg');
+  });
+});
+
+describe('the country comes from the same source as the name (review of Task 29)', () => {
+  // between Enschede and Gronau, on the Dutch-German border
+  const border = { lat: 52.218, lon: 6.955 };
+
+  test('a town label takes the country of the gazetteer town of that name, never the nearest town\'s', async () => {
+    const at = await placeOverAt(border, [label('Enschede', 'city', 52.2215, 6.8937)]);
+    expect(at).toEqual({ name: 'Enschede', country: 'Netherlands' });
+    expect(withCountry(at.name, at.country, 'Germany')).toBe('Enschede, Netherlands');
+    expect(withCountry(at.name, at.country, 'Netherlands')).toBe('Enschede');
+  });
+
+  test('water, parks and peaks name no country', async () => {
+    expect(await placeOverAt({ lat: 53.4, lon: 6.0 }, [label('Wadden Sea', 'sea', 53.41, 6.0)])).toEqual({ name: 'the Wadden Sea' });
+    expect(await placeOverAt(border, [label('Rutbeek', 'park', 52.22, 6.95)])).toEqual({ name: 'Rutbeek' });
+  });
+
+  test('a town label with no gazetteer town of its name names no country', async () => {
+    expect(await placeOverAt(border, [label('Nowhereville', 'village', 52.218, 6.955)])).toEqual({ name: 'Nowhereville' });
+  });
+
+  test('a gazetteer town names its own country', async () => {
+    expect(await placeOverAt({ lat: 53.8, lon: -1.55 }, [])).toEqual({ name: 'Leeds', country: 'United Kingdom' });
   });
 });
