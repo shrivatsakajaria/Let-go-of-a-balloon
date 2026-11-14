@@ -20,8 +20,9 @@ if [ -n "$MANIFEST" ]; then
   where="$MANIFEST"
 else
   where="${SITE_URL:?SITE_URL is not set}/winds/manifest.json"
-  # the query string skips any cached copy of the manifest (it is cached for 5 minutes)
-  body=$(curl -fsS -m 30 --retry 2 "${where}?fresh=${NOW}" 2>/dev/null) || body=""
+  # the query string skips any cached copy of the manifest (it is cached for 5 minutes); curl's own
+  # error message, if any, stays in the log
+  body=$(curl -fsS -m 30 --retry 2 "${where}?fresh=${NOW}") || body=""
 fi
 
 result=$(printf '%s' "$body" | python3 -c '

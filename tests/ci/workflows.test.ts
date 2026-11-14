@@ -2,7 +2,7 @@
 // Checks on the GitHub workflows (R59), and a small harness that runs a step's shell script with
 // stand-in commands, so the timer run's build and the site address can be tried without GitHub.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -31,17 +31,34 @@ function runBlock(stepText: string): string {
   return (end < 0 ? lines : lines.slice(0, end)).map((l) => l.slice(indent.length)).join('\n');
 }
 
-/** Run a script with stand-ins for npm and npx that only print what they were asked. */
-function runWithStandIns(script: string, env: Record<string, string>): string {
+const FAKE_SHA = 'c'.repeat(40);
+
+/**
+ * Run a step's script as GitHub would (bash -e), in a scratch checkout with a dist/ folder, with
+ * stand-ins: npm and npx only print what they were asked, git rev-parse prints FAKE_SHA, and
+ * scripts/site-url.sh prints an address or, with `siteUrlFails`, fails.
+ */
+function runWithStandIns(script: string, env: Record<string, string>, opts: { siteUrlFails?: boolean } = {}) {
   const bin = mkdtempSync(join(tmpdir(), 'wf-bin-'));
-  for (const cmd of ['npm', 'npx']) {
-    const p = join(bin, cmd);
-    writeFileSync(p, `#!/usr/bin/env bash\necho "${cmd} $*"\n`);
+  const work = mkdtempSync(join(tmpdir(), 'wf-work-'));
+  const exe = (p: string, body: string) => {
+    writeFileSync(p, `#!/usr/bin/env bash\n${body}\n`);
     chmodSync(p, 0o755);
-  }
-  const r = spawnSync('bash', ['-e', '-c', script], { env: { PATH: `${bin}:${process.env.PATH}`, ...env }, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(r.stderr);
-  return r.stdout.trim();
+  };
+  for (const cmd of ['npm', 'npx']) exe(join(bin, cmd), `echo "${cmd} $*"`);
+  exe(join(bin, 'git'), `echo ${FAKE_SHA}`);
+  mkdirSync(join(work, 'dist'));
+  mkdirSync(join(work, 'scripts'));
+  exe(join(work, 'scripts', 'site-url.sh'), opts.siteUrlFails ? 'exit 1' : 'echo https://site.test');
+  const githubEnv = join(work, 'github-env');
+  writeFileSync(githubEnv, '');
+  const r = spawnSync('bash', ['-e', '-c', script], {
+    cwd: work,
+    env: { PATH: `${bin}:${process.env.PATH}`, GITHUB_ENV: githubEnv, ...env },
+    encoding: 'utf8',
+  });
+  const file = (p: string) => (existsSync(join(work, p)) ? readFileSync(join(work, p), 'utf8') : null);
+  return { code: r.status, out: r.stdout.trim(), buildJson: file('dist/build.json'), githubEnv: file('github-env') };
 }
 
 describe('deploy.yml', () => {
@@ -65,10 +82,39 @@ describe('deploy.yml', () => {
 
   test('a timer run builds with vite build only; push and manual runs keep the full check', () => {
     const script = runBlock(step(deploy, 'Build site'));
-    expect(runWithStandIns(script, { EVENT: 'schedule' })).toBe('npx vite build');
-    expect(runWithStandIns(script, { EVENT: 'push' })).toBe('npm run build');
-    expect(runWithStandIns(script, { EVENT: 'workflow_dispatch' })).toBe('npm run build');
+    expect(runWithStandIns(script, { EVENT: 'schedule' }).out).toBe('npx vite build');
+    expect(runWithStandIns(script, { EVENT: 'push' }).out).toBe('npm run build');
+    expect(runWithStandIns(script, { EVENT: 'workflow_dispatch' }).out).toBe('npm run build');
     expect(JSON.parse(read('package.json')).scripts.build).toBe('tsc --noEmit && vite build');
+  });
+
+  test('every build writes dist/build.json with the commit checked out (I-1)', () => {
+    const script = runBlock(step(deploy, 'Build site'));
+    for (const EVENT of ['schedule', 'push']) {
+      const r = runWithStandIns(script, { EVENT });
+      expect(r.code).toBe(0);
+      expect(JSON.parse(r.buildJson!)).toEqual({ sha: FAKE_SHA });
+    }
+  });
+
+  test('a timer run deploys when the live code differs, so a replaced push to main still goes live (I-1)', () => {
+    const s = step(deploy, 'Check for a newer GFS run or newer code (scheduled runs only)');
+    expect(s).toContain('./scripts/check-new-run.sh');
+    expect(read('scripts/check-new-run.sh')).toMatch(/build\.json/);
+    const queue = deploy.slice(0, deploy.indexOf('concurrency:'));
+    expect(queue).not.toMatch(/nothing is lost/);
+    expect(queue).toMatch(/build\.json/);
+    expect(read('README.md')).not.toMatch(/nothing is lost/);
+  });
+
+  test('reading the site address fails the step when site-url.sh fails', () => {
+    const script = runBlock(step(deploy, 'Read the site address'));
+    const ok = runWithStandIns(script, {});
+    expect(ok.code).toBe(0);
+    expect(ok.githubEnv).toBe('SITE_URL=https://site.test\n');
+    const bad = runWithStandIns(script, {}, { siteUrlFails: true });
+    expect(bad.code).not.toBe(0);
+    expect(bad.githubEnv).toBe('');
   });
 
   test('every live run checks the age of the live winds, timer runs with nothing new included', () => {
@@ -81,7 +127,7 @@ describe('deploy.yml', () => {
 
   test('the site address comes from src/config.ts, not the workflow', () => {
     expect(deploy).not.toContain('pages.dev');
-    expect(step(deploy, 'Read the site address')).toContain('echo "SITE_URL=$(./scripts/site-url.sh)" >> "$GITHUB_ENV"');
+    expect(step(deploy, 'Read the site address')).toContain('url=$(./scripts/site-url.sh)');
     const r = spawnSync('bash', [join(root, 'scripts/site-url.sh')], { encoding: 'utf8' });
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe(SITE_URL);

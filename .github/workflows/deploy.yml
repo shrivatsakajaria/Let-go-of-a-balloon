@@ -12,8 +12,10 @@ on:
 
 # One queue per Pages branch the run publishes to: "main" (the live site: every timer run, and every
 # push or manual run on main) or the preview branch. A preview run can never cancel or hold up a
-# live one. Within a queue one run goes at a time and a newer queued run replaces a waiting one
-# (never a running one); every run builds the newest winds, so nothing is lost but a repeat.
+# live one. Within a queue one run goes at a time, and a newer queued run cancels a waiting one
+# (never a running one). So a timer run can cancel a waiting push or manual run on main. That timer
+# run still deploys main's newest commit: check-new-run.sh deploys whenever the live site's
+# /build.json names another commit than the one checked out, even with no newer GFS run.
 concurrency:
   group: deploy-${{ github.event_name == 'schedule' && 'main' || github.ref_name }}
   cancel-in-progress: false
@@ -51,7 +53,9 @@ jobs:
 
       # The public address of the site, set once in src/config.ts (SITE_URL). The check scripts read it.
       - name: Read the site address
-        run: echo "SITE_URL=$(./scripts/site-url.sh)" >> "$GITHUB_ENV"
+        run: |
+          url=$(./scripts/site-url.sh)
+          echo "SITE_URL=$url" >> "$GITHUB_ENV"
 
       - name: Check for Cloudflare secrets
         id: cf
@@ -72,7 +76,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Check for a newer GFS run (scheduled runs only)
+      # Deploys when a newer GFS run is ready, or when the live site runs another commit than main's.
+      - name: Check for a newer GFS run or newer code (scheduled runs only)
         id: newrun
         if: github.event_name == 'schedule' && steps.cf.outputs.has_cf == 'true'
         run: ./scripts/check-new-run.sh | tee -a "$GITHUB_OUTPUT"
@@ -80,7 +85,7 @@ jobs:
       - name: Skip note
         if: github.event_name == 'schedule' && steps.newrun.outputs.new != 'true'
         run: |
-          echo "Scheduled run - nothing to do (Cloudflare secrets missing, or no newer GFS run than the deployed one)." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Scheduled run - nothing to do (Cloudflare secrets missing, or no newer GFS run and the live site already runs this commit)." | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Everything below runs for push and manual runs, or for scheduled runs with a new GFS run.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -131,6 +136,8 @@ jobs:
       # Push and manual runs build with `npm run build`, which type-checks everything first, tests
       # included. A timer run only builds the site (`vite build`): a type slip in a test file must
       # never stop the winds being refreshed (it did once, on 13 November).
+      # dist/build.json names the commit built, which check-new-run.sh compares with main. (It is the
+      # checkout's HEAD, not GITHUB_SHA: a timer run's GITHUB_SHA is the default branch, not main.)
       - name: Build site
         if: github.event_name != 'schedule' || steps.newrun.outputs.new == 'true'
         env:
@@ -141,6 +148,7 @@ jobs:
           else
             npm run build
           fi
+          printf '{"sha":"%s"}\n' "$(git rev-parse HEAD)" > dist/build.json
 
       # The wind store keeps the newest four built runs between workflow runs. The key never
       # matches exactly, so the newest saved store is restored through the prefix.
