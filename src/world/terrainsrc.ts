@@ -4,6 +4,7 @@
  */
 import { PMTiles } from 'pmtiles';
 import {
+  ROUTE_GROUND_MAX_TILES,
   ROUTE_GROUND_ZOOM,
   TERRAIN_AWS,
   TERRAIN_AWS_MAX_ZOOM,
@@ -262,20 +263,37 @@ export type RouteGroundFn = ((p: LatLon) => Promise<number>) & { peek: (p: LatLo
  * at zoom ROUTE_GROUND_ZOOM, floored at 0 so the sea counts as 0 m. Tiles are cached and in-flight
  * fetches deduped; the window may straddle tile edges. `peek` gives the same answer without waiting
  * when every tile it needs has loaded, else undefined. `load` is injectable for tests.
+ *
+ * At most ROUTE_GROUND_MAX_TILES tiles are kept (1 MiB each): reading a tile, by either function,
+ * makes it the most recent, and the least recently read goes first. (A window needs at most four
+ * tiles, so the cap never drops one it is still using.)
  */
 export function makeRouteGround(load: TileLoader): RouteGroundFn {
+  // both in least-recently-used order: a Map iterates in insertion order, and a read re-inserts
   const cache = new Map<string, Promise<TerrainTile>>();
   const ready = new Map<string, TerrainTile>();
+  const touch = (k: string, p: Promise<TerrainTile>) => {
+    cache.delete(k);
+    cache.set(k, p);
+  };
   const get = (z: number, x: number, y: number) => {
     const k = `${z}/${x}/${y}`;
     let p = cache.get(k);
-    if (!p) {
-      p = load(z, x, y);
-      cache.set(k, p);
-      p.then(
-        (t) => void ready.set(k, t),
-        () => void cache.delete(k),
-      );
+    if (p) {
+      touch(k, p);
+      return p;
+    }
+    const mine = load(z, x, y);
+    p = mine;
+    cache.set(k, p);
+    p.then(
+      (t) => void (cache.get(k) === mine && ready.set(k, t)), // a tile dropped while loading stays out
+      () => void (cache.get(k) === mine && cache.delete(k)),
+    );
+    while (cache.size > ROUTE_GROUND_MAX_TILES) {
+      const oldest = cache.keys().next().value as string;
+      cache.delete(oldest);
+      ready.delete(oldest);
     }
     return p;
   };
@@ -312,7 +330,12 @@ export function makeRouteGround(load: TileLoader): RouteGroundFn {
     }
     return best;
   };
-  const peekTile = (x: number, y: number) => ready.get(`${z}/${x}/${y}`);
+  const peekTile = (x: number, y: number) => {
+    const k = `${z}/${x}/${y}`;
+    const t = ready.get(k);
+    if (t) touch(k, cache.get(k)!);
+    return t;
+  };
   const ground = async (p: LatLon): Promise<number> => {
     const c = centreOf(p);
     const centre = await get(z, c.tx, c.ty);
