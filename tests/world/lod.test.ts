@@ -230,6 +230,18 @@ describe('DetailBudget', () => {
     expect(d.upWaitMs).toBe(8000);
   });
 
+  it('a step up whose tiles never all come in (a flight that keeps loading) stops counting as pending after 20 s', () => {
+    const d = new DetailBudget({ high: 400_000 });
+    d.update(500_000, 0);
+    let t = feed(d, 280_000, 100, 4200);
+    expect(d.scale).toBe(1); // up at 4.1 s
+    // the stream never settles; a minute later the full reach is over: that is no bounce of a step a minute old
+    t = feed(d, 280_000, t, 64_000, { settled: false });
+    t = feed(d, 450_000, t, t + 200, { settled: false });
+    expect(d.scale).toBe(DETAIL_STEPS[1]);
+    expect(d.upWaitMs).toBe(4000);
+  });
+
   it('a step up that held for a while after its tiles came in is not a bounce', () => {
     const d = new DetailBudget({ high: 400_000 });
     d.update(500_000, 0);
