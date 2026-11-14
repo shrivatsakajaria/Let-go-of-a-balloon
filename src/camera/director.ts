@@ -1437,7 +1437,8 @@ export class Director {
    * landmark stands behind them (R36), or else on the street camera's line (so the launch push-in is a
    * straight move in), far enough back that the person and the held balloon fill
    * about a third of the screen (at most 70% of the free band), centred in the band. The first spot that is not in a building and has no
-   * building between it and the person wins; nearer spots are tried, down to the street spot itself.
+   * building between it and the person wins; nearer spots are tried, down to the street spot itself. A spot
+   * on or beside a building, or in a crown, loses to any other (the clamp would lift it off eye height).
    */
   private waitTarget(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, S: THREE.Vector3, w: WaitFrame): Target {
     const fov = 40;
@@ -1455,7 +1456,8 @@ export class Director {
       if (!this.deps.buildingTopAt && !this.deps.treeTopAt) return 0;
       // (on a building, within a crown, or anywhere the clamp would lift it off eye height: a spot looking
       // down from a roof edge is no spot)
-      let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 || this.spotTop(ll, CROWN_GAP_M + 1) > g + 1.5 ? 10 : 0;
+      // (outweighing any sightline: 6 samples of it count 12 at most)
+      let n = this.spotTop(ll, STREET_CLEAR_M) > g + 0.5 || this.spotTop(ll, CROWN_GAP_M + 1) > g + 1.5 ? 100 : 0;
       // the sightline, and as wide as the frame is there (a tree crown beside the camera fills a portrait frame)
       const D = Math.hypot(ps.x - c.x, ps.z - c.z);
       for (const f of [0.1, 0.2, 0.35, 0.5, 0.65, 0.8]) {
@@ -1469,7 +1471,7 @@ export class Director {
     this.recheck++;
     if (this.wide && this.recheck % 20 === 0) {
       const n = blocked(this.wide);
-      if (n > this.wideBlocked || (n >= 10 && this.recheck % 60 === 0)) this.wide = null;
+      if (n > this.wideBlocked || (n >= 100 && this.recheck % 60 === 0)) this.wide = null;
     }
     if (this.wide) this.settle(this.wide, b, B0, false, HOLD_EYE_M);
     if (!this.wide) {
@@ -1504,7 +1506,7 @@ export class Director {
       if (pick) pick.setY(this.deps.groundAt(this.fromScene(pick.x, pick.z, b, B0)) + HOLD_EYE_M);
       if (!pick || !finite3(pick)) pick = S.clone();
       this.wide = pick;
-      this.wideBlocked = Math.min(best, 99);
+      this.wideBlocked = Math.min(best, 999);
     }
     const C = this.wide;
     const dh = Math.max(0.5, Math.hypot(ps.x - C.x, ps.z - C.z));
