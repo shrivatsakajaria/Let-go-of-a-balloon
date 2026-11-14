@@ -370,11 +370,12 @@ export class Director {
   private stepS = 0;
   /**
    * What the camera did last frame, for the browser tests' smoothness probe (read through the page's test
-   * hook): the target it was steering for, how far the clamp moved it, and the launch's choices.
+   * hook): the target it was steering for, how far the clamp moved it, the launch's choices and the person's
+   * feet (scene).
    */
   /** The clamp's correction as applied (eased: easeClamp), its rate, and whether it has started. */
   private readonly guard = { on: false, aMax: CLAMP_MAX_A, off: new THREE.Vector3(), v: new THREE.Vector3(), want: new THREE.Vector3() };
-  readonly probe = { target: [0, 0, 0], clampM: 0, lift: 0, pushAt: Number.NaN, low: 0 };
+  readonly probe = { target: [0, 0, 0], clampM: 0, lift: 0, pushAt: Number.NaN, low: 0, person: [0, 0, 0] };
 
   constructor(private readonly camera: THREE.PerspectiveCamera, private readonly deps: DirectorDeps) {
     this.reduced = !!deps.reducedMotion;
@@ -721,6 +722,12 @@ export class Director {
     pr.lift = this.lift;
     pr.pushAt = this.pushAt;
     pr.low = this.low ? 1 : 0;
+    if (this._shot === 'launch' && this.launchOpts) {
+      const ps = this.deps.toScene(this.launchOpts.personAt);
+      pr.person[0] = ps.x;
+      pr.person[1] = this.deps.groundAt(this.launchOpts.personAt);
+      pr.person[2] = ps.z;
+    }
     this.camera.position.copy(out);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.aim(out, B, this.y0, this.fov, this.x0));
