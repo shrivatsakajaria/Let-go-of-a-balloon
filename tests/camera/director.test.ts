@@ -917,7 +917,7 @@ describe('launch crane', () => {
     });
   });
 
-  test('reduced motion: no crane, a still wide frame of the person and the rising balloon, then a cut to the settled view', () => {
+  test('reduced motion: no crane, a still frame of the person and the rising balloon (big enough to read), then a cut to the settled view as it leaves it', () => {
     const ground = 10;
     const mk = rising(ground, 70);
     let still: { pos: THREE.Vector3; q: THREE.Quaternion } | null = null;
@@ -934,13 +934,17 @@ describe('launch crane', () => {
           expect(cam.quaternion.angleTo(still.q)).toBeLessThan(1e-6);
           expect(inFrame(cam, ballPos(mk(t)))).toBe(true);
           if (k === 1.5) personIn = inFrame(cam, new THREE.Vector3(0, ground + 0.9, 0));
+          if (k === 1.5) {
+            const B = ballPos(mk(t));
+            expect(framing(cam, B, REAL(cam.position.distanceTo(B))).h).toBeGreaterThan(0.04); // the balloon reads
+          }
         }
         if (prev) jump = Math.max(jump, cam.position.distanceTo(prev));
         prev = cam.position.clone();
       },
     });
     expect(personIn).toBe(true);
-    expect(settledAt).toBeGreaterThan(11.9);
+    expect(settledAt).toBeGreaterThan(4); // once the balloon is about to leave the still (it is framed close, so it reads)
     expect(settledAt).toBeLessThan(40.1);
     expect(jump).toBeGreaterThan(5); // a cut, not a move
     expect(d.shot).toBe('ride');

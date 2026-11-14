@@ -219,7 +219,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - The fact line is `aria-live="off"`. A separate polite status area announces only the launch, a change of country, and the landing.
 - The 3D canvas has `role="img"` and a label that updates during the flight, for example "Your balloon is over the North Sea, 412 km from Manchester".
 - Reduced motion:
-  - The launch has no crane: a still wide frame of the person (a small figure, from at least 16 m), the landmark behind them and the rising balloon, then a cut to the settled view.
+  - The launch has no crane: a still frame on a long lens of the person, the landmark behind them and the rising balloon (big enough to read, about 4% of the frame's height), then a cut to the settled view as the balloon leaves the frame.
   - Ride with fixed framing and half the wobble.
   - The replay becomes the route drawing in place over 2 s.
 

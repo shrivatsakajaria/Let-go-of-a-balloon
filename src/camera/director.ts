@@ -130,10 +130,12 @@ const CRANE_CLEAR_M = 2;
 const CRANE_AHEAD_S = 3;
 const LAUNCH_X_TAU_S = 0.5;
 /** Reduced motion's still frame: its field of view, and how much of it the person and the rise fill. */
-const STILL_FOV = 50;
-const STILL_FILL = 0.8;
+const STILL_FOV = 26;
+const STILL_FILL = 0.9;
 /** ...from at least this far back (the person a small figure in it, the landmark and the sky above them). */
-const STILL_MIN_M = 16;
+const STILL_MIN_M = 11;
+/** ...and frames this much of the rise (s). */
+const STILL_FIT_S = 4;
 /** ...and the cut comes early if the drifting balloon is about to leave it (NDC). */
 const STILL_EDGE = 0.85;
 /** The launch camera passing over the person keeps this high over their ground (m): the crane eases up within PERSON_EASE_M of them, the clamp holds it within PERSON_CLEAR_M. */
@@ -1172,8 +1174,9 @@ export class Director {
 
   /**
    * The still frame: at eye height on a line through the person, upwind of them (so the balloon drifts
-   * away down the middle of the frame rather than out of its side), far enough back that the person's feet and the balloon, all the way up to about where it
-   * clears the rooftops, fill STILL_FILL of the height. A line with a building on the spot or between it and
+   * away down the middle of the frame rather than out of its side), (on the featured landmark's line first), far enough back (at least STILL_MIN_M) that the person's
+   * feet and the balloon over the first STILL_FIT_S of its rise fill STILL_FILL of the height, on a long lens
+   * (STILL_FOV), so the balloon reads (about 4% of the frame or more); the cut comes as it leaves the frame. A line with a building on the spot or between it and
    * the person is passed over for the next; if every one has, the first is used, over the building.
    */
   private stillFrame(b: RoutePoint, B0: THREE.Vector3, dir: THREE.Vector3): { pos: THREE.Vector3; yaw: number; pitch: number } {
@@ -1182,8 +1185,9 @@ export class Director {
     const gP = this.deps.groundAt(o.personAt);
     const top = Math.min(45, Math.max(OPEN_M + CLEAR_M, this.roofTop(o.personAt) - gP + CLEAR_M));
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 2.5;
-    // until it clears the rooftops, and at least until Ride may settle
-    const uTop = Math.max(1, (top - 2.4) / CLIMB_RATE_MS, LAUNCH.settleMinS - (Number.isFinite(this.rel) ? this.rel : LAUNCH.holdS));
+    // the first STILL_FIT_S of the rise (or until it clears the rooftops, if sooner): framed nearer than the
+    // whole climb, so the balloon reads (about 4% of the frame's height or more) while it is in it
+    const uTop = Math.max(1, Math.min(STILL_FIT_S, (top - 2.4) / CLIMB_RATE_MS));
     const fill = STILL_FILL * STILL_FOV * RAD;
     const a0 = new THREE.Vector3(-dir.x, 0, -dir.z);
     const axes = [0, 20, -20, 40, -40].map((deg) => a0.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), deg * RAD));
