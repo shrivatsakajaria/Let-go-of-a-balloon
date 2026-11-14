@@ -7,8 +7,11 @@
 # search. Winds, place names and the font are this site's own files. The map worker is a file of this
 # site too. Styles allow 'unsafe-inline' for the first-paint <style> in index.html and the style
 # attributes the HUD writes; scripts never run inline.
+# Cloudflare Web Analytics (spec 16): Pages adds its beacon script from static.cloudflareinsights.com
+# (a versioned path, so the host is named), and the beacon reports to cloudflareinsights.com (or to
+# this site's own /cdn-cgi/rum, which 'self' covers). The event counter is this site's own /api/e.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org https://download.mapterhorn.com https://tiles.mapterhorn.com https://s3.amazonaws.com/elevation-tiles-prod/ https://geocoding-api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org https://download.mapterhorn.com https://tiles.mapterhorn.com https://s3.amazonaws.com/elevation-tiles-prod/ https://geocoding-api.open-meteo.com https://cloudflareinsights.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
