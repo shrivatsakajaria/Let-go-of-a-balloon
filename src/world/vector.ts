@@ -22,7 +22,8 @@ export type LineFeature = { cls: string; subclass: string; brunnel: string; line
 /** A building footprint whose centroid lies in this tile (not clipped). Heights in metres. */
 export type BuildingFeature = { height: number; minHeight: number; polygon: Polygon };
 /** A named point (place, water_name) inside the tile. */
-export type PointFeature = { name: string; cls: string; rank?: number; lat: number; lon: number; x: number; z: number };
+/** `en`: the English name, where the tile has one (the landing card labels countries and seas in English). */
+export type PointFeature = { name: string; en?: string; cls: string; rank?: number; lat: number; lon: number; x: number; z: number };
 
 /** Map features of one tile, in local metres (x east, z = -north from the south-west corner). */
 export type Features = {
@@ -123,7 +124,8 @@ function points(layer: VectorTileLayer | undefined, frame: TileFrame): PointFeat
     if (!name || !pt || pt.x < 0 || pt.y < 0 || pt.x >= layer.extent || pt.y >= layer.extent) continue;
     const { x, z } = frame.pixelToLocal(pt.x, pt.y, layer.extent);
     const { lat, lon } = frame.toLatLon(x, z);
-    out.push({ name, cls: str(p.class), rank: typeof p.rank === 'number' ? p.rank : undefined, lat, lon, x, z });
+    const en = str(p['name:en']) || str(p.name_en);
+    out.push({ name, ...(en ? { en } : {}), cls: str(p.class), rank: typeof p.rank === 'number' ? p.rank : undefined, lat, lon, x, z });
   }
   return out;
 }

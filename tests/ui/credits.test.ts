@@ -29,8 +29,8 @@ test('the AWS terrain fallback (Mapzen Terrain Tiles) is credited, with its sour
   expect(creditHtml(c!)).toContain('href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md"');
 });
 
-test('the card credit line is the plan text', () => {
-  expect(CARD_CREDIT).toBe('Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Terrain: © Mapterhorn · A Still Signal build');
+test('the card credit line is the plan text, with Natural Earth (the card\'s region tiles and sea names)', () => {
+  expect(CARD_CREDIT).toBe('Winds: NOAA GFS · Map: © OpenMapTiles © OpenStreetMap contributors · Natural Earth · Terrain: © Mapterhorn · A Still Signal build');
 });
 
 test('links open in a new tab without handing over the page, and text is escaped', () => {

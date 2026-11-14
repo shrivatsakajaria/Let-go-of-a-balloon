@@ -121,6 +121,11 @@ export class LiveScene {
   onLuminance: ((top: number, bottom: number) => void) | null = null;
   /** Skip measuring the brightness behind the text (the launch: only the clock shows). */
   measurePaused = false;
+  /**
+   * Draw nothing while true: the landing card's reveal fills the screen with its own world (the live
+   * view is under the card's ink), so the frame budget is the card world's alone (R55).
+   */
+  holdRender = false;
   /** The frame budget (world/framebudget.ts): the view's tiles to their cap, the shadow pass to its share, the detail. */
   private readonly budget: FrameBudget;
   /** The last frame drawn redrew the shadow map (for the performance checks). */
@@ -493,6 +498,10 @@ export class LiveScene {
   private readonly frame = (t: number): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
+    if (this.holdRender) {
+      this.last = t;
+      return;
+    }
     // the frame's time, capped; the time that really went by (the live route follows the clock)
     const elapsed = Math.max(0, (t - this.last) / 1000);
     const dt = Math.min(0.25, elapsed);

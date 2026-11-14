@@ -166,7 +166,7 @@ export class WorldStream {
   private readonly failed = new Map<string, { until: number; tries: number }>();
   private readonly now: () => number;
   private readonly maxTiles: number;
-  private readonly maxInFlight: number;
+  private maxInFlight: number;
   private readonly recentreM: number;
   private readonly fadeMs: number;
   private readonly arriveTriangles: number;
@@ -617,6 +617,11 @@ export class WorldStream {
       }
     }
     return out.sort((a, b) => a.d - b.d).map((o) => o.l);
+  }
+
+  /** At most this many builds in flight from now on (the landing card's world, sharing the pool). */
+  setMaxInFlight(n: number): void {
+    this.maxInFlight = Math.max(1, n);
   }
 
   /** The stream's numbers. The same object is filled in on every call (no garbage per frame). */

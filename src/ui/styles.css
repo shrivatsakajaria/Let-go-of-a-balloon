@@ -803,6 +803,13 @@ a.link, .small a { color: var(--paper); }
   animation: card-rise 420ms var(--ease);
 }
 @keyframes card-rise { from { opacity: 0; transform: translateY(12px); } }
+/* the card's frame: the still, and over it while it plays the reveal's canvas (the same size) */
+.card-frame { position: relative; display: flex; flex: 0 1 auto; min-height: 0; max-width: 100%; }
+.card-reveal { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; box-shadow: 0 0 0 1px rgba(247, 243, 236, 0.14); }
+/* while the reveal plays the world behind steps right back: the card is the scene */
+.card-layer:has(.card-frame.revealing) { background: rgb(var(--ink)); }
+/* the dialog holds focus while the reveal plays (no ring on the whole layer; Tab reaches Close) */
+.card-layer:focus { outline: none; }
 .card-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 16px; }
 .card-actions .link { font-size: 15px; font-weight: 600; }
 .card-actions [hidden] { display: none; }
