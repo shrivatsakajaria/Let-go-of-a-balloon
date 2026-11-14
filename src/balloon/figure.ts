@@ -36,7 +36,7 @@ export type Outfit = {
 
 export const OUTFITS: readonly Outfit[] = [
   { name: 'camel', coat: '#b48e6a', trim: '#8f6e50', scarf: '#4d6585', trousers: '#555b68', shoes: '#2e2b2a', skin: '#e3c2a6', hair: '#5a4334', hat: '#4d6585', headwear: 'beanie' },
-  { name: 'rosewood', coat: '#86585a', trim: '#6a4446', scarf: '#e8dcc4', trousers: '#4f566b', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
+  { name: 'plum', coat: '#7c5a63', trim: '#62444c', scarf: '#e8dcc4', trousers: '#4f566b', shoes: '#2a2627', skin: '#c79676', hair: '#3a2b25', hat: '#3a2b25', headwear: 'bob' },
   { name: 'ochre', coat: '#ab8b56', trim: '#8a6c40', scarf: '#3e6b6e', trousers: '#5f5a53', shoes: '#2b2b2d', skin: '#8f6249', hair: '#241d1a', hat: '#4b4b52', headwear: 'cap' },
   { name: 'chestnut', coat: '#73564a', trim: '#5b4239', scarf: '#9bb3c4', trousers: '#55565c', shoes: '#262424', skin: '#d9ab8c', hair: '#1f1a18', hat: '#1f1a18', headwear: 'bun' },
 ];
