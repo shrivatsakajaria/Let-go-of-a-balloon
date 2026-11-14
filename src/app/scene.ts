@@ -159,7 +159,7 @@ export class LiveScene {
   private readonly trailFrame: TrailFrame = {
     route: null as unknown as Route, tSec: 0, toScene: (p, out) => this.stream.toScene(p, out), head: this.target, camera: this.camera, viewportH: 1, balloonRadiusM: 0, lower: 0,
   };
-  private readonly streakFrame = { focus: this.target, camera: this.camera, groundM: 0, wind: { u: 0, v: 0 }, target: 0 };
+  private readonly streakFrame = { focus: this.target, camera: this.camera, focusRadius: 0.15, groundM: 0, wind: { u: 0, v: 0 }, target: 0 };
   private readonly streakState = { released: false, landed: false, replay: false, reduced: false, shot: '', aglM: 0, toLandS: Number.NaN };
   private readonly info: SceneFrame = {
     now: 0, point: this.point, aglM: 0, groundM: 0, feetM: 0, released: false, landed: false, settled: false, waiting: true, shot: '', sunElevationDeg: 0,
@@ -222,6 +222,8 @@ export class LiveScene {
     this.newBalloon();
     this.placePerson();
     this.director.paused = false;
+    this.streaks.paused = false;
+    this.streaks.cut(); // none fade out over the start screen
     this.director.setLaunch({ personAt: this.start, landmarkHeadingDeg: this.landmark, startUtcMs: Date.now(), waiting: this.wait });
   }
 
@@ -317,6 +319,7 @@ export class LiveScene {
 
   setPaused(p: boolean): void {
     this.director.paused = p;
+    this.streaks.paused = p; // they hold still, still shown (spec 7.3)
   }
 
   /** Map labels near p (for "Over ..."). */
@@ -577,6 +580,7 @@ export class LiveScene {
     // wind streaks flow past once the balloon is well up (never in the launch, the replay or reduced motion)
     const sf = this.streakFrame;
     sf.groundM = this.groundS;
+    sf.focusRadius = 0.15 * displayScale(dB);
     sf.wind.u = pt.speedMs * Math.sin(h);
     sf.wind.v = pt.speedMs * Math.cos(h);
     const st = this.streakState;
