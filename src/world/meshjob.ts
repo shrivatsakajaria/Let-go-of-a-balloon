@@ -18,7 +18,7 @@ import { glowGrid, placeBoats, vertexGlow } from './glow';
 /** A circle (from a landmark) whose buildings the map should not draw. */
 export type HiddenFootprint = { lat: number; lon: number; radiusM: number };
 
-export type Label = { name: string; kind: string; lat: number; lon: number; x: number; z: number; rank?: number };
+export type Label = { name: string; en?: string; kind: string; lat: number; lon: number; x: number; z: number; rank?: number };
 
 export type TileMeshes<B = MeshBuffers> = {
   ground: B;
@@ -171,6 +171,7 @@ export function buildTileMeshes(
 
   const labels: Label[] = [...features.place, ...features.water_name].map((p) => ({
     name: p.name,
+    ...(p.en ? { en: p.en } : {}),
     kind: p.cls,
     lat: p.lat,
     lon: p.lon,

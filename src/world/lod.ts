@@ -68,8 +68,18 @@ export const LOD_LEVELS: LodLevel[] = [
 ];
 const COARSEST = LOD_LEVELS[LOD_LEVELS.length - 1].z;
 
+/**
+ * The landing card's region levels (spec 6.5, design A): seen from hundreds to thousands of
+ * kilometres up, a whole region of coast and countries. The live world never asks for them (tilesFor
+ * stops at z7); the card's own world does. Drawn under z7, with skirts deep enough to meet it.
+ */
+const CARD_LEVELS: LodLevel[] = [
+  { z: 6, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3 }, skirtM: 3000, dropM: 120, castShadow: false, split: false },
+  { z: 5, radiusM: Infinity, lcSize: 64, detail: { ...NONE, waterFacets: 3 }, skirtM: 4000, dropM: 160, castShadow: false, split: false },
+];
+
 export const levelFor = (z: number): LodLevel => {
-  const l = LOD_LEVELS.find((v) => v.z === z);
+  const l = LOD_LEVELS.find((v) => v.z === z) ?? CARD_LEVELS.find((v) => v.z === z);
   if (!l) throw new Error(`no level of detail at z${z}`);
   return l;
 };
