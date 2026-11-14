@@ -182,7 +182,7 @@ function revealFor(card: Made, src: RevealSource): CardReveal {
   return {
     draw(ctx, st, w, h) {
       const pic = st.move >= 1 ? card.picture : src.frame(st.move, w, h) ?? card.picture;
-      paintCard(ctx, pic, card.words, card.plan, st, src.balloonScale(st.move));
+      paintCard(ctx, pic, card.words, card.plan, st, src.balloonScale(st.move), Math.max(0, 1 - st.move * 2.5));
     },
     dispose: () => src.dispose(),
   };

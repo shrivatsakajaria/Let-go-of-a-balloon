@@ -659,9 +659,10 @@ function paintPanel(ctx: CanvasRenderingContext2D, words: CardWords, P: Panel, s
 /**
  * Paint the card (or a frame of its reveal) onto a 1080 x 1350 context: the sky, the picture, the
  * horizon's haze, the town lights, the route, the markers, the map's names, the fade into ink, the
- * big names and the panel. `balloonScale` draws the balloon larger (the reveal's start, close to it).
+ * big names and the panel. `balloonScale` draws the balloon larger (the reveal's start, close to it);
+ * `calm` (0..1) takes some colour out of the picture (the reveal's start, close to the slopes).
  */
-export function paintCard(ctx: CanvasRenderingContext2D, pic: CardPicture, words: CardWords, plan: CardPlan, st: RevealState = REVEALED, balloonScale = 1): void {
+export function paintCard(ctx: CanvasRenderingContext2D, pic: CardPicture, words: CardWords, plan: CardPlan, st: RevealState = REVEALED, balloonScale = 1, calm = 0): void {
   ctx.save();
   ctx.fillStyle = `rgb(${INK})`;
   ctx.fillRect(0, 0, CARD_W, CARD_H);
@@ -669,7 +670,13 @@ export function paintCard(ctx: CanvasRenderingContext2D, pic: CardPicture, words
   ctx.rect(0, 0, CARD_W, PICTURE_H);
   ctx.clip();
   paintSky(ctx, pic);
-  if (pic.image) ctx.drawImage(pic.image, 0, 0, CARD_W, PICTURE_H);
+  if (pic.image) {
+    // close to the ground (the reveal's start) the slopes' clay is calmed, as tameWarm does for the still,
+    // so the balloon stays the one bright thing (where the browser can filter a canvas)
+    if (calm > 0) ctx.filter = `saturate(${(1 - 0.35 * calm).toFixed(3)})`;
+    ctx.drawImage(pic.image, 0, 0, CARD_W, PICTURE_H);
+    ctx.filter = 'none';
+  }
   paintLimb(ctx, pic);
   paintLights(ctx, pic, 1);
   paintRoute(ctx, pic, words, st.route);
