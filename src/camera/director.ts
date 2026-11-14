@@ -42,7 +42,7 @@ export const SMOOTH_TIME_S = 1.2;
  * once the balloon has cleared the rooftops round it, never before settleMinS nor after settleMaxS; the
  * push back in to the balloon takes pushS of that.
  */
-export const LAUNCH = { holdS: 1.2, settleMinS: 12, settleMaxS: 40, pushS: 7 } as const;
+export const LAUNCH = { holdS: 1.2, settleMinS: 12, settleMaxS: 40, pushS: 9 } as const;
 /** The push itself; the spring takes the rest of pushS to settle, so the camera has arrived when the HUD comes in. */
 const PUSH_MOVE_S = LAUNCH.pushS - SMOOTH_TIME_S;
 /** Ride: the balloon fills this share of the viewport height (spec 8: 18-35%). */
@@ -55,6 +55,8 @@ const EVENT_SHOT: Record<DirectorEvent, ShotName> = {
 const MIN_EVENT_GAP_S = 15;
 const PENDING_EXPIRY_S = 30;
 const EYE_M = 1.6;
+/** The real balloon's radius (m): the launch's lens keeps it readable. */
+const BALLOON_R_M = 0.15;
 const RAD = Math.PI / 180;
 /** The street spot is fitted so the drifting balloon is still in front of it this long after Let go. */
 const STREET_FIT_S = 8;
@@ -74,64 +76,71 @@ const RIDE_AHEAD_M = 10;
  * ...and the push in waits while a wall that would wall Ride in (RIDE_WALL_R_M, as Film's cramped) stands
  * over it within CLEAR_AHEAD_S along its drift, so the launch does not settle into Ride just before one.
  */
-const CLEAR_AHEAD_S = 8;
+const CLEAR_AHEAD_S = 19; // (the push in, LAUNCH.pushS, a moment's wait, and 8 s of Ride)
 /**
- * The launch's move (rulings R51, R57; Task 26c): one planned, eased move worked out from the time since
- * Let go and since the hand opened (launchPlan), taken as it is: never a spring chasing a target that steps.
- * - The opening: from Let go the camera dollies over OPEN_S from where it stood (the start screen's spot) to
- *   the hold spot, on the street spot's line (streetPos) no more than HOLD_D_M from the person (up to
- *   HOLD_TOWARD_M, and HOLD_TOWARD_S of the wind, more when the wind brings the balloon toward the camera),
- *   at HOLD_EYE_M,
- *   framing the person's feet at HOLD_FEET (NDC), the held balloon above them, on a HOLD_FOV lens.
- * - The hold: as the hand opens the camera stays where it is while the string slips out, and the balloon
- *   rises in the frame to RISE_Y0 by HOLD_S; across, it shares the frame with the person (as far as the
- *   frame allows), so the person stays in it until the balloon has clearly left them.
+ * The launch's move (rulings R51, R57; Task 26c): one planned move worked out from the time since Let go and
+ * since the hand opened (launchPlan), which the camera follows through a critically damped tracker whose
+ * acceleration is capped at LAUNCH_MAX_A (followStep): nothing the drawn balloon does (its catch-up after
+ * the release, a facade it slides up) is passed on to the camera's position, which follows the route; the
+ * camera is aimed at the drawn balloon.
+ * - The opening: from Let go the camera stays where the start screen had it (lowered to HOLD_EYE_M over
+ *   OPEN_S) and frames the person and the held balloon on a longer lens: HOLD_FRAME_M of the frame's height
+ *   at the person, the horizon low (HOLD_HORIZON, NDC), so the lawn takes about a quarter of the frame and the
+ *   landmark behind them the rest (the start screen's spot is on its line).
+ * - The hold: as the hand opens the camera stays put while the string slips out, and the balloon rises in the
+ *   frame to RISE_Y0 by HOLD_S, the person still in it, the balloon sharing the frame with them across
+ *   (PERSON_SHARE_S), until it has clearly left them.
  * - The crane: it rises with the balloon, keeping it CRANE_ELEV above itself (a smooth maximum with the
- *   hold's height, CRANE_SOFT_M wide, so the rise starts gently as the balloon reaches that angle, about
- *   HOLD_S after the hand opens); across, it moves with the balloon's drift from the moment it leaves the
- *   hand (the balloon starts at rest and gets going smoothly, and the camera with it: it never has to catch
- *   up, and the view does not pan after it), smoothed over FOLLOW_T_S so a sudden change in how the drawn
- *   balloon moves (held at a facade, let go again) is not passed on; over
- *   FOLLOW_S, its bearing from the balloon never changing (no orbit, no swing), and over DIST_S its distance
- *   eases to where the balloon fills CRANE_FRAC of the frame's height. The framing (to CRANE_Y0) and the lens
- *   (to CRANE_FOV) ease in over FRAME_S after the hold, and across the frame the balloon goes from sharing it
- *   with the person to sharing it with a featured landmark (LANDMARK_FROM_S, LANDMARK_S), or to the middle.
- *   Facades slide down the frame and the sky opens above.
- * - Buildings: what the path needs to clear the roofs under it (LIFT_OVER_M) and its line of sight to the
- *   balloon lifts it. It is worked out along the predicted path at the release, PLAN_S of it every PLAN_STEP_S
- *   (each step looking PLAN_AHEAD_S on, a lift needed later counting less LIFT_EASY_MS a second until then, so
- *   the rise comes before the roof and is spread out), and again every frame for where the balloon really is;
- *   the lift follows the higher of the two through a critically damped spring (LIFT_T_S up, LIFT_DOWN_T_S
- *   down) with capped acceleration and speed: it never steps.
+ *   hold's height, CRANE_SOFT_M wide, so the rise starts gently as the balloon reaches that angle); across,
+ *   it moves with the route's drift, eased in from FOLLOW_FROM_S over FOLLOW_S, its bearing from the balloon
+ *   unchanged (no orbit, no swing). The framing eases to CRANE_Y0 over FRAME_S after the hold. The lens is
+ *   never wider than keeps the balloon at MIN_FRAC of the frame's height. Facades slide down the frame and
+ *   the sky opens above.
+ * - Buildings: what the path needs to clear the roofs under it (LIFT_OVER_M), the person and its line of
+ *   sight to the balloon lifts it. It is worked out along the predicted path at the release, PLAN_S of it
+ *   every PLAN_STEP_S (each step looking PLAN_AHEAD_S on, a lift needed later counting less LIFT_EASY_MS a
+ *   second until then, so the rise comes before the roof and is spread out), and again every frame; the
+ *   lift follows the higher of the two through a critically damped spring (LIFT_T_S up, LIFT_DOWN_T_S down)
+ *   with capped acceleration and speed.
  * - The push in (launchTarget): one smootherstep to Ride's place, by distance and height round the balloon;
  *   Ride takes its bearing from the crane's (rideYaw) and comes round behind the balloon slowly afterwards.
  */
-const OPEN_S = 2.8;
-const HOLD_D_M = 5;
-const HOLD_TOWARD_M = 4;
-const HOLD_TOWARD_S = 1;
+const OPEN_S = 1.4;
 const HOLD_EYE_M = 1;
-const HOLD_FOV = 40;
-const HOLD_FEET = -0.8;
-const HOLD_S = 1.6;
-const RISE_Y0 = 0.45;
+const HOLD_FRAME_M = 5.2;
+const HOLD_HORIZON = -0.45;
+const HOLD_FEET_MIN = -0.9;
+const HOLD_FOV_MIN = 14;
+const HOLD_FOV_MAX = 50;
+const HOLD_S = 2;
+const RISE_Y0 = 0.75;
 const CRANE_ELEV = 22 * RAD;
 const CRANE_SOFT_M = 0.8;
-const DIST_S = 6;
-const FOLLOW_T_S = 0.25;
-const FRAME_S = 3.6;
-const CRANE_FRAC = 0.075;
+const FOLLOW_FROM_S = 1;
+const FOLLOW_SOON_S = 0.4;
+const FOLLOW_S = 1.5;
+const FRAME_S = 3;
 const CRANE_Y0 = 0.22;
-const CRANE_FOV = 46;
+const MIN_FRAC = 0.055;
+const LAUNCH_MAX_A = 2.5;
+/** The tracker closes a gap at no more than this deceleration (so it never overshoots), and small ones at this rate (1/s). */
+const LAUNCH_CLOSE_A = 0.8;
+const LAUNCH_CLOSE_MAX = 6;
+/** The push in starts no sooner than this long after the hand opens (s). */
+const PUSH_AFTER_S = 4;
+const PUSH_READY_M = 2;
+const LAUNCH_CLOSE_W = 1.2;
+/** ...and corrects its speed over this long (s). */
+const LAUNCH_T_S = 0.15;
+/** The launch hands over to the view once the camera is within HANDOVER_M of it, waiting at most HANDOVER_WAIT_S. */
+const HANDOVER_M = 0.3;
+const HANDOVER_WAIT_S = 4;
 /** The balloon shares the frame with the person until this long after the hand opens (s). */
 const PERSON_SHARE_S = 2.5;
-/** With a featured landmark the balloon comes to share the frame with it from LANDMARK_FROM_S after the hand opens, over LANDMARK_S. */
-const LANDMARK_FROM_S = 0.8;
-const LANDMARK_S = 3;
 const LIFT_OVER_M = 2;
 const LIFT_T_S = 0.8;
 const LIFT_DOWN_T_S = 3;
-const LIFT_MAX_A = 3;
+const LIFT_MAX_A = 2;
 const LIFT_MAX_V = 3;
 /**
  * A lift needed later counts now less LIFT_EASY_MS for each second until then past LIFT_LEAD_S (about the
@@ -304,13 +313,14 @@ export class Director {
   private aheadAt = -Infinity;
   private aheadClear = false;
   /** The launch's opening: where the camera stood and how it framed at Let go, and the hold's framing (y0). */
-  private open: { from: THREE.Vector3; y0: number; x0: number; fov: number; yHold: number } | null = null;
+  private open: { from: THREE.Vector3; y0: number; x0: number; fov: number; fovHold: number; yHold: number } | null = null;
+  /** The launch camera's tracker (followStep): where it is, how fast it moves, and its target last frame. */
+  private readonly track = { p: new THREE.Vector3(), v: new THREE.Vector3(), last: new THREE.Vector3(), on: false, err: 0 };
   /**
-   * The launch's plan, made as the hand opens: the balloon then, the crane's bearing from it (a horizontal
-   * unit vector) and its distance then and at the end, the smooth maximum's value then, the lift the
-   * predicted path needs (every PLAN_STEP_S), and the balloon as the camera follows it (smoothed: Bs, Bv).
+   * The launch's plan, made as the hand opens: the route's balloon then, the smooth maximum's value then,
+   * and the lift the predicted path needs (every PLAN_STEP_S).
    */
-  private plan: { B: THREE.Vector3; az: THREE.Vector3; d0: number; dc: number; sm0: number; need: Float64Array; Bs: THREE.Vector3; Bv: THREE.Vector3; Bp: THREE.Vector3 } | null = null;
+  private plan: { B: THREE.Vector3; d0: number; sm0: number; need: Float64Array; from: number } | null = null;
   /** The launch camera's lift over buildings (m) and its rate. */
   private lift = 0;
   private liftV = 0;
@@ -438,11 +448,13 @@ export class Director {
       this.aheadClear = true;
       const v = Number.isFinite(b.speedMs) && Number.isFinite(b.headingDeg) ? b.speedMs : 0;
       const h = b.headingDeg * RAD;
-      const n = 4;
+      const n = 10;
       const top = this.deps.buildingTopAt;
       for (let k = 1; top && this.aheadClear && v > 0 && k <= n; k++) {
         const tau = (CLEAR_AHEAD_S * k) / n;
-        const q = this.fromScene(B0.x + Math.sin(h) * v * tau, B0.z - Math.cos(h) * v * tau, b, B0, this.ll);
+        // (where Ride would look then: RIDE_AHEAD_M on, as Film's cramped does)
+        const ahead = v * tau + RIDE_AHEAD_M;
+        const q = this.fromScene(B0.x + Math.sin(h) * ahead, B0.z - Math.cos(h) * ahead, b, B0, this.ll);
         const T = top(q, RIDE_WALL_R_M);
         if (Number.isFinite(T) && B.y + CLIMB_RATE_MS * tau < T + 1) this.aheadClear = false;
       }
@@ -512,6 +524,7 @@ export class Director {
     this.aheadAt = -Infinity;
     this.open = null;
     this.plan = null;
+    this.track.on = false;
     this.lift = this.liftV = 0;
     this.pushAt = Number.NaN;
     this.still = null;
@@ -574,6 +587,7 @@ export class Director {
     this.wait = null;
     this.launchT = 0;
     this.open = null; // the opening starts from wherever the camera is now
+    this.track.on = false;
   }
 
   /**
@@ -593,6 +607,10 @@ export class Director {
     if (this.paused && this.ready) {
       const shift = B.clone().sub(this.prevB);
       this.pos.add(shift);
+      if (this.track.on) {
+        this.track.p.add(shift);
+        this.track.last.add(shift);
+      }
       this.prevB.copy(B);
       this.apply(b, B, B0);
       return;
@@ -915,7 +933,10 @@ export class Director {
     if (this.wait || !(t >= this.rel)) return;
     const push = this.reduced ? 0 : LAUNCH.pushS;
     if (Number.isNaN(this.pushAt)) {
-      const due = t >= LAUNCH.settleMaxS - push || (t >= LAUNCH.settleMinS - push && !this.low) || this.stillLost;
+      // (and the crane has had its time: the push in never starts within PUSH_AFTER_S of the hand opening, nor
+      // while the camera is still catching up with it, PUSH_READY_M or more behind, as in a strong wind)
+      const ready = !this.track.on || this.track.err < PUSH_READY_M;
+      const due = t >= LAUNCH.settleMaxS - push || (t >= LAUNCH.settleMinS - push && t >= this.rel + PUSH_AFTER_S && ready && !this.low) || this.stillLost;
       if (!due) return;
       this.pushAt = t;
       // Ride looks along the crane's bearing (the push in is straight in, no swing round the balloon)
@@ -924,6 +945,8 @@ export class Director {
       if (this.shotFor(this.afterLaunch) === 'circling') this.orbit = Math.atan2(this.pos.x - B.x, -(this.pos.z - B.z));
     }
     if (t < this.pushAt + push) return;
+    // (the camera hands over once it has caught up with the push, a few seconds at most)
+    if (!this.reduced && this.track.on && t < this.pushAt + push + HANDOVER_WAIT_S && t < LAUNCH.settleMaxS && this.track.err > HANDOVER_M) return;
     const orbit = this.orbit;
     this.enter(this.afterLaunch);
     if (this._shot === 'circling') this.orbit = orbit;
@@ -935,9 +958,9 @@ export class Director {
    * The launch (rulings R51, R57; Task 26c). Waiting: the start screen's shot (waitTarget). From Let go: one
    * planned move (launchPlan: the opening, the hold, the crane), then the push in to the view the launch
    * hands over to (Ride, or Circling while still below the rooftops), round the balloon by distance and
-   * height in one smootherstep, so its velocity is continuous at both ends and the hand-over is seamless.
-   * Reduced motion: the street shot, then a still frame of the person and the rising balloon (stillTarget)
-   * and a cut. The balloon stays in the frame throughout (the camera is aimed at it every frame).
+   * height in one smootherstep; the camera follows all of it through followStep. Reduced motion: the street
+   * shot, then a still frame of the person and the rising balloon (stillTarget) and a cut. The balloon stays
+   * in the frame throughout (the camera is aimed at it every frame).
    */
   private launchTarget(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, dir: THREE.Vector3, right: THREE.Vector3, h: number): Target {
     const t = this.launchT;
@@ -947,62 +970,105 @@ export class Director {
       if (!(t >= this.rel)) return { pos: S.clone(), y0: 0.6, x0: this.shareX(S, B, 40, this.lmBearing()), fov: 40, anchor: WORLD };
       return this.stillTarget(b, B, B0, dir);
     }
-    // the hold spot: on the street spot's line, no further than HOLD_D_M from the person
-    const ps = this.deps.toScene(this.launchOpts!.personAt);
-    const dS = Math.hypot(S.x - ps.x, S.z - ps.z);
-    // (further back when the wind brings the balloon toward the camera)
-    const toward = dS > 1e-6 ? Math.max(0, (dir.x * (S.x - ps.x) + dir.z * (S.z - ps.z)) / dS) : 0;
-    const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
-    const dMax = HOLD_D_M + (HOLD_TOWARD_M + v * HOLD_TOWARD_S) * toward;
-    const k = dS > dMax ? dMax / dS : 1;
-    const H = this.holdAt.set(ps.x + (S.x - ps.x) * k, S.y, ps.z + (S.z - ps.z) * k);
+    // the hold spot: where the start screen's camera stood (on the landmark's line), else the street spot; low
+    const W = this.wide ?? S;
+    const H = this.holdAt.set(W.x, W.y - EYE_M + HOLD_EYE_M, W.z);
     const cr = this.launchPlan(b, B, B0, H, dir);
-    if (Number.isNaN(this.pushAt)) return cr;
-    const c = smoother((t - this.pushAt) / PUSH_MOVE_S);
-    const end = this.shotTarget(this.shotFor(this.afterLaunch), B, dir, right, h);
-    const off = this.polarMix(this.v1.copy(cr.pos).sub(B), end.pos.sub(B), c, c, 1);
-    cr.pos.copy(off).add(B);
-    cr.y0 = mix(cr.y0, end.y0, c);
-    cr.x0 = mix(cr.x0 ?? 0, end.x0 ?? 0, c);
-    cr.fov = mix(cr.fov, end.fov, c);
+    if (!Number.isNaN(this.pushAt)) {
+      const c = smoother((t - this.pushAt) / PUSH_MOVE_S);
+      const end = this.shotTarget(this.shotFor(this.afterLaunch), B, dir, right, h);
+      const off = this.polarMix(this.v1.copy(cr.pos).sub(B), end.pos.sub(B), c, c, 1);
+      cr.pos.copy(off).add(B);
+      cr.y0 = mix(cr.y0, end.y0, c);
+      cr.x0 = mix(cr.x0 ?? 0, end.x0 ?? 0, c);
+      cr.fov = mix(cr.fov, end.fov, c);
+    }
+    this.followStep(cr.pos);
+    // the lens, from where the camera is: never wider than keeps the balloon at MIN_FRAC of the frame (a smooth
+    // minimum), so it reads while the camera catches up with it
+    const fovFrac = (2 * Math.atan(BALLOON_R_M / (Math.max(1, cr.pos.distanceTo(B)) * MIN_FRAC))) / RAD;
+    cr.fov = (cr.fov + fovFrac - Math.sqrt((cr.fov - fovFrac) ** 2 + 4)) / 2;
     return cr;
   }
 
   /**
-   * The launch's planned move (see OPEN_S ... PLAN_AHEAD_S): the opening and the hold from Let go, the crane
-   * from the hand opening; a function of the launch clock and where the balloon is, smooth by construction
-   * (every part eases with smootherstep or a smooth maximum, and the lift through its spring). The same
-   * object is filled every frame.
+   * The camera follows the planned target: it moves at the target's own speed plus what closes the gap (no
+   * faster than lets it stop by LAUNCH_CLOSE_A, so it never overshoots; in proportion for small gaps), reaching
+   * that speed over LAUNCH_T_S, its acceleration capped at LAUNCH_MAX_A, in substeps of the frame (the target
+   * moving evenly through it). Writes the camera's place into p.
    */
-  private launchPlan(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, S: THREE.Vector3, dir: THREE.Vector3): Target {
+  private followStep(p: THREE.Vector3): void {
+    const k = this.track;
+    const dt = this.stepS;
+    if (!k.on) {
+      k.p.copy(this.ready && finite3(this.pos) ? this.pos : p);
+      k.v.set(0, 0, 0);
+      k.last.copy(k.p);
+      k.on = true;
+    }
+    if (dt > 0) {
+      const n = Math.ceil(dt * 120 - 1e-9);
+      const h = dt / n;
+      const vtx = (p.x - k.last.x) / dt, vty = (p.y - k.last.y) / dt, vtz = (p.z - k.last.z) / dt;
+      for (let i = 1; i <= n; i++) {
+        const f = i / n;
+        const ex = k.last.x + (p.x - k.last.x) * f - k.p.x, ey = k.last.y + (p.y - k.last.y) * f - k.p.y, ez = k.last.z + (p.z - k.last.z) * f - k.p.z;
+        const e = Math.hypot(ex, ey, ez);
+        const close = e > 1e-9 ? Math.min(LAUNCH_CLOSE_W * e, Math.sqrt(2 * LAUNCH_CLOSE_A * e), LAUNCH_CLOSE_MAX) / e : 0;
+        let ax = (vtx + ex * close - k.v.x) / LAUNCH_T_S;
+        let ay = (vty + ey * close - k.v.y) / LAUNCH_T_S;
+        let az = (vtz + ez * close - k.v.z) / LAUNCH_T_S;
+        const a = Math.hypot(ax, ay, az);
+        if (a > LAUNCH_MAX_A) {
+          ax *= LAUNCH_MAX_A / a;
+          ay *= LAUNCH_MAX_A / a;
+          az *= LAUNCH_MAX_A / a;
+        }
+        k.p.x += (k.v.x + (ax * h) / 2) * h;
+        k.p.y += (k.v.y + (ay * h) / 2) * h;
+        k.p.z += (k.v.z + (az * h) / 2) * h;
+        k.v.x += ax * h;
+        k.v.y += ay * h;
+        k.v.z += az * h;
+      }
+    }
+    k.err = k.p.distanceTo(p);
+    k.last.copy(p);
+    p.copy(k.p);
+  }
+
+  /**
+   * The launch's planned move (see OPEN_S ... PLAN_AHEAD_S): the opening and the hold from Let go, the crane
+   * from the hand opening; a function of the launch clock and where the route's balloon is (B0), and aimed
+   * at the drawn balloon (B). The same object is filled every frame.
+   */
+  private launchPlan(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, H: THREE.Vector3, dir: THREE.Vector3): Target {
     const t = this.launchT, tg = this.craneT;
     const o = this.launchOpts!;
     const gP = this.deps.groundAt(o.personAt);
-    const Hy = S.y - EYE_M + HOLD_EYE_M;
+    const ps = this.deps.toScene(o.personAt);
     if (!this.open) {
-      const from = this.ready && finite3(this.pos) ? this.pos.clone() : new THREE.Vector3(S.x, Hy, S.z);
-      this.open = { from, y0: this.ready ? this.y0 : 0.4, x0: this.ready ? this.x0 : 0, fov: this.ready ? this.fov : HOLD_FOV, yHold: this.holdY0(S, Hy, gP, B) };
+      const dP = Math.max(1, Math.hypot(H.x - ps.x, H.z - ps.z));
+      const fovHold = Math.min(HOLD_FOV_MAX, Math.max(HOLD_FOV_MIN, (2 * Math.atan(HOLD_FRAME_M / 2 / dP)) / RAD));
+      const from = this.ready && finite3(this.pos) ? this.pos.clone() : H.clone();
+      this.open = { from, y0: this.ready ? this.y0 : 0.4, x0: this.ready ? this.x0 : 0, fov: this.ready ? this.fov : fovHold, fovHold, yHold: this.holdY0(H, gP, B, fovHold) };
     }
     const op = this.open;
-    // the opening: from where the camera stood to the hold spot
     const so = smoother(t / OPEN_S);
     const p = tg.pos;
-    let y0 = mix(op.y0, op.yHold, so), fov = mix(op.fov, HOLD_FOV, so);
-    let kf = 0, kl = 0;
-    if (t >= this.rel) {
-      const u = t - this.rel;
-      if (!this.plan) this.plan = this.makePlan(b, B, B0, S, Hy, dir);
+    let y0 = mix(op.y0, op.yHold, so);
+    let kf = 0;
+    const u = t - this.rel;
+    if (u >= 0) {
+      if (!this.plan) this.plan = this.makePlan(b, B0, H, dir);
       const pl = this.plan;
-      follow3(pl.Bs, pl.Bv, pl.Bp, B, FOLLOW_T_S, this.stepS);
-      pl.Bp.copy(B);
-      this.planAt(u, pl.Bs, S, Hy, p);
+      this.planAt(u, B0, H, p);
       // over buildings: the predicted path's need and the present one's, through the lift's spring
       const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
       let need = this.liftNeed(p, B, b, B0);
       for (const tau of [0.5, 1, 1.5, 2, 3, 4]) {
-        const Bf = this.v4.set(B.x + dir.x * v * tau, B.y + CLIMB_RATE_MS * tau, B.z + dir.z * v * tau);
-        const C = this.planAt(u + tau, this.v1.copy(Bf).add(pl.Bs).sub(B), S, Hy, this.v3);
-        need = Math.max(need, liftLater(this.liftNeed(C, Bf, b, B0), tau));
+        const Bf = this.v4.set(B0.x + dir.x * v * tau, B0.y + CLIMB_RATE_MS * tau, B0.z + dir.z * v * tau);
+        need = Math.max(need, liftLater(this.liftNeed(this.planAt(u + tau, Bf, H, this.v3), Bf, b, B0), tau));
       }
       const i = Math.min(pl.need.length - 1, Math.max(0, u / PLAN_STEP_S));
       const i0 = Math.floor(i);
@@ -1012,26 +1078,18 @@ export class Director {
       // the framing: the balloon rises in the frame through the hold, then settles into the crane's
       kf = smoother((u - HOLD_S) / FRAME_S);
       y0 += (RISE_Y0 - op.yHold) * smoother(u / HOLD_S) + (CRANE_Y0 - RISE_Y0) * kf;
-      fov += (CRANE_FOV - HOLD_FOV) * kf;
-      kl = smoother((u - LANDMARK_FROM_S) / LANDMARK_S);
-    } else p.set(S.x, Hy, S.z);
+    } else p.copy(H);
     // what is left of the opening
-    p.x += (1 - so) * (op.from.x - S.x);
-    p.y += (1 - so) * (op.from.y - Hy);
-    p.z += (1 - so) * (op.from.z - S.z);
-    // across: through the opening and the hold the balloon shares the frame with the person below it, then
-    // with a featured landmark (each worked out from where the camera is this frame), or else it eases to the
-    // middle
-    // (the person's share is worked out from the hold spot, which never passes over them, and lets go of them
-    // as the balloon clearly leaves: PERSON_SHARE_S after the hand opens)
-    const ps = this.deps.toScene(o.personAt);
-    const u = t - this.rel;
+    p.x += (1 - so) * (op.from.x - H.x);
+    p.y += (1 - so) * (op.from.y - H.y);
+    p.z += (1 - so) * (op.from.z - H.z);
+    const fov = mix(op.fov, op.fovHold, so);
+    // across: the balloon shares the frame with the person below it (worked out from the hold spot, which never
+    // passes over them), letting go of them as it clearly leaves (PERSON_SHARE_S), then comes to the middle
     const keep = u > 0 ? 1 - smoother(u / PERSON_SHARE_S) : 1;
-    const withPerson = this.share(S, B, Math.atan2(ps.x - S.x, -(ps.z - S.z)), fov) * keep;
-    const lm = this.lmBearing();
-    const x0 = mix(op.x0, withPerson, so);
+    const withPerson = this.share(H, B, Math.atan2(ps.x - H.x, -(ps.z - H.z)), fov) * keep;
     tg.y0 = y0;
-    tg.x0 = Number.isFinite(lm) ? mix(x0, this.share(p, B, lm, fov), kl) : x0 * (1 - kf);
+    tg.x0 = mix(op.x0, withPerson, so) * (1 - kf);
     tg.fov = fov;
     tg.anchor.x = tg.anchor.y = tg.anchor.z = 0;
     tg.snap = false;
@@ -1040,39 +1098,37 @@ export class Director {
   }
 
   /**
-   * The crane's place (before any lift) u s after the hand opened, for the balloon at B: from the hold spot (S,
-   * at height Hy) it moves with the balloon's drift, keeps its bearing from it, eases to its distance, and
-   * rises with it once it is CRANE_ELEV above (a smooth maximum). Written into out.
+   * The crane's place (before any lift) u s after the hand opened, for the route's balloon at B: from the hold
+   * spot H it moves with the balloon's drift (eased in), keeping its bearing from it, and rises with it once it
+   * is CRANE_ELEV above (a smooth maximum). Written into out.
    */
-  private planAt(u: number, B: V3, S: THREE.Vector3, Hy: number, out: THREE.Vector3): THREE.Vector3 {
+  private planAt(u: number, B: V3, H: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
     const pl = this.plan!;
-    const d = mix(pl.d0, pl.dc, smoother((u - HOLD_S) / DIST_S));
-    out.x = S.x + (B.x - pl.B.x) + pl.az.x * (d - pl.d0);
-    out.z = S.z + (B.z - pl.B.z) + pl.az.z * (d - pl.d0);
-    const dh = Math.max(1, Math.hypot(out.x - B.x, out.z - B.z));
-    out.y = Hy + softMax(B.y - dh * Math.tan(CRANE_ELEV) - Hy) - pl.sm0;
+    const k = smoother((u - pl.from) / FOLLOW_S);
+    out.x = H.x + k * (B.x - pl.B.x);
+    out.z = H.z + k * (B.z - pl.B.z);
+    // (at the distance it holds from the balloon: it never sinks while the balloon gets ahead of it)
+    out.y = H.y + softMax(B.y - pl.d0 * Math.tan(CRANE_ELEV) - H.y) - pl.sm0;
     return out;
   }
 
-  /** The plan, made as the hand opens: the crane's bearing and distances, and the lift the predicted path needs. */
-  private makePlan(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3, S: THREE.Vector3, Hy: number, dir: THREE.Vector3) {
-    const az = new THREE.Vector3(S.x - B.x, 0, S.z - B.z);
-    const d0 = Math.max(1, az.length());
-    az.divideScalar(d0);
-    const dc = this.distFor(CRANE_FRAC, CRANE_FOV, 2.5, 40) * Math.cos(CRANE_ELEV);
-    const dh = Math.max(1, d0);
-    const sm0 = softMax(B.y - dh * Math.tan(CRANE_ELEV) - Hy);
+  /** The plan, made as the hand opens: where the route's balloon is, and the lift the predicted path needs. */
+  private makePlan(b: RoutePoint, B0: THREE.Vector3, H: THREE.Vector3, dir: THREE.Vector3) {
+    const d0 = Math.max(1, Math.hypot(H.x - B0.x, H.z - B0.z));
+    const sm0 = softMax(B0.y - d0 * Math.tan(CRANE_ELEV) - H.y);
     const n = Math.round(PLAN_S / PLAN_STEP_S) + 1;
     const need = new Float64Array(n);
-    this.plan = { B: B.clone(), az, d0, dc, sm0, need, Bs: B.clone(), Bv: new THREE.Vector3(), Bp: B.clone() };
-    // the predicted path: on with the wind, climbing (from rest: it leaves the hand at about half a second)
+    // (the follow starts sooner in a strong wind: the balloon is soon well clear of the person anyway)
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
+    const from = Math.min(FOLLOW_FROM_S, Math.max(FOLLOW_SOON_S, FOLLOW_FROM_S + 0.3 - 0.1 * v));
+    this.plan = { B: B0.clone(), d0, sm0, need, from };
+    // the predicted path: on with the wind, climbing
     const raw = new Float64Array(n);
     const Bp = new THREE.Vector3(), C = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
-      const u = i * PLAN_STEP_S, f = Math.max(0, u - 0.5);
-      Bp.set(B.x + dir.x * v * f, B.y + CLIMB_RATE_MS * f, B.z + dir.z * v * f);
-      raw[i] = this.liftNeed(this.planAt(u, Bp, S, Hy, C), Bp, b, B0);
+      const u = i * PLAN_STEP_S;
+      Bp.set(B0.x + dir.x * v * u, B0.y + CLIMB_RATE_MS * u, B0.z + dir.z * v * u);
+      raw[i] = this.liftNeed(this.planAt(u, Bp, H, C), Bp, b, B0);
     }
     // each step needs what lies PLAN_AHEAD_S on too: the lift comes before the roof
     const ahead = Math.round(PLAN_AHEAD_S / PLAN_STEP_S);
@@ -1137,12 +1193,16 @@ export class Director {
     return 0.6 * Math.tanh((0.5 * Math.tan(Math.max(-1.2, Math.min(1.2, d)))) / this.tanH(fovDeg) / 0.6);
   }
 
-  /** The hold's framing: the balloon's NDC height that puts the person's feet at HOLD_FEET from the hold spot. */
-  private holdY0(S: THREE.Vector3, Hy: number, gP: number, B: V3): number {
+  /**
+   * The hold's framing on its lens: the camera's pitch puts the horizon at HOLD_HORIZON (the lawn a quarter of
+   * the frame), or lower if the person's feet would leave it (HOLD_FEET_MIN); returned as the balloon's NDC height.
+   */
+  private holdY0(H: THREE.Vector3, gP: number, B: V3, fovDeg: number): number {
     const ps = this.deps.toScene(this.launchOpts!.personAt);
-    const tanH = Math.tan((HOLD_FOV * RAD) / 2);
-    const pitch = Math.atan2(gP - Hy, Math.max(0.5, Math.hypot(ps.x - S.x, ps.z - S.z))) - Math.atan(HOLD_FEET * tanH);
-    const eB = Math.atan2(B.y - Hy, Math.max(0.5, Math.hypot(B.x - S.x, B.z - S.z)));
+    const tanH = Math.tan((fovDeg * RAD) / 2);
+    const feet = Math.atan2(gP - H.y, Math.max(0.5, Math.hypot(ps.x - H.x, ps.z - H.z)));
+    const pitch = Math.min(Math.atan(-HOLD_HORIZON * tanH), feet - Math.atan(HOLD_FEET_MIN * tanH));
+    const eB = Math.atan2(B.y - H.y, Math.max(0.5, Math.hypot(B.x - H.x, B.z - H.z)));
     return Math.max(-0.5, Math.min(0.8, Math.tan(eB - pitch) / tanH));
   }
 
@@ -1464,7 +1524,7 @@ export class Director {
     if (this._shot === 'launch') {
       // the street and the crane may be below the rooftops; the rules come in with the push back in
       const c = Number.isNaN(this.pushAt) || this.reduced ? 0 : smoother((this.launchT - this.pushAt) / PUSH_MOVE_S);
-      clearance = 0.9 + (8 - 0.9) * c;
+      clearance = 0.6 + (8 - 0.6) * c;
       wBuild = c;
     }
     let floor = this.deps.groundAt(ll) + clearance;
@@ -1481,7 +1541,9 @@ export class Director {
         const top = this.deps.buildingTopAt(ll, Math.min(30, Math.max(3, dist))) + 3;
         if (top > floor) floor += (top - floor) * wBuild;
       }
-      floor = Math.max(floor, this.deps.buildingTopAt(ll, STREET_CLEAR_M) + 1);
+      // (over a building, that is: on open ground the launch camera may stand lower than a metre)
+      const near = this.deps.buildingTopAt(ll, STREET_CLEAR_M);
+      if (near > this.deps.groundAt(ll) + 0.5) floor = Math.max(floor, near + 1);
     }
     if (p.y < floor) p.y = floor;
   }
@@ -1572,23 +1634,6 @@ function spring1(x: number, v: number, target: number, T: number, dt: number): [
   const d = x - target;
   const tmp = v + w * d;
   return [target + (d + tmp * dt) * ex, (v - w * tmp * dt) * ex];
-}
-/**
- * Exact critically damped follow of a target that moved from `from` to `to` at an even speed over dt (a
- * long frame lands where a run of short ones would: the target is not taken to have jumped).
- */
-function follow3(x: THREE.Vector3, v: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3, T: number, dt: number): void {
-  if (!(dt > 0)) return;
-  const w = 2 / T;
-  const e = Math.exp(-w * dt);
-  for (const k of ['x', 'y', 'z'] as const) {
-    const vt = (to[k] - from[k]) / dt;
-    // about the moving target, the error settles at -2 vt / w; what is left decays as a free spring
-    const z0 = x[k] - from[k] + (2 * vt) / w, zv = v[k] - vt;
-    const t = zv + w * z0;
-    x[k] = to[k] - (2 * vt) / w + (z0 + t * dt) * e;
-    v[k] = vt + (zv - w * t * dt) * e;
-  }
 }
 function spring3(x: THREE.Vector3, v: THREE.Vector3, target: THREE.Vector3, T: number, dt: number): void {
   for (const k of ['x', 'y', 'z'] as const) {
