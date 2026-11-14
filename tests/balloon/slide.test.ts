@@ -92,6 +92,29 @@ describe('facade slide (R57b)', () => {
     }
   });
 
+  test('a strong wind into a tall wall: the drawn balloon slows to a stop short of it (never inside), slides up it and gets going again, its speed changing by a few m/s/s at most', () => {
+    const boxes: Box[] = [{ x0: 40, x1: 100, z0: -300, z1: 300, top: 45 }];
+    for (const v of [4, 8, 12]) {
+      const s = new FacadeSlide();
+      const top = city(boxes);
+      const dt = 1 / 30;
+      let prev: { x: number; y: number } | null = null, pv: { x: number; y: number } | null = null, worst = 0;
+      for (let i = 1; i <= 40 * 30; i++) {
+        const t = i * dt, x = v * t, y = 2.4 + 1.5 * t;
+        s.step(x, y, 0, 1, 0, v, dt, top);
+        const p = { x: x - s.back, y: y + s.lift };
+        expect(inside(boxes, p.x + SLIDE.radiusM * 0.5, p.y, 0), `${v} m/s ${t.toFixed(2)}`).toBe(false);
+        if (prev) {
+          const u = { x: (p.x - prev.x) / dt, y: (p.y - prev.y) / dt };
+          if (pv) worst = Math.max(worst, Math.abs(u.x - pv.x) / dt);
+          pv = u;
+        }
+        prev = p;
+      }
+      expect(worst, `${v} m/s`).toBeLessThan(3 * SLIDE.brakeMs2);
+    }
+  });
+
   test('a tall tower beside its path, not across it: no lift', () => {
     const boxes: Box[] = [{ x0: 20, x1: 60, z0: 6, z1: 40, top: 100 }];
     for (const p of fly(boxes, 3, 30)) {
