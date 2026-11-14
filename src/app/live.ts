@@ -674,7 +674,9 @@ export class Live {
     const view = await presentCard({
       // the card's world is its own (no wait for the live world round the landing)
       // whether a reveal can play at all is known now: its world is only loaded for one that can
-      scene: cardScene(this.scene, { reveal: !!opts.reveal && this.canReveal() }),
+      // (browser tests on a software renderer give the reveal's tiles longer, or as long as they say:
+      // window.__lgoabRevealWaitMs, so both the reveal and its cross-fade can be checked)
+      scene: cardScene(this.scene, { reveal: !!opts.reveal && this.canReveal(), revealWaitMs: this.testing ? (window as unknown as { __lgoabRevealWaitMs?: number }).__lgoabRevealWaitMs ?? 30_000 : undefined }),
       reveal: opts.reveal,
       onRevealPlaying: (on) => {
         if (!this.scene.gone) this.scene.holdRender = on;

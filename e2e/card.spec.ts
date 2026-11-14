@@ -30,9 +30,8 @@ test('a link opened after 72 hours opens on the card (design A) with its reveal:
   await expect(dialog).toHaveAccessibleName(c.sentence);
   // the trip's end: the reveal plays in the card's frame, then the still and its buttons
   await expect.poll(async () => (await card(page))!.revealed, { timeout: 60_000 }).toBe(true);
-  // the reveal plays when its world is in within a few seconds of the card's; on this busy software
-  // renderer it may not be, and the card comes in with the short cross-fade instead (never with holes)
-  expect((await card(page))!.reveal).toMatch(/^(played|faded)$/);
+  // (test pages give the reveal's tiles 30 s: a software renderer on a busy machine is slow)
+  expect((await card(page))!.reveal).toBe('played');
   await expect(dialog.locator('canvas.card-reveal')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Save image' })).toBeVisible();
   const img = dialog.locator('img.card-img');
@@ -62,6 +61,28 @@ test('a link opened after 72 hours opens on the card (design A) with its reveal:
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(again).toBeFocused();
   expect(external).toEqual([]);
+});
+
+test('a reveal whose world is not ready in time gives way to the cross-fade: the finished card, never holes', async ({ context, page }) => {
+  await liveWorld(context);
+  // no time at all for the reveal's own tiles once the card's are in
+  await context.addInitScript(() => ((window as unknown as { __lgoabRevealWaitMs: number }).__lgoabRevealWaitMs = 0));
+  await page.goto(await linkTo(eastward(80)));
+  const c = await opened(page);
+  expect(c.reveal).toBe('faded');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('canvas.card-reveal')).toHaveCount(0);
+  await expect(dialog.locator('img.card-img')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save image' })).toBeVisible();
+});
+
+test('with reduced motion there is no reveal: the card cross-fades in', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(await linkTo(eastward(80)));
+  const c = await opened(page);
+  expect(c.reveal).toBe('faded');
+  await expect(page.getByRole('dialog').locator('canvas.card-reveal')).toHaveCount(0);
 });
 
 test('the card shows when a balloon comes down while it is being watched', async ({ context, page }) => {

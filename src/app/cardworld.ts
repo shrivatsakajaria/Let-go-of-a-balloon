@@ -22,8 +22,9 @@ import { sunPosition } from '../geo/sun';
 import type { Label } from '../world/meshjob';
 import type { TileKey } from '../world/lod';
 import { SLOT_COUNT } from '../world/materials';
-import { CONTOUR, lerpHex, lightFor, regionStyle, type Light } from '../world/palette';
-import { mixRGB, rgb } from '../world/geom';
+import { CONTOUR, lerpHex, lightFor, regionStyle, stageLight, type Color, type Light } from '../world/palette';
+import { mixRGB, rgb, type RGB } from '../world/geom';
+import { srgbToLinear } from '../world/color';
 import { Sky } from '../world/sky';
 import { WorldStream, type BuildPool } from '../world/stream';
 import { cardShot, cardTiles, dropAt, EARTH_R_M, fromCard, poseAt, poseCamera, revealStart, toCard, type CardPose, type CardShot } from './cardframe';
@@ -67,23 +68,57 @@ export function labelText(l: Pick<Label, 'name' | 'en'>): string {
 }
 
 /** The water's mid tone (water.ts facets lie between its shallows and this, its deep band on the coast). */
-const SEA_MID = mixRGB(rgb(CONTOUR.waterShallow), rgb(CONTOUR.waterDeep), 0.32);
-const SEA_DEEP = rgb(CONTOUR.waterDeep);
+const lin = (c: RGB): RGB => [srgbToLinear(c[0]), srgbToLinear(c[1]), srgbToLinear(c[2])];
+/**
+ * In linear light, as the tiles' vertex colours are stored (meshjob.ts packs sRGB to linear bytes):
+ * mixed and compared in sRGB, the calmed sea came out pale, and golden light turned it khaki.
+ */
+export const SEA_MID_LINEAR = lin(mixRGB(rgb(CONTOUR.waterShallow), rgb(CONTOUR.waterDeep), 0.32));
+const SEA_DEEP_LINEAR = lin(rgb(CONTOUR.waterDeep));
 
 /**
  * Draw a water mesh's facet colours a share k of the way toward the one mid tone (every tile alike, so
  * no tile shows as a square), leaving the deep coast band as it is.
  */
-function calmColours(g: THREE.BufferGeometry, k: number): void {
+function calmColours(g: THREE.BufferGeometry, k: number, tone: RGB): void {
   const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
   if (!c) return;
   for (let i = 0; i < c.count; i++) {
     const r = c.getX(i), gg = c.getY(i), b = c.getZ(i);
-    if (Math.abs(r - SEA_DEEP[0]) + Math.abs(gg - SEA_DEEP[1]) + Math.abs(b - SEA_DEEP[2]) < 0.03) continue;
-    c.setXYZ(i, r + (SEA_MID[0] - r) * k, gg + (SEA_MID[1] - gg) * k, b + (SEA_MID[2] - b) * k);
+    if (Math.abs(r - SEA_DEEP_LINEAR[0]) + Math.abs(gg - SEA_DEEP_LINEAR[1]) + Math.abs(b - SEA_DEEP_LINEAR[2]) < 0.03) continue;
+    c.setXYZ(i, r + (tone[0] - r) * k, gg + (tone[1] - gg) * k, b + (tone[2] - b) * k);
   }
   c.needsUpdate = true;
 }
+
+/** The calmed sea's tone for a look (linear): the water's mid tone, deeper at night so the land reads lighter. */
+export function seaTone(look: CardLook): RGB {
+  const k = 1 - 0.7 * Math.max(0, (look.night - 0.3) / 0.7);
+  return SEA_MID_LINEAR.map((c) => c * k) as RGB;
+}
+
+/** The land's tint the card world uses for a look (lighter than the sea's at night). */
+export function cardGroundTint(look: CardLook): string {
+  const L = look.light;
+  return look.night > 0.4 ? lerpHex(L.groundTint, NIGHT_LAND, 0.85 * look.night) : L.groundTint;
+}
+
+/**
+ * The calmed sea and a mid land green as the card's light leaves them (sRGB 0..1), in a simple model of
+ * the tiles' lighting (albedo x (sun at half strength + sky light), the land tinted): for checks that
+ * the two stay apart at golden hour, by day and at night.
+ */
+export function gradedColours(look: CardLook): { sea: RGB; land: RGB } {
+  const S = stageLight(look.light);
+  const sun = lin(rgb(S.sunColor)), sky = lin(rgb(S.hemiSky)), gnd = lin(rgb(S.hemiGround));
+  const light = sun.map((c, i) => (c * S.sunIntensity * 0.5 + (sky[i] * 0.7 + gnd[i] * 0.3) * S.hemiIntensity) / Math.PI) as RGB;
+  const tint = lin(rgb(cardGroundTint(look) as Color));
+  const land = lin(rgb(CONTOUR.land[2]));
+  const out = (a: RGB, t: RGB = [1, 1, 1]): RGB => a.map((c, i) => Math.min(1, linearToSrgb(c * t[i] * light[i]))) as RGB;
+  return { sea: out(seaTone(look)), land: out(land, tint) };
+}
+
+const linearToSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 
 export class CardWorld {
   readonly shot: CardShot;
@@ -97,9 +132,12 @@ export class CardWorld {
   /** Relief lifted this many times, so it reads from far up. */
   readonly exag: number;
   private readonly groundTint: string;
+  private readonly sea: RGB;
   private readonly camera = new THREE.PerspectiveCamera();
   private readonly bent = new WeakSet<THREE.BufferGeometry>();
   private readonly landing: LatLon;
+  /** The card world's origin (the middle of the route): every card-world metre is from here. */
+  private readonly origin: LatLon;
   private readonly route: LatLon[];
   private heights: Float32Array | null = null;
   private disposed = false;
@@ -125,13 +163,14 @@ export class CardWorld {
     const pts = route.points.map((p) => ({ lat: p.lat, lon: p.lon }));
     this.route = pts;
     this.landing = pts[pts.length - 1];
+    this.shot = cardShot(pts);
+    this.origin = this.shot.origin;
     this.routeLocal = new Float64Array(pts.length * 2);
     pts.forEach((p, i) => {
-      const c = toCard(this.landing, p);
+      const c = toCard(this.origin, p);
       this.routeLocal[i * 2] = c.x;
       this.routeLocal[i * 2 + 1] = c.z;
     });
-    this.shot = cardShot(pts);
     this.start = revealStart(this.shot);
     // (held back: lifted much more, the steep faces turn to clay and the reveal's start, near the ground, bristles)
     this.exag = Math.max(1, Math.min(2, 1 + this.shot.altM / 1_200_000));
@@ -146,22 +185,23 @@ export class CardWorld {
     this.look = cardLook(this.landing, o.sunAt);
     this.sky = new Sky(this.scene, { shadow: { radius: 700, mapSize: 256, snap: 100, upM: 60, downM: 40 }, stars: 0 });
     const az = (this.shot.headingDeg - 40 + 360) % 360;
-    const L = this.sky.apply({ elevationDeg: this.look.sunElevationDeg, azimuthDeg: az }, null, false);
+    this.sky.apply({ elevationDeg: this.look.sunElevationDeg, azimuthDeg: az }, null, false);
     // the land hazes toward the horizon's colour whichever way it is seen from (looking down from far
     // up, the haze would otherwise take the greyer colour under the horizon); the sky is painted in 2D
     this.sky.haze.uLow.value.copy(this.sky.haze.uHor.value);
     // at night the land is lit a little more than the sea, so the coast still reads under the town lights
-    this.groundTint = this.look.night > 0.4 ? lerpHex(L.groundTint, NIGHT_LAND, 0.45 * this.look.night) : L.groundTint;
+    this.groundTint = cardGroundTint(this.look);
+    this.sea = seaTone(this.look);
     this.sky.dome.mesh.visible = false;
     this.sky.sunDisc.visible = false;
     this.sky.moonDisc.visible = false;
     this.sky.stars.visible = false;
 
     // the card's own tiles first; the reveal's (round the balloon and on the way up) only once those are in
-    this.finalTiles = cardTiles(this.landing, [this.shot], pts);
+    this.finalTiles = cardTiles(this.origin, [this.shot], pts);
     const have = new Set(this.finalTiles.map((t) => `${t.z}/${t.x}/${t.y}`));
     this.revealTiles = o.reveal
-      ? cardTiles(this.landing, [this.start, poseAt(this.start, this.shot, 0.3), poseAt(this.start, this.shot, 0.55), poseAt(this.start, this.shot, 0.8)], pts, { max: 200, tilePx: 420, nearLanding: true })
+      ? cardTiles(this.origin, [this.start, poseAt(this.start, this.shot, 0.3), poseAt(this.start, this.shot, 0.55), poseAt(this.start, this.shot, 0.8)], pts, { max: 200, tilePx: 420, nearLanding: true })
           .filter((t) => !have.has(`${t.z}/${t.x}/${t.y}`))
           .slice(0, Math.max(0, SLOT_COUNT - 2 - this.finalTiles.length))
       : [];
@@ -169,7 +209,7 @@ export class CardWorld {
     this.stream = new WorldStream(this.scene, pool, regionStyle, {
       haze: this.sky.haze,
       groundTint: this.groundTint,
-      origin: this.landing,
+      origin: this.origin,
       want: () => this.wanted,
       maxTiles: this.finalTiles.length + this.revealTiles.length + 4,
       maxInFlight: 8,
@@ -181,7 +221,7 @@ export class CardWorld {
 
   /** Step the stream and bend what came in. */
   private step(): void {
-    const here = { lat: this.landing.lat, lon: this.landing.lon, altM: this.shot.altM + this.phase * 1000, headingDeg: this.shot.headingDeg };
+    const here = { lat: this.origin.lat, lon: this.origin.lon, altM: this.shot.altM + this.phase * 1000, headingDeg: this.shot.headingDeg };
     this.stream.update(here, performance.now());
     this.bendNew();
   }
@@ -241,7 +281,7 @@ export class CardWorld {
         // the sea seen from far up (z5 to z7): its facets' colours drawn together toward one tone, so
         // earcut's long thin triangles do not show as fans and every tile's sea matches its neighbours'
         const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.Material | undefined;
-        if (z <= 7 && mat && /-water-/.test(mat.name)) calmColours(m.geometry, 0.7);
+        if (z <= 7 && mat && /-water-/.test(mat.name)) calmColours(m.geometry, 0.7, this.sea);
         inv.copy(m.matrixWorld).invert();
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
@@ -382,8 +422,8 @@ export class CardWorld {
   /** The map's labels in card-world metres, worked out once the tiles are in (not every frame). */
   private labels(): { text: string; kind: string; rank?: number; x: number; z: number }[] {
     if (this.labelCache) return this.labelCache;
-    this.labelCache = this.stream.labelsNear(this.landing, 40_000).map((lab) => {
-      const c = toCard(this.landing, lab);
+    this.labelCache = this.stream.labelsNear(this.origin, 40_000).map((lab) => {
+      const c = toCard(this.origin, lab);
       return { text: labelText(lab), kind: lab.kind, rank: lab.rank, x: c.x, z: c.z };
     });
     return this.labelCache;
@@ -397,7 +437,7 @@ export class CardWorld {
     const b = o.dot(v), c = o.lengthSq() - EARTH_R_M * EARTH_R_M, d = b * b - c;
     if (d < 0) return null;
     const t = -b - Math.sqrt(d);
-    return fromCard(this.landing, cam.position.x + v.x * t, cam.position.z + v.z * t);
+    return fromCard(this.origin, cam.position.x + v.x * t, cam.position.z + v.z * t);
   }
 
   dispose(): void {

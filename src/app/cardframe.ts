@@ -2,9 +2,10 @@
  * Where the landing card's camera stands (spec 6.5, design A, the owner's decision of 14 November
  * 2026): the app's world seen from high up, looking along the route, with the Earth's curve.
  *
- * The card world's frame: metres from the landing (x east, z south, as WorldStream.toScene with the
- * landing as its origin), y up, and the ground bent down by the Earth's curve, d^2 / 2R at a distance
- * d from the landing, so the horizon arcs.
+ * The card world's frame: metres from the middle of the route (the shot's `origin`; x east, z south,
+ * as WorldStream.toScene with that origin), y up, and the ground bent down onto the Earth's sphere
+ * from there, so the horizon arcs. The middle, not the landing: the flat frame then reaches only half
+ * as far, so even a very long trip's start lies inside the sphere it is bent onto.
  *
  * The framing comes from the route:
  *  - the camera looks along the trip, from the start toward the landing, so the start sits low in the
@@ -39,7 +40,12 @@ export function contextK(lengthKm: number): number {
   const k = Math.max(0, Math.min(1, Math.log10(Math.max(1, lengthKm) / 1000) / Math.log10(6)));
   return 3 - 1.7 * k;
 }
-/** Never higher than this above the ground looked at: from there half the globe is in sight. */
+/** A very long trip held under the ceiling may take a wider lens, up to this, to keep both ends in shot. */
+const MAX_FOV = 60;
+/**
+ * Not higher than this above the ground looked at (from there half the globe is in sight), unless a
+ * very long trip's ends would leave the picture even through the widest lens: then up to twice it.
+ */
 export const MAX_ALT_M = 6_000_000;
 /** Never nearer than this: a short trip still shows its city region. */
 export const MIN_DIST_M = 110_000;
@@ -72,6 +78,10 @@ export type CardPose = {
 
 export type CardShot = CardPose & {
   landing: LatLon;
+  /** The card world's origin, the middle of the route: every card-world metre is from here. */
+  origin: LatLon;
+  /** The landing in card-world metres (the reveal starts on it). */
+  landingAt: { x: number; z: number };
   /** Whether the route is looked at across rather than along. */
   across: boolean;
   /** Height of the camera above the ground it looks at, m. */
@@ -196,7 +206,14 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
   const fovDeg = o.fovDeg ?? CARD_FOV;
   const box = o.box ?? ROUTE_BOX;
   const landing = route[route.length - 1];
-  const pts = thin(route).map((p) => toCard(landing, p));
+  // the origin: the middle of the route's box, worked out round the landing
+  const round = thin(route).map((p) => toCard(landing, p));
+  const mid = {
+    x: (Math.min(...round.map((q) => q.x)) + Math.max(...round.map((q) => q.x))) / 2,
+    z: (Math.min(...round.map((q) => q.z)) + Math.max(...round.map((q) => q.z))) / 2,
+  };
+  const origin = fromCard(landing, mid.x, mid.z);
+  const pts = thin(route).map((p) => toCard(origin, p));
   const { sx, sz, axis, extent } = spread(pts);
   const direct = Math.hypot(sx, sz);
   const lengthKm = Math.max(direct, extent) / 1000;
@@ -243,7 +260,7 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
     const bb = bboxAt(pose);
     const cx = (bb.x0 + bb.x1) / 2 - (box.left + box.right) / 2;
     const cy = (bb.y0 + bb.y1) / 2 - (box.top + box.bottom) / 2;
-    const span = 2 * pose.distM * Math.tan((fovDeg / 2) * D2R); // metres across the picture's height at the target
+    const span = 2 * pose.distM * Math.tan((pose.fovDeg / 2) * D2R); // metres across the picture's height at the target
     const along = (-cy * span) / Math.cos(pose.tiltDeg * D2R);
     const side = cx * span * aspect;
     pose.target = { x: pose.target.x + right.x * side + fwd.x * along, z: pose.target.z + right.z * side + fwd.z * along };
@@ -285,7 +302,17 @@ export function cardShot(route: LatLon[], o: { aspect?: number; box?: typeof ROU
     centre();
     centre();
   }
-  return { ...pose, landing: { lat: landing.lat, lon: landing.lon }, across, altM: pose.distM * Math.cos(pose.tiltDeg * D2R) };
+  // and if the ends still do not fit in the picture, a wider lens (the start's ring and name stay in shot)
+  for (let i = 0; i < 12 && !fits(pose) && pose.fovDeg < MAX_FOV; i++) {
+    pose.fovDeg = Math.min(MAX_FOV, pose.fovDeg + 4);
+    centre();
+  }
+  // past about 7,000 km even that is not enough: the ceiling lifts (to twice at the most) until it fits
+  for (let i = 0; i < 40 && !fits(pose) && pose.distM * 1.05 * Math.cos(pose.tiltDeg * D2R) <= 2 * MAX_ALT_M; i++) {
+    pose.distM *= 1.05;
+    centre();
+  }
+  return { ...pose, landing: { lat: landing.lat, lon: landing.lon }, origin, landingAt: toCard(origin, landing), across, altM: pose.distM * Math.cos(pose.tiltDeg * D2R) };
 }
 
 // ---- the tiles the card world draws ----
@@ -339,7 +366,9 @@ function tileOf(p: LatLon, z: number): { z: number; x: number; y: number } {
  * from far up, z10 and z12 round the balloon at the start of the reveal. The landing's and the start's
  * tiles first, then nearest the route; at most CARD_MAX_TILES.
  */
-export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o: { aspect?: number; heightPx?: number; max?: number; tilePx?: number; nearLanding?: boolean } = {}): { z: number; x: number; y: number }[] {
+export function cardTiles(origin: LatLon, poses: CardPose[], route: LatLon[], o: { aspect?: number; heightPx?: number; max?: number; tilePx?: number; nearLanding?: boolean } = {}): { z: number; x: number; y: number }[] {
+  const landing = route[route.length - 1];
+  const L = toCard(origin, landing);
   const aspect = o.aspect ?? CARD_ASPECT, heightPx = o.heightPx ?? 1000;
   const rank = new Map<string, { t: { z: number; x: number; y: number }; r: number }>();
   const add = (t: { z: number; x: number; y: number }, r: number) => {
@@ -348,9 +377,9 @@ export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o
     if (!had || r < had.r) rank.set(k, { t, r });
   };
   const cam = new THREE.PerspectiveCamera();
-  const pts = thin(route, 40).map((p) => toCard(landing, p));
+  const pts = thin(route, 40).map((p) => toCard(origin, p));
   // nearest the route first (the card), or nearest the balloon (the reveal, which starts on it)
-  const near = (x: number, z: number) => (o.nearLanding ? Math.hypot(x, z) : Math.min(...pts.map((p) => Math.hypot(p.x - x, p.z - z))));
+  const near = (x: number, z: number) => (o.nearLanding ? Math.hypot(x - L.x, z - L.z) : Math.min(...pts.map((p) => Math.hypot(p.x - x, p.z - z))));
   poses.forEach((pose, pi) => {
     poseCamera(pose, aspect, cam);
     const pxRad = (pose.fovDeg * D2R) / heightPx;
@@ -361,7 +390,7 @@ export function cardTiles(landing: LatLon, poses: CardPose[], route: LatLon[], o
       for (let j = 0; j <= M; j++) {
         const hit = groundHit(cam, -0.04 + (1.08 * j) / M, Math.min(1.04, (i / N) ** 1.7 * 1.04));
         if (!hit) continue;
-        const ll = fromCard(landing, hit.x, hit.z);
+        const ll = fromCard(origin, hit.x, hit.z);
         // metres per picture pixel there (looking down at a slant: a little more)
         const mpp = hit.d * pxRad * 1.4;
         const want = Math.log2((CIRC_M * Math.cos(ll.lat * D2R)) / (mpp * (o.tilePx ?? TILE_PX)));
@@ -398,7 +427,7 @@ export const REVEAL_START_M = 9000;
 const START_TILT = 52;
 
 export function revealStart(shot: CardShot): CardPose {
-  return { target: { x: 0, z: 0 }, headingDeg: shot.headingDeg, tiltDeg: START_TILT, distM: REVEAL_START_M, fovDeg: shot.fovDeg };
+  return { target: { ...shot.landingAt }, headingDeg: shot.headingDeg, tiltDeg: START_TILT, distM: REVEAL_START_M, fovDeg: shot.fovDeg };
 }
 
 /**

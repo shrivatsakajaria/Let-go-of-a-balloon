@@ -27,7 +27,7 @@ const MOSCOW = { lat: 55.75, lon: 37.62 };
 function seen(shot: CardShot, pts: LatLon[]) {
   const cam = poseCamera(shot);
   return pts.map((p) => {
-    const l = toCard(shot.landing, p);
+    const l = toCard(shot.origin, p);
     return projectTo(cam, l.x, l.z);
   });
 }
@@ -132,7 +132,7 @@ describe('poseAt: the reveal’s move', () => {
     }
     const early = poseAt(from, shot, 0.3);
     const cam = poseCamera(early);
-    const b = projectTo(cam, 0, 0);
+    const b = projectTo(cam, shot.landingAt.x, shot.landingAt.z);
     expect(b.seen).toBe(true);
     expect(Math.abs(b.fx - 0.5)).toBeLessThan(0.1);
     expect(Math.abs(b.fy - 0.5)).toBeLessThan(0.15);
@@ -153,7 +153,7 @@ describe('cardTiles: the map tiles of the card world', () => {
   it('Manchester to Bergen from high up: whole-region tiles (z5, z6), both ends included, within the cap', () => {
     const r = trip(MANCHESTER, BERGEN);
     const shot = cardShot(r);
-    const ts = cardTiles(shot.landing, [shot], r);
+    const ts = cardTiles(shot.origin, [shot], r);
     expect(ts.length).toBeLessThanOrEqual(CARD_MAX_TILES);
     expect(ts.length).toBeGreaterThan(8);
     for (const t of ts) expect(() => levelFor(t.z)).not.toThrow();
@@ -166,7 +166,7 @@ describe('cardTiles: the map tiles of the card world', () => {
   it('the reveal’s start on the balloon adds fine tiles round the landing', () => {
     const r = trip(MANCHESTER, BERGEN);
     const shot = cardShot(r);
-    const ts = cardTiles(shot.landing, [revealStart(shot), shot], r);
+    const ts = cardTiles(shot.origin, [revealStart(shot), shot], r);
     const fine = ts.filter((t) => t.z >= 10);
     expect(fine.length).toBeGreaterThan(0);
     expect(fine.some((t) => { const k = tileOf(BERGEN, t.z); return k.x === t.x && k.y === t.y; })).toBe(true);
@@ -176,7 +176,7 @@ describe('cardTiles: the map tiles of the card world', () => {
   it('a short trip is drawn in finer tiles (its city region from 60 km up)', () => {
     const r = trip(MANCHESTER, HUDDERSFIELD);
     const shot = cardShot(r);
-    const ts = cardTiles(shot.landing, [shot], r);
+    const ts = cardTiles(shot.origin, [shot], r);
     expect(ts.some((t) => t.z >= 10)).toBe(true);
     expect(ts.every((t) => t.z >= 6)).toBe(true);
   });
@@ -187,7 +187,7 @@ describe('cardTiles: the map tiles of the card world', () => {
     const hit = groundHit(cam, 0.5, 0.5)!;
     expect(hit).not.toBeNull();
     expect(Math.hypot(hit.x - shot.target.x, hit.z - shot.target.z)).toBeLessThan(20_000);
-    const back = fromCard(shot.landing, hit.x, hit.z);
+    const back = fromCard(shot.origin, hit.x, hit.z);
     expect(back.lat).toBeGreaterThan(50);
     expect(groundHit(cam, 0.5, 0)).toBeNull(); // the top of the picture is sky, above the curved horizon
   });
@@ -195,21 +195,23 @@ describe('cardTiles: the map tiles of the card world', () => {
 
 describe('very long and polar trips', () => {
   const LONDON_ = { lat: 51.5072, lon: -0.1276 };
-  it('6,000 km and 8,000 km: never higher than 6,000 km; the whole of a 6,000 km route in sight, most of an 8,000 km one', () => {
+  it('6,000 km and 8,000 km: the height held near 6,000 km, the whole route and the start in shot', () => {
     for (const b of [{ lat: 34, lon: 75 }, { lat: 39.9, lon: 116.4 }]) {
       const r = trip(LONDON_, b);
       const km = haversineKm(LONDON_, b);
       expect(km).toBeGreaterThan(5500);
       const shot = cardShot(r);
-      expect(shot.altM).toBeLessThanOrEqual(MAX_ALT_M + 1);
+      // 6,000 km stays under the ceiling; 8,000 km may lift it (to twice at the most) to keep the start in shot
+      expect(shot.altM).toBeLessThanOrEqual((km < 7000 ? 1 : 2) * MAX_ALT_M + 1);
+      // the whole route in sight and in the picture, the start's ring with room for its name under it
       const s = seen(shot, r);
-      if (km < 7000) for (const p of s) expect(p.seen).toBe(true);
-      // past about 7,000 km the card world's flat frame (the stream's own) cannot hold the far end: the
-      // landing and most of the way are still in sight
-      else {
-        expect(s[s.length - 1].seen).toBe(true);
-        expect(s.filter((p) => p.seen).length / s.length).toBeGreaterThan(0.55);
+      for (const p of s) {
+        expect(p.seen).toBe(true);
+        expect(p.fx).toBeGreaterThan(0.05);
+        expect(p.fx).toBeLessThan(0.95);
+        expect(p.fy).toBeGreaterThan(0.05);
       }
+      expect(s[0].fy).toBeLessThan(0.82);
     }
   });
 
@@ -235,7 +237,7 @@ describe('very long and polar trips', () => {
       expect(Number.isFinite(shot.altM)).toBe(true);
       expect(shot.altM).toBeLessThanOrEqual(MAX_ALT_M + 1);
       for (const p of seen(shot, r)) expect(p.seen).toBe(true);
-      expect(cardTiles(shot.landing, [shot], r).length).toBeGreaterThan(0);
+      expect(cardTiles(shot.origin, [shot], r).length).toBeGreaterThan(0);
     }
   });
 });
