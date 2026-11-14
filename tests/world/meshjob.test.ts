@@ -2,6 +2,7 @@ import { test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { decodeVectorTile, emptyFeatures, type Polygon } from '../../src/world/vector';
 import { buildTileMeshes, cellIndex, packMeshes, transferables, type TileMeshes } from '../../src/world/meshjob';
+import { PARK_EDGE_M } from '../../src/world/landcover';
 import { DEFAULT_REGION, CONTOUR, parseHex } from '../../src/world/palette';
 import { tileFrame } from '../../src/world/frame';
 import { groundGrid, groundHeightAt, type MeshBuffers } from '../../src/world/terrain';
@@ -632,6 +633,34 @@ test('trees: none on the protected-area (park layer) polygon, some in the city p
   const s = emptyFeatures();
   s.park.push({ cls: 'national_park', subclass: '', polygon: rect(0, 0, frame.widthM, -frame.heightM) });
   expect(buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION).trees.length).toBe(0);
+});
+
+test('trees: a park keeps its open lawns clear, and its trees along its edges; woods are wooded all through (R: Champ de Mars)', () => {
+  const s = emptyFeatures();
+  // a park 400 m square, with a lawn (OSM landuse=grass: OMT landcover grass/grass) in its middle
+  s.landcover.push({ cls: 'grass', subclass: 'park', polygon: rect(200, -200, 600, -600) });
+  s.landcover.push({ cls: 'grass', subclass: 'grass', polygon: rect(300, -300, 500, -500) });
+  // a park against the tile's west edge (clipped there): the tile edge is no edge of the park
+  s.landcover.push({ cls: 'grass', subclass: 'park', polygon: rect(0, -700, 200, -900) });
+  // a wood
+  s.landcover.push({ cls: 'wood', subclass: 'wood', polygon: rect(800, -200, 1000, -400) });
+  const t = buildTileMeshes(s, flat, Z, X, Y, DEFAULT_REGION).trees;
+  const pts: [number, number][] = [];
+  for (let i = 0; i < t.length; i += 16) pts.push([t[i + 12], t[i + 14]]);
+  const inRect = (x: number, z: number, x0: number, z0: number, x1: number, z1: number) => x >= x0 && x <= x1 && z <= z0 && z >= z1;
+  const edgeDist = (x: number, z: number, x0: number, z0: number, x1: number, z1: number) => Math.min(x - x0, x1 - x, z0 - z, z - z1);
+  const park = pts.filter(([x, z]) => inRect(x, z, 200, -200, 600, -600));
+  const west = pts.filter(([x, z]) => inRect(x, z, 0, -700, 200, -900));
+  const wood = pts.filter(([x, z]) => inRect(x, z, 800, -200, 1000, -400));
+  // none on the lawn, none in the park's open middle: all within the edge band
+  expect(park.some(([x, z]) => inRect(x, z, 300, -300, 500, -500))).toBe(false);
+  expect(park.length).toBeGreaterThan(40);
+  for (const [x, z] of park) expect(edgeDist(x, z, 200, -200, 600, -600)).toBeLessThanOrEqual(PARK_EDGE_M + 1e-6);
+  // the clipped park: along its three real edges, not along the tile's
+  expect(west.length).toBeGreaterThan(10);
+  for (const [x, z] of west) expect(Math.min(200 - x, -700 - z, z + 900)).toBeLessThanOrEqual(PARK_EDGE_M + 1e-6);
+  // the wood: trees deep inside it too
+  expect(wood.some(([x, z]) => edgeDist(x, z, 800, -200, 1000, -400) > 60)).toBe(true);
 });
 
 test('water: no deep band on an edge shared by two water polygons, band on the outer shore', () => {

@@ -8,7 +8,7 @@ import { tileFrame } from './frame';
 import type { RegionStyle } from './palette';
 import { MeshBuilder } from './geom';
 import type { Features } from './vector';
-import { placeTrees, rasteriseLandcover, rasteriseLevels, treeZones } from './landcover';
+import { placeTrees, rasteriseLandcover, rasteriseLevels, treeLawns, treeZones } from './landcover';
 import { buildBuildings, gapFill, type Circle } from './buildings';
 import { buildRoads, buildWaterways, placeLamps } from './lines';
 import { buildWater, waterLevels } from './water';
@@ -164,6 +164,7 @@ export function buildTileMeshes(
     z >= 14 ? 14 : z === 13 ? 24 : 40,
     undefined,
     features.building.map((b) => b.polygon),
+    treeLawns(features),
   );
   const lamps = detail.lamps ? placeLamps(features.transportation, g, z, seed) : new Float32Array(0);
   const boats = detail.boats !== false ? placeBoats(features, levels, frame, z, seed) : new Float32Array(0);

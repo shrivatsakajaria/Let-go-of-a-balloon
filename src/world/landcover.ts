@@ -91,30 +91,89 @@ export function rasteriseLandcover(f: Features, frame: TileFrame, n: number): La
 export const TREE_CAP = 2000;
 
 /**
- * Polygons that hold trees: landcover class wood (or forest) and city parks, which OpenMapTiles
- * puts in landcover as grass/park. The `park` layer is protected areas (national parks, nature
- * reserves, historic sites) and holds no trees of its own.
+ * A city park keeps its trees within this many metres of its outline (the rows along its alleys and
+ * streets); its open middle stays clear, as on the Champ de Mars, where a launch looks down the lawns to
+ * the Eiffel Tower. Its wooded parts (wood polygons) keep theirs all through.
  */
-export function treeZones(f: Features): Polygon[] {
-  return f.landcover.filter((a) => a.cls === 'wood' || a.cls === 'forest' || a.subclass === 'park').map((a) => a.polygon);
+export const PARK_EDGE_M = 25;
+/**
+ * Open grass, where no tree stands even inside a park or a wood: OSM landuse=grass lawns, meadows and
+ * flowerbeds (OpenMapTiles landcover class grass with these subclasses).
+ */
+const LAWNS = new Set(['grass', 'grassland', 'meadow', 'flowerbed', 'village_green', 'recreation_ground']);
+
+/** A polygon that holds trees; `edgeM`: only within that distance of its outline (a park). */
+export type TreeZone = { polygon: Polygon; edgeM?: number };
+
+/**
+ * Polygons that hold trees: landcover class wood (or forest) all through, and city parks, which
+ * OpenMapTiles puts in landcover as grass/park, along their edges (PARK_EDGE_M). The `park` layer is
+ * protected areas (national parks, nature reserves, historic sites) and holds no trees of its own.
+ */
+export function treeZones(f: Features): TreeZone[] {
+  const out: TreeZone[] = [];
+  for (const a of f.landcover) {
+    if (a.cls === 'wood' || a.cls === 'forest') out.push({ polygon: a.polygon });
+    else if (a.subclass === 'park') out.push({ polygon: a.polygon, edgeM: PARK_EDGE_M });
+  }
+  return out;
+}
+
+/** The open lawns (LAWNS), kept clear of trees. */
+export function treeLawns(f: Features): Polygon[] {
+  return f.landcover.filter((a) => a.cls === 'grass' && LAWNS.has(a.subclass)).map((a) => a.polygon);
 }
 
 /**
- * Tree instances (4x4 column-major matrices, three.js order): a jittered grid clipped to the zones,
- * spaced so a tile never needs more than TREE_CAP, with a narrow seeded spread of size and turn.
- * Never inside a `blockers` footprint (buildings). Positions sit on the drawn ground.
+ * Distance (m) from (x, z) to the nearest edge of a ring that is a real edge: an edge along the tile's
+ * border (where a polygon was clipped to the tile) is none. Infinity if every edge is the tile's.
+ */
+function edgeDistance(r: ArrayLike<number>, x: number, z: number, W: number, H: number): number {
+  const EPS = 0.5;
+  const onBorder = (ax: number, az: number, bx: number, bz: number) =>
+    (Math.abs(ax) < EPS && Math.abs(bx) < EPS) || (Math.abs(ax - W) < EPS && Math.abs(bx - W) < EPS) ||
+    (Math.abs(az) < EPS && Math.abs(bz) < EPS) || (Math.abs(az + H) < EPS && Math.abs(bz + H) < EPS);
+  let best = Infinity;
+  const n = r.length;
+  for (let i = 0, k = n - 2; i < n; k = i, i += 2) {
+    const ax = r[k], az = r[k + 1], bx = r[i], bz = r[i + 1];
+    if (onBorder(ax, az, bx, bz)) continue;
+    const dx = bx - ax, dz = bz - az;
+    const L = dx * dx + dz * dz;
+    const t = L > 0 ? Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / L)) : 0;
+    const d = Math.hypot(x - (ax + t * dx), z - (az + t * dz));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Tree instances (4x4 column-major matrices, three.js order): a jittered grid clipped to the zones (a
+ * park's only near its edges), spaced so a tile never needs more than TREE_CAP, with a narrow seeded
+ * spread of size and turn. Never inside a `blockers` footprint (buildings) or on a `lawns` polygon.
+ * Positions sit on the drawn ground.
  */
 export function placeTrees(
-  zones: Polygon[],
+  treeZones: TreeZone[],
   ground: GroundGrid,
   seed: number,
   spacingM: number,
   cap = TREE_CAP,
   blockers: Polygon[] = [],
+  lawns: Polygon[] = [],
 ): Float32Array {
-  if (!zones.length) return new Float32Array(0);
+  if (!treeZones.length) return new Float32Array(0);
   const frame = ground.frame;
+  const zones = treeZones.map((t) => t.polygon);
   const boxes: BBox[] = zones.map((p) => bbox(p[0]));
+  const lawnBoxes: BBox[] = lawns.map((p) => bbox(p[0]));
+  const onLawn = (x: number, z: number) => {
+    for (let k = 0; k < lawns.length; k++) {
+      const b = lawnBoxes[k];
+      if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && pointInPolygon(lawns[k], x, z)) return true;
+    }
+    return false;
+  };
   const blockBoxes: BBox[] = blockers.map((p) => bbox(p[0]));
   const blocked = (x: number, z: number) => {
     for (let k = 0; k < blockers.length; k++) {
@@ -123,8 +182,12 @@ export function placeTrees(
     }
     return false;
   };
+  // a park's trees fill only its edge band: its share of the area is about the band along its outline
   let area = 0;
-  for (const p of zones) area += polygonArea(p);
+  for (const t of treeZones) {
+    const a = polygonArea(t.polygon);
+    area += t.edgeM === undefined ? a : Math.min(a, ringLength(t.polygon[0]) * t.edgeM);
+  }
   const step = Math.max(spacingM, Math.sqrt(area / cap) * 1.05);
   let ux = Infinity, uz = Infinity, vx = -Infinity, vz = -Infinity;
   for (const b of boxes) {
@@ -141,9 +204,12 @@ export function placeTrees(
       let hit = false;
       for (let k = 0; k < zones.length && !hit; k++) {
         const b = boxes[k];
-        if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) hit = pointInPolygon(zones[k], x, z);
+        if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && pointInPolygon(zones[k], x, z)) {
+          const e = treeZones[k].edgeM;
+          hit = e === undefined || edgeDistance(zones[k][0], x, z, frame.widthM, frame.heightM) <= e;
+        }
       }
-      if (!hit || blocked(x, z)) continue;
+      if (!hit || blocked(x, z) || onLawn(x, z)) continue;
       const y = groundHeightAt(ground, x, z);
       const turn = hash01(gi, gj, seed + 2) * Math.PI * 2;
       const s = 0.85 + 0.3 * hash01(gi, gj, seed + 3);
@@ -154,6 +220,12 @@ export function placeTrees(
     }
   }
   return Float32Array.from(out);
+}
+
+function ringLength(r: ArrayLike<number>): number {
+  let L = 0;
+  for (let i = 0, k = r.length - 2; i < r.length; k = i, i += 2) L += Math.hypot(r[i] - r[k], r[i + 1] - r[k + 1]);
+  return L;
 }
 
 /** Per-cell water level (n x n, row 0 = south; NaN where no flat water), the lowest where bodies overlap. */
