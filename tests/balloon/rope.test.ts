@@ -11,6 +11,51 @@ function point(tSec: number, over: Partial<RoutePoint> = {}): RoutePoint {
   return { tSec, lat: 51.5, lon: -0.12, altM: 1.5 + 1.5 * Math.max(0, tSec), groundM: 0, speedMs: 3, headingDeg: 90, ...over };
 }
 
+/** Direction from the knot to the free end. */
+function endDir(rope: Rope, out = new THREE.Vector3()): THREE.Vector3 {
+  const k = rope.point(0, new THREE.Vector3());
+  return rope.point(rope.segments, out).sub(k).normalize();
+}
+
+/** Highest point of the string (below the knot) above the knot, m. */
+function aboveKnot(rope: Rope): number {
+  const k = rope.point(0, new THREE.Vector3()), p = new THREE.Vector3();
+  let m = -Infinity;
+  for (let i = 1; i <= rope.segments; i++) m = Math.max(m, rope.point(i, p).y - k.y);
+  return m;
+}
+
+/**
+ * Held in the hand in a crosswind, then let go while the knot starts to climb (eased from rest,
+ * as the balloon does): the end direction each frame, with the turn since the last frame.
+ */
+function letGo(hz: number, untilS = 5) {
+  const rope = new Rope();
+  const top = new THREE.Vector3(0, 2.4, 0);
+  const hand = new THREE.Vector3(0.3, 2.4 - 1.12, 0);
+  rope.reset(top);
+  const air = new THREE.Vector3(1, 0, 0);
+  for (let i = 0; i < 2 * hz; i++) rope.step(1 / hz, top, { end: hand, air });
+  const out: { t: number; turnDeg: number; above: number }[] = [];
+  const prev = endDir(rope);
+  const d = new THREE.Vector3();
+  let vy = 0;
+  for (let t = 0, f = 0; t < untilS; f++) {
+    const dt = 1 / hz;
+    t += dt;
+    // the knot eases up to the climb (critically damped, about 0.7 s), the air going past it down
+    const e = Math.exp(-3 * t);
+    vy = 1.5 * (1 - e * (1 + 3 * t));
+    top.y += vy * dt;
+    air.set(0.6, -vy, 0);
+    rope.step(dt, top, { air });
+    endDir(rope, d);
+    out.push({ t, turnDeg: (Math.acos(Math.min(1, Math.max(-1, d.dot(prev)))) * 180) / Math.PI, above: aboveKnot(rope) });
+    prev.copy(d);
+  }
+  return out;
+}
+
 describe('rope', () => {
   test('rope keeps segment lengths within 2% after 600 steps of wind', () => {
     const rope = new Rope();
@@ -19,14 +64,14 @@ describe('rope', () => {
     expect(ROPE_SEG_M).toBeCloseTo(0.06, 10);
     const top = new THREE.Vector3(0, 10, 0);
     rope.reset(top);
-    const wind = new THREE.Vector3();
+    const air = new THREE.Vector3();
     const dt = 1 / 60;
     for (let i = 0; i < 600; i++) {
       const t = i * dt;
-      // the knot drifts east with the wind and climbs; the air gusts around it
+      // the knot drifts east with the wind and climbs; the air gusts round it (air relative to the knot)
       top.set(8 * t, 10 + 1.5 * t, Math.sin(t * 0.7) * 0.5);
-      wind.set(8 + 4 * Math.sin(t * 2.3), 0.8 * Math.sin(t * 3.1), 3 * Math.cos(t * 1.7));
-      rope.step(dt, top, { wind });
+      air.set(4 * Math.sin(t * 2.3), -1.5 + 0.8 * Math.sin(t * 3.1), 3 * Math.cos(t * 1.7));
+      rope.step(dt, top, { air });
     }
     const a = new THREE.Vector3(), b = new THREE.Vector3();
     for (let s = 0; s < rope.segments; s++) {
@@ -45,7 +90,7 @@ describe('rope', () => {
     const top = new THREE.Vector3(0, 2.4, 0);
     const hand = new THREE.Vector3(0.2, 1.3, 0);
     rope.reset(top);
-    for (let i = 0; i < 120; i++) rope.step(1 / 60, top, { end: hand, wind: new THREE.Vector3(2, 0, 0) });
+    for (let i = 0; i < 120; i++) rope.step(1 / 60, top, { end: hand, air: new THREE.Vector3(2, 0, 0) });
     expect(rope.point(rope.segments, new THREE.Vector3()).distanceTo(hand)).toBeLessThan(1e-9);
   });
 
@@ -63,6 +108,69 @@ describe('rope', () => {
       expect(Number.isFinite(p.x + p.y + p.z)).toBe(true);
       expect(p.distanceTo(top)).toBeLessThan(rope.segments * ROPE_SEG_M + 1e-6);
     }
+  });
+
+  for (const hz of [30, 120]) {
+    test(`let go at ${hz} Hz: the end swings out at most 90 deg/s and settles within 2 s`, () => {
+      const run = letGo(hz);
+      const worst = Math.max(...run.map((r) => r.turnDeg));
+      expect(worst).toBeLessThanOrEqual(90 / hz);
+      let settled = 0;
+      for (const r of run) if (r.turnDeg * hz > 10) settled = r.t;
+      expect(settled).toBeLessThan(2);
+      expect(Math.max(...run.map((r) => r.above))).toBeLessThanOrEqual(0);
+    });
+  }
+
+  test('never above the knot, however the knot moves: stops dead, drops, jerks sideways', () => {
+    for (const hz of [30, 120]) {
+      const rope = new Rope();
+      const top = new THREE.Vector3(0, 10, 0);
+      rope.reset(top);
+      const dt = 1 / hz;
+      let worst = -Infinity;
+      for (let t = 0; t < 8; t += dt) {
+        // climbing at 3 m/s, then stopped dead at 2 s, dropping at 4 m/s from 4 s, jerked to and fro sideways from 6 s
+        const vy = t < 2 ? 3 : t < 4 ? 0 : t < 6 ? -4 : 0;
+        const vx = t < 6 ? 0 : 6 * Math.sign(Math.sin(t * 6));
+        top.x += vx * dt;
+        top.y += vy * dt;
+        rope.step(dt, top, { air: new THREE.Vector3(-vx * 0.2, Math.min(0, -vy), 0) });
+        worst = Math.max(worst, aboveKnot(rope));
+      }
+      expect(worst, `${hz} Hz`).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('a long frame (a paused or hidden tab) carries the string with the knot instead of flinging it', () => {
+    const rope = new Rope();
+    const top = new THREE.Vector3(0, 10, 0);
+    rope.reset(top);
+    const air = new THREE.Vector3(0, -1.5, 0);
+    for (let i = 0; i < 300; i++) {
+      top.x += 6 / 60;
+      top.y += 1.5 / 60;
+      rope.step(1 / 60, top, { air });
+    }
+    const before = endDir(rope);
+    for (const gap of [0.25, 1, 5]) {
+      top.x += 6 * gap;
+      top.y += 1.5 * gap;
+      rope.step(gap, top, { air });
+      const after = endDir(rope);
+      expect((Math.acos(Math.min(1, after.dot(before))) * 180) / Math.PI, `${gap} s`).toBeLessThan(2);
+    }
+  });
+
+  test('the knot jumping a long way (a floating-origin shift) carries the string as it hangs', () => {
+    const rope = new Rope();
+    const top = new THREE.Vector3(0, 10, 0);
+    rope.reset(top);
+    for (let i = 0; i < 300; i++) rope.step(1 / 60, top, { air: new THREE.Vector3(1, -1.5, 0) });
+    const before = endDir(rope);
+    top.x += 5000;
+    rope.step(1 / 60, top, { air: new THREE.Vector3(1, -1.5, 0) });
+    expect(endDir(rope).dot(before)).toBeGreaterThan(Math.cos(1 * (Math.PI / 180)));
   });
 });
 
@@ -150,7 +258,7 @@ describe('balloon on its string', () => {
     for (let i = 0; i < 90; i++) {
       hand.x = 0.25 + 0.02 * Math.sin(i / 10); // the hand sways a little
       b.setState(point(0), 1 / 60, DAY, { pos, camera: cam });
-      expect(b.rope.point(b.rope.segments, end).distanceTo(hand)).toBeLessThan(1e-9);
+      expect(b.stringPoint(b.rope.segments, end).distanceTo(hand)).toBeLessThan(1e-9);
     }
     // held above the hand, roughly a string's length up
     expect(b.mesh.position.y - hand.y).toBeGreaterThan(1.0);
@@ -161,7 +269,7 @@ describe('balloon on its string', () => {
       pos.set(0.5 * t, 1.5 + 1.5 * t, 0);
       b.setState(point(t), 1 / 60, DAY, { pos, camera: cam });
     }
-    b.rope.point(b.rope.segments, end);
+    b.stringPoint(b.rope.segments, end);
     expect(end.distanceTo(hand)).toBeGreaterThan(1);
     expect(end.y).toBeGreaterThan(hand.y + 1); // it went up with the balloon
   });
