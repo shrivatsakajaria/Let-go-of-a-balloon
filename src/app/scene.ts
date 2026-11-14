@@ -141,7 +141,7 @@ export class LiveScene {
   /** Scene y of the balloon when it was let go here (NaN for a balloon opened from a link). */
   private releaseY = Number.NaN;
   /** The drawn balloon's slide up a facade it meets (R57b). */
-  private readonly slide = new FacadeSlide();
+  readonly slide = new FacadeSlide();
   private readonly slideLL: LatLon = { lat: 0, lon: 0 };
   private slideHeading = 0;
   private readonly slideTop = (x: number, z: number, r: number) => {

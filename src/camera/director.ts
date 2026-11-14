@@ -326,6 +326,11 @@ export class Director {
   /** Replay: the smoothed bearing the camera looks along (radians), NaN until the first replay frame. */
   private replayYaw = Number.NaN;
   private stepS = 0;
+  /**
+   * What the camera did last frame, for the browser tests' smoothness probe (read through the page's test
+   * hook): the target it was steering for, how far the clamp moved it, and the launch's choices.
+   */
+  readonly probe = { target: [0, 0, 0], clampM: 0, craneOff: 0, craneEl: 0, pushAt: Number.NaN, low: 0 };
 
   constructor(private readonly camera: THREE.PerspectiveCamera, private readonly deps: DirectorDeps) {
     this.reduced = !!deps.reducedMotion;
@@ -597,6 +602,7 @@ export class Director {
     this.orbit += 0.035 * scale * (1 + 0.45 * Math.sin((2 * Math.PI * this.clock) / 47)) * dt;
 
     const tg = this.target(b, B, B0);
+    tg.pos.toArray(this.probe.target);
 
     if (!this.ready || tg.snap) {
       this.pos.copy(tg.pos);
@@ -636,6 +642,12 @@ export class Director {
   private apply(b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
     const out = this.pos.clone();
     this.clamp(out, b, B, B0);
+    const pr = this.probe;
+    pr.clampM = out.distanceTo(this.pos);
+    pr.craneOff = this.craneOff;
+    pr.craneEl = this.craneEl;
+    pr.pushAt = this.pushAt;
+    pr.low = this.low ? 1 : 0;
     this.camera.position.copy(out);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.aim(out, B, this.y0, this.fov, this.x0));
