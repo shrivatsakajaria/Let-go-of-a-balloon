@@ -9,17 +9,16 @@
  * - At most CAP events a page, the last one kept for the visit's length (session_end, on pagehide).
  * - Every event is checked against the whitelist (analytics/events.ts) before it goes.
  */
-import { FLIGHT_HOURS, SITE_URL } from '../config';
+import { FLIGHT_HOURS } from '../config';
 import type { SavedBalloon } from '../flight/codec';
 import type { StartChoice } from '../ui/start';
 import { CITIES, parseEvent, secsBucket, type AnalyticsEvent, type City } from './events';
+import { isProductionHost } from './hosts';
+
+export { PRODUCTION_HOSTS, isProductionHost } from './hosts';
 
 export const ENDPOINT = '/api/e';
 export const CAP = 30;
-
-/** The live site's own hosts: events from anywhere else are never sent (and never stored). */
-export const PRODUCTION_HOSTS: ReadonlySet<string> = new Set(['let-go-of-a-balloon.pages.dev', new URL(SITE_URL).hostname]);
-export const isProductionHost = (host: string) => PRODUCTION_HOSTS.has(host);
 
 export type TrackEnv = {
   host: string;
