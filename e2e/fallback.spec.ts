@@ -12,7 +12,7 @@ import { offline } from './net';
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 90_000 });
 
-const NOTE = "Your phone can't show the 3D world, so here is the route on a map.";
+const NOTE = "Your phone can’t show the 3D world, so here is the route on a map.";
 const Z5 = readFileSync(new URL('../tests/fixtures/omt_5_15_10.pbf', import.meta.url));
 const view = (page: Page) => page.evaluate(() => document.documentElement.dataset.view);
 
@@ -103,7 +103,7 @@ test.describe('without WebGL', () => {
 
     // the map, not the winds error and not a 3D canvas
     await expect(page.getByText(NOTE)).toBeVisible();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toHaveCount(0);
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toHaveCount(0);
     await expect(page.locator('canvas.world')).toHaveCount(0);
     const map = page.locator('.map2d');
     await expect(map).toBeVisible();
@@ -157,7 +157,7 @@ test.describe('without WebGL', () => {
     await startAtAlbertSquare(context);
     await page.goto('/');
     await page.getByRole('button', { name: 'Let go', exact: true }).click();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   });

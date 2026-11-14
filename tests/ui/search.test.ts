@@ -108,7 +108,7 @@ describe('createSearcher', () => {
     });
     s.input('Leeds');
     await vi.advanceTimersByTimeAsync(250);
-    expect(states.at(-1)).toEqual({ kind: 'error', q: 'Leeds', message: "We can't search right now. Try again in a moment." });
+    expect(states.at(-1)).toEqual({ kind: 'error', q: 'Leeds', message: "We can’t search right now. Try again in a moment." });
   });
 
   test('a stale answer never replaces a newer one', async () => {

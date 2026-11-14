@@ -17,7 +17,7 @@ import { positionAt, type Route } from '../flight/route';
 import { balloonId, store } from '../flight/store';
 import { haversineKm } from '../geo/coords';
 import { factsFor, landingPlace } from '../geo/facts';
-import { nearestPlace, type Place } from '../geo/gazetteer';
+import { GENERIC_LAND, nearestPlace, type Place } from '../geo/gazetteer';
 import { overText, placeOver, townAhead } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
@@ -233,7 +233,7 @@ export class Fallback implements World {
     this.wrap = document.createElement('div');
     this.wrap.className = 'map2d';
     this.wrap.setAttribute('role', 'img');
-    this.wrap.setAttribute('aria-label', "A map of your balloon's route");
+    this.wrap.setAttribute('aria-label', 'A map of the balloon’s route');
     this.base = document.createElement('canvas');
     this.base.className = 'map2d-coast';
     this.top = document.createElement('canvas');
@@ -496,7 +496,7 @@ export class Fallback implements World {
       if (this.flight !== fl) return;
       const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
       this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
-      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
+      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing }));
       const country = place?.kind === 'town' ? place.country ?? null : null;
       const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched ?? false };
       const say = announcement(this.said, next);
@@ -505,7 +505,7 @@ export class Fallback implements World {
       if (country) this.lastCountry = country;
       this.wrap.setAttribute(
         'aria-label',
-        sceneLabel({ own: fl.own, over: over || 'open country', km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
+        sceneLabel({ own: fl.own, over: over || GENERIC_LAND, km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
       );
     } catch {
       /* names are a nicety: the map goes on without them */

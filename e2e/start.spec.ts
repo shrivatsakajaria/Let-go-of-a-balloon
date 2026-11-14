@@ -25,7 +25,7 @@ test.describe('start screen', () => {
     const net = await offline(page);
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Let go of a balloon');
-    await expect(page.getByText("Pick a place, let go, and follow it on today's real winds for three days")).toBeVisible();
+    await expect(page.getByText("Pick a place, let go, and follow it on today’s real winds for three days")).toBeVisible();
     await expect(fromButton(page)).toHaveText('From London');
     const c = await letGo(page);
     expect(c).toEqual({ name: 'London', lat: 51.5007, lon: -0.1263, kind: 'default', cityId: 'london' });
@@ -126,7 +126,7 @@ test.describe('start screen', () => {
     await expect(fromButton(page)).toHaveText('From Paris');
     // Let go still goes, with nowhere to remember the place (offline here, so the winds cannot load)
     await page.getByRole('button', { name: 'Let go', exact: true }).click();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -272,7 +272,7 @@ test.describe('town search', () => {
     await page.goto('/');
     await fromButton(page).click();
     await page.getByRole('combobox').fill('Leeds');
-    await expect(page.getByText("We can't search right now. Try again in a moment.")).toBeVisible();
+    await expect(page.getByText("We can’t search right now. Try again in a moment.")).toBeVisible();
   });
 
   test('Let go still works when the open-space code cannot load', async ({ page }) => {
@@ -387,7 +387,7 @@ test.describe('my location', () => {
     });
     await page.goto('/');
     await page.getByRole('button', { name: 'Use my location' }).click();
-    await expect(page.getByText("We couldn't find you. Try again, or search for your town.")).toBeVisible();
+    await expect(page.getByText("We couldn’t find you. Try again, or search for your town.")).toBeVisible();
     await expect(page.getByText('Location is off. Search for your town instead.')).toBeHidden();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Use my location' }).click();
@@ -422,7 +422,7 @@ test.describe('page shell', () => {
     await page.goto('/');
     const meta = (sel: string) => page.locator(sel).getAttribute('content');
     expect(await meta('meta[property="og:title"]')).toBe('Let go of a balloon');
-    expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today's real winds for three days");
+    expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today’s real winds for three days");
     expect(await meta('meta[property="og:image"]')).toBe('https://let-go-of-a-balloon.pages.dev/og.png');
     expect(await meta('meta[property="og:image:width"]')).toBe('1200');
     expect(await meta('meta[property="og:image:height"]')).toBe('627');

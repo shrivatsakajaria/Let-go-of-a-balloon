@@ -84,7 +84,7 @@ test('route not ready at 1.2 s: the person holds on, then the winds error after 
   const t0 = Date.now();
   await page.waitForTimeout(2500);
   expect((await hook(page))!.person).toBe('holding'); // no spinner: the person keeps holding it
-  const msg = page.getByText("We can't get today's winds right now. Try again in a few minutes.");
+  const msg = page.getByText("We can’t get today’s winds right now. Try again in a few minutes.");
   await expect(msg).toBeVisible({ timeout: 20_000 });
   expect(Date.now() - t0).toBeGreaterThan(5500);
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
@@ -101,7 +101,7 @@ test('winds unavailable says so plainly, with Try again', async ({ context, page
   await page.goto('/');
   await ready(page);
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
   // it tries again (and the person holds on again) rather than staying stuck
@@ -324,9 +324,9 @@ test('with no WebGL a link opens on the 2D map (not that the winds failed); "Let
     } as typeof get;
   });
   await page.goto(await linkTo(eastward(10)));
-  await expect(page.getByText("Your phone can't show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Your phone can’t show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.map2d')).toBeVisible();
-  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeHidden();
+  await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeHidden();
   await page.getByRole('button', { name: 'Let go of your own' }).click();
   expect(new URL(page.url()).hash).toBe('');
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
@@ -337,7 +337,7 @@ test('if the world cannot be fetched, Let go says so and offers Try again', asyn
   await context.route(/\/assets\/live-[^/]*\.js$/, (r) => r.abort('failed'));
   await page.goto('/');
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  await expect(page.getByText("The balloon didn't load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("The balloon didn’t load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
