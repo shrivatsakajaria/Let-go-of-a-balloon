@@ -506,7 +506,7 @@ export class LiveScene {
     const now = rp ? rs.now : this.clock.at(t, Date.now());
 
     // where the balloon is on its route
-    const route = this.route;
+    let route = this.route;
     const landed = !!route && this.released && !rp && now >= route.release + FLIGHT_HOURS * H;
     const pt = this.point;
     if (route && this.released) positionAt(route, now, pt);
@@ -530,6 +530,12 @@ export class LiveScene {
 
     if (this.holdUntil && performance.now() >= this.holdUntil.at) this.holdUntil.expire();
     if (!rp) this.updatePerson(dt);
+    // the hand opened just now (in updatePerson): this frame already shows the balloon on its route, so the
+    // next does not jump there from the start
+    if (!route && this.route && this.released && !rp) {
+      route = this.route;
+      positionAt(route, now, pt);
+    }
     let y = !this.released ? this.feetS + 1.5 : landed ? this.groundS + LANDED_M : sceneAltitude(pt.altM, pt.groundM, this.groundS);
     // never inside a landmark's own ground (the route's climb starts from it: this only catches a
     // replayed route, which knows nothing of the terrace)

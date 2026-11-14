@@ -17,7 +17,10 @@ describe('frame clock', () => {
       const frame = 1000 + i * (1000 / 60);
       const wall = Math.floor(wall0 + frame + rnd() * 4); // the callback runs up to 4 ms late
       const now = c.at(frame, wall);
-      if (i > 0) expect(now - prev).toBeCloseTo(1000 / 60, 3); // (doubles near 1.8e12 ms hold about a microsecond)
+      // it settles on the least delay seen within a few frames, half a millisecond a frame at most; from then on
+      // frame for frame (doubles near 1.8e12 ms hold about a microsecond)
+      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(0.51);
+      if (i > 120) expect(now - prev).toBeCloseTo(1000 / 60, 3);
       expect(Math.abs(now - (wall0 + frame))).toBeLessThan(6); // and it is the wall clock's time
       prev = now;
     }
@@ -30,6 +33,20 @@ describe('frame clock', () => {
     // the machine slept for an hour: the frame clock barely moved, the wall clock did
     expect(c.at(1033, 5_000_033 + 3_600_000)).toBe(5_000_033 + 3_600_000);
     expect(c.at(1050, 5_000_050 + 3_600_000)).toBeCloseTo(5_000_050 + 3_600_000, 6);
+  });
+
+  test('a first frame whose callback ran late (a page still loading) is not kept: the clock settles on the true offset, gently', () => {
+    const c = new FrameClock();
+    const wall0 = 1_800_000_000_000;
+    let prev = Number.NaN;
+    for (let i = 0; i < 600; i++) {
+      const frame = 1000 + i * (1000 / 60);
+      const late = i === 0 ? 200 : 1; // the first callback ran 200 ms after its frame began
+      const now = c.at(frame, wall0 + frame + late);
+      if (i > 0) expect(Math.abs(now - prev - 1000 / 60)).toBeLessThan(0.51); // never a step: half a millisecond a frame at most
+      prev = now;
+    }
+    expect(Math.abs(prev - (wall0 + 1000 + 599 * (1000 / 60) + 1))).toBeLessThan(1);
   });
 
   test('non-finite input falls back to the wall clock', () => {
