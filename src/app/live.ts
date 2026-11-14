@@ -96,6 +96,10 @@ export type LiveHook = {
   peak: { triangles: number; calls: number; shadowTriangles: number; shadowCalls: number };
   /** WebGL context losses so far. */
   contextLosses: number;
+  /** The wind streaks' opacity now (0: not drawn). */
+  streaks: number;
+  /** How many wind streaks are on screen now (0: not drawn). */
+  streaksOnScreen: number;
 };
 
 export class Live {
@@ -153,7 +157,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, streaks: 0, streaksOnScreen: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
   private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -187,6 +191,8 @@ export class Live {
     if (this.testing) {
       // read when asked, not per frame: a starved renderer can go seconds without one
       Object.defineProperty(this.hook, 'replay', { enumerable: true, get: () => this.replayRun !== null });
+      Object.defineProperty(this.hook, 'streaks', { enumerable: true, get: () => (this.scene.streaks.mesh.visible ? this.scene.streaks.opacity : 0) });
+      Object.defineProperty(this.hook, 'streaksOnScreen', { enumerable: true, get: () => this.scene.streaks.onScreen(this.scene.camera) });
       Object.defineProperty(this.hook, 'trail', { enumerable: true, get: () => !!this.scene.scene.getObjectByName('replay-trail') });
       (window as unknown as { __live: LiveHook }).__live = this.hook;
       // for the browser test of dispose: how many objects are left in the 3D scene afterwards
