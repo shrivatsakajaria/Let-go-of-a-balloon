@@ -33,15 +33,21 @@ test.describe('start screen', () => {
     expect(net.searches).toHaveLength(0);
   });
 
-  test('the simulation notice and the map credit are on screen', async ({ page }) => {
+  test('the small print is one line: "A simulation" and the map credit; the full notice is in About', async ({ page }) => {
     await offline(page);
     await page.goto('/');
-    // the start screen's own copy (the HUD has one too, hidden, once the live flight has loaded)
-    await expect(page.locator('#app').getByText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.')).toBeInViewport();
+    // owner's decision, 14 November 2026 (panel review): one short line, the rest in the About sheet
+    await expect(page.locator('.start .notice')).toHaveText('A simulation');
+    await expect(page.locator('.start .notice')).toBeInViewport();
     const credit = page.locator('.start .map-credit');
-    await expect(credit).toHaveText('OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn');
+    await expect(credit).toHaveText('© OpenStreetMap · OpenMapTiles · Mapterhorn');
     await expect(credit).toBeInViewport();
-    await expect(credit.getByRole('link')).toHaveCount(4);
+    await expect(credit.getByRole('link')).toHaveCount(3);
+    const fine = (await page.locator('.start .fineprint').boundingBox())!;
+    expect(fine.height).toBeLessThanOrEqual(26);
+    await page.getByRole('button', { name: 'About' }).click();
+    await expect(page.getByRole('dialog', { name: 'About' })).toContainText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.');
+    await expect(page.getByRole('dialog', { name: 'About' })).toContainText('It flies on for three days. Come back any time to see where it is.');
   });
 
   test('the notice and the map credit share one row of small print', async ({ page }) => {
@@ -87,16 +93,13 @@ test.describe('start screen', () => {
       const b = (await a.boundingBox())!;
       expect(b.x + b.width).toBeLessThanOrEqual(320 - 16 + 1);
     }
-    const n = (await page.locator('.start .notice').boundingBox())!;
-    const c = (await page.locator('.start .map-credit').boundingBox())!;
-    expect(n.x + n.width).toBeLessThanOrEqual(c.x);
   });
 
-  test('credits list every source and "A Still Signal build", and close with Escape', async ({ page }) => {
+  test('the About sheet lists every source and "A Still Signal build", and closes with Escape', async ({ page }) => {
     await offline(page);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Credits' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Credits' });
+    await page.getByRole('button', { name: 'About' }).click();
+    const dialog = page.getByRole('dialog', { name: 'About' });
     await expect(dialog).toBeVisible();
     for (const t of ['NOAA GFS', 'Place search: Open-Meteo.com (GeoNames, CC BY 4.0)', 'Place names: GeoNames', '© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.', 'A Still Signal build']) {
       await expect(dialog).toContainText(t);
@@ -184,28 +187,56 @@ test.describe('layout on a phone inside an in-app browser (390 x 660)', () => {
 });
 
 test.describe('featured cities', () => {
-  test('one sideways row of six plain text links, launch batch first', async ({ page }) => {
+  test('one sideways row of six chips, launch batch first, that reads as a scroller', async ({ page }) => {
     await offline(page);
     await page.goto('/');
     const row = page.getByRole('list', { name: 'Featured cities' });
     const items = row.getByRole('button');
     await expect(items).toHaveText(['Paris', 'New York', 'Tokyo', 'Sydney', 'Rio de Janeiro', 'Cappadocia']);
-    // one row: every item shares a top edge; plain text: no fill, border or rounded box
+    // one row of chips (owner's decision, 14 November 2026): every item shares a top edge, each a hairline box
     const boxes = await items.evaluateAll((els) => els.map((el) => {
       const s = getComputedStyle(el);
-      return { top: el.getBoundingClientRect().top, bg: s.backgroundColor, border: s.borderTopWidth, radius: s.borderTopLeftRadius };
+      return { top: el.getBoundingClientRect().top, height: el.getBoundingClientRect().height, border: s.borderTopWidth, radius: s.borderTopLeftRadius };
     }));
     for (const b of boxes) {
       expect(b.top).toBe(boxes[0].top);
-      expect(b.bg).toBe('rgba(0, 0, 0, 0)');
-      expect(b.border).toBe('0px');
-      expect(b.radius).toBe('0px');
+      expect(b.height).toBeGreaterThanOrEqual(44);
+      expect(b.border).toBe('1px');
+      expect(b.radius).toBe('8px');
     }
-    expect(await row.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto');
+    // it scrolls, snaps, and fades at the edge where it runs off (nothing looks cut off by accident)
+    const s = await row.evaluate((el) => { const c = getComputedStyle(el); return { x: c.overflowX, snap: c.scrollSnapType, mask: c.maskImage }; });
+    expect(s.x).toBe('auto');
+    expect(s.snap).toMatch(/^x/);
+    expect(s.mask).toMatch(/gradient/);
+    // scrolled to the end, the last city is wholly clear of the fade
+    await row.evaluate((el) => (el.scrollLeft = el.scrollWidth));
+    const last = (await items.last().boundingBox())!;
+    expect(last.x + last.width).toBeLessThanOrEqual(390 - 16 - 1);
+  });
+
+  test('the place, "Use my location" and the cities are drawn as controls, and Let go stays the one solid button', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    const look = (sel: string) => page.locator(sel).evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { border: parseFloat(s.borderTopWidth), radius: s.borderTopLeftRadius, decoration: s.textDecorationLine, h: el.getBoundingClientRect().height };
+    });
+    for (const sel of ['.from', '.locate']) {
+      const l = await look(sel);
+      expect(l.border, sel).toBeGreaterThanOrEqual(1);
+      expect(l.radius, sel).toBe('8px');
+      expect(l.decoration, sel).toBe('none');
+      expect(l.h, sel).toBeGreaterThanOrEqual(44);
+    }
+    await expect(page.locator('.from svg')).toHaveCount(2); // the pin and the chevron
   });
 });
 
 test.describe('town search', () => {
+  // a British visitor: the browser's language and time zone are the only hints for the ranking
+  test.use({ locale: 'en-GB', timezoneId: 'Europe/London' });
+
   test('search input follows the combobox pattern (role, aria-expanded, aria-activedescendant)', async ({ page }) => {
     const net = await offline(page);
     await page.goto('/');
@@ -221,7 +252,9 @@ test.describe('town search', () => {
     await expect(box).toHaveAttribute('aria-expanded', 'true');
     const options = list.getByRole('option');
     await expect(options).toHaveCount(8);
-    await expect(options.nth(1)).toHaveText('Windermere, England, United Kingdom');
+    // owner's decision, 14 November 2026 (panel review): the visitor's own country first, then by population
+    await expect(options.nth(0)).toHaveText('Windermere, England, United Kingdom');
+    await expect(options.nth(1)).toHaveText('Windermere, Florida, United States');
     // debounced: one request for the whole word, not one per letter
     expect(net.searches).toEqual(['?name=Winder&count=8&language=en']);
     await expect(box).not.toHaveAttribute('aria-activedescendant');
@@ -238,7 +271,8 @@ test.describe('town search', () => {
     await expect(box).toBeVisible();
     await page.keyboard.press('ArrowDown');
     await expect(box).toHaveAttribute('aria-expanded', 'true');
-    await page.keyboard.press('ArrowDown');
+    // the first option is the one in England for this visitor (ranked first)
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Enter');
     await expect(box).toBeHidden();
     await expect(fromButton(page)).toHaveText('From Windermere');
@@ -351,6 +385,19 @@ test.describe('town search', () => {
   });
 });
 
+test.describe('search ranking for a visitor elsewhere', () => {
+  test.use({ locale: 'en-US', timezoneId: 'America/New_York' });
+
+  test('a visitor in the eastern United States gets the Windermere in Florida first; the search asks nothing new', async ({ page }) => {
+    const net = await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    await page.getByRole('combobox').fill('Windermere');
+    await expect(page.getByRole('option').first()).toHaveText('Windermere, Florida, United States');
+    expect(net.searches).toEqual(['?name=Windermere&count=8&language=en']);
+  });
+});
+
 test.describe('my location', () => {
   test('Use my location starts the route at the exact GPS position', async ({ browser }) => {
     const ctx = await browser.newContext({
@@ -434,7 +481,12 @@ test.describe('your balloons', () => {
     });
     await page.reload();
     const group = page.getByRole('group', { name: 'Your balloons' });
-    await expect(group.getByRole('button')).toHaveText('Lisbon · 14 h aloft');
+    // a row (owner's decision, 14 November 2026): the start, where it is now and the time aloft, one tap
+    const row = group.getByRole('button');
+    await expect(row.locator('.mine-name')).toHaveText('Lisbon');
+    await expect(row.locator('.mine-time')).toHaveText('14 h aloft');
+    await expect(row.locator('.mine-where')).toHaveText(/^(Over|Near) \S/, { timeout: 10_000 });
+    expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await group.getByRole('button').click();
     // the balloon opens: its link is in the address (here on the 2D map, as these checks run without WebGL)
     await expect.poll(() => page.evaluate(() => location.hash), { timeout: 10_000 }).toMatch(/^#b=/);

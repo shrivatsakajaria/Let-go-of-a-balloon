@@ -18,7 +18,8 @@ export const COPY = {
   tryAgain: 'Try again',
   brokenLink: 'This balloon link is broken.',
   letGoNewOne: 'Let go of a new one',
-  noWebGL: 'Your phone can’t show the 3D world, so here is the route on a map.',
+  // owner's decision, 14 November 2026 (panel review): neutral, not "your phone can't"
+  noWebGL: 'Showing the map view on this device.',
   wholeTrip: 'Show me the whole trip',
   backToLive: 'Back to live',
   replayLabel: 'Forecast route, 72 hours in 20 seconds',
@@ -38,6 +39,14 @@ export const COPY = {
   yourLocation: 'Your location',
   cancel: 'Cancel',
   credits: 'Credits',
+  // owner's decisions, 14 November 2026 (panel review): the small print folds into one line and the About sheet
+  about: 'About',
+  simulation: 'A simulation',
+  /** What happens next: the About sheet, and the first fact once a flight of your own has settled. */
+  next: 'It flies on for three days. Come back any time to see where it is.',
+  addToCalendar: 'Add to calendar',
+  showAll: (n: number) => `Show all ${n}`,
+  showFewer: 'Show fewer',
   close: 'Close',
   featured: 'Featured cities',
   yourBalloons: 'Your balloons',

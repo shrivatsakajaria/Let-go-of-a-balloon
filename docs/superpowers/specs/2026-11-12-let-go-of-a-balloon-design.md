@@ -77,17 +77,20 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
 ## 6. The experience, step by step
 
 ### 6.1 Start screen
-- Let go works at once, with no search needed. It starts from the last place used, or from Parliament Square in London the first time. Above the button, a tappable line "From London" opens the search.
+- Let go works at once, with no search needed. It starts from the last place used, or from Parliament Square in London the first time. Above the button, "From London" opens the search. It is drawn as a control, not as underlined text: a chip with a map pin and a chevron, a hairline border and 8 px corners (owner's decision, 14 November 2026 (panel review)).
 - Top to bottom:
   - title;
   - one-line explainer;
   - the person and the balloon in the live scene (middle third of the screen, nothing on top of them);
   - "From London";
   - the Let go button;
-  - "Use my location" as a quiet text link;
-  - featured cities as one sideways-scrolling row of six text chips (launch batch first);
-  - "Your balloons", only if the visitor has any.
+  - "Use my location" as a secondary button beside Let go: outlined, with a locate mark, never filled (owner's decision, 14 November 2026 (panel review)). Let go stays the one solid, orange, dominant action;
+  - featured cities as one sideways-scrolling row of six chips (launch batch first), each a hairline box at least 44 px tall. The row reads as a scroller: it snaps, and a 48 px edge fade covers the chip running off the edge, with room to scroll the last chip fully clear of it, so nothing looks cut off by accident (owner's decision, 14 November 2026 (panel review));
+  - "Your balloons", only if the visitor has any (below);
+  - one line of small print: "A simulation" and the map credit (see 7.1), with the full notice and every credit in the About sheet (owner's decision, 14 November 2026 (panel review)).
+- The top right holds "About". It opens the About sheet: the simulation notice in full (7.4), what happens next ("It flies on for three days. Come back any time to see where it is."), and the credits, ending "A Still Signal build". The flight HUD's small print has its own "About", which opens the same sheet (owner's decision, 14 November 2026 (panel review)).
 - Town search: Open-Meteo's free place-name search, called from the visitor's browser. Each suggestion shows the place name, region and country so places can be told apart, for example "Windermere, England, United Kingdom". It uses the accessible combobox pattern.
+- Search ranking (owner's decision, 14 November 2026 (panel review)): results in the visitor's own country come first, then bigger places before smaller ones (Open-Meteo's order breaks ties). The hints are the region of the browser's languages (`navigator.languages`, "en-GB" is Great Britain) and its time zone, compared with each result's country code (2 points) and time zone (1 point), so a British visitor abroad still gets British places first. They are read and used in the browser only; nothing new is sent to any server beyond the existing place-name query. A British visitor gets Windermere in England first; one in Florida gets the Florida one.
 - Featured cities come from `launch-cities.csv`. A featured city starts at its named launch spot. Any other place starts at the point the search returns, moved to the nearest open public space if it lands inside a building. "Use my location" starts exactly where the visitor is, from their phone's GPS.
 - Arriving from a shared link opens that balloon's live flight, not the start screen, with "Let go of your own" as the second action.
 - The 3D world is live behind the start screen at the real time of day for the start place. The page never shows a blank screen or a spinner (see 7.2).
@@ -114,8 +117,10 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
 - The route is worked out once, at the moment of release, from the latest wind data, and never changes after that.
 - The balloon's position at any moment is the route at (now minus release time). Opening the page tomorrow shows it further along the same route.
 - While someone watches, the camera is fully directed, like a film (section 8). There is no free drag-and-spin camera.
-- A live facts line changes every few seconds. Examples: current speed and direction of the wind at 1.5 km; "At 31 km/h it would cross Leeds in about 23 minutes"; distance from home so far; what it is over now ("Over the North Sea", "Over the Lake District"); local time at the balloon; time until sunrise or sunset there; how long until it is expected to land. Place names come from the map data under the balloon.
+- A live facts line changes every few seconds. For the visitor's own balloon the first fact says what happens next: "It flies on for three days. Come back any time to see where it is." It then rotates out (owner's decision, 14 November 2026 (panel review)). Examples: current speed and direction of the wind at 1.5 km; "At 31 km/h it would cross Leeds in about 23 minutes"; distance from home so far; what it is over now ("Over the North Sea", "Over the Lake District"); local time at the balloon; time until sunrise or sunset there; how long until it is expected to land. Place names come from the map data under the balloon.
 - A small header shows the local time at the balloon, its height, speed and what it is over, with a thin progress line across the 72 hours (the balloon's string as the signature UI detail).
+- Place names people can place (owner's decision, 14 November 2026 (panel review)): the landing line always names a town's country ("Expected to land near Strzelce Krajeńskie, Poland", "Landed near Bergen, Norway"); "Over ..." and the town in the crossing fact name the country when it is not the start's, taken from the same source as the name (a map label's town from the gazetteer town of that name; water, parks, peaks and regions name none, since they can lie across borders) ("Over Wijhe, Netherlands", "At this speed it would cross Rijssen, Netherlands, in about 8 minutes"). The start's country comes from the gazetteer. Generic names stay lower case and alone (R56). The landing card's copy is its own and unchanged.
+- "Add to calendar" (owner's decision, 14 November 2026 (panel review)) sits on the day line, beside Pause, while the balloon is up (never once it has landed, nor in the replay). It saves an .ics file: on iOS and iPadOS it opens a `data:text/calendar` URL (no download, which iOS would only offer to save to Files), so Safari offers "Add to Calendar"; elsewhere it downloads; in in-app browsers (LinkedIn, X, Facebook, Instagram), which drop both, it is not offered. The file holds one event at the expected landing, 72 hours after release, in UTC (DTSTART and DTEND 15 minutes apart), titled "My balloon from London lands" ("A balloon from ..." for someone else's; a "Use my location" start by its place, as on the card), with the balloon's own link in the description and URL, and a reminder 15 minutes before. Text is escaped and lines folded at 75 octets (RFC 5545).
 
 ### 6.4 "Show me the whole trip"
 - Plays the full 72-hour forecast route in about 20 seconds: a wide, high camera follows the route, a trail draws behind the balloon, night and day sweep across the land as the days pass, and large place names appear as it crosses them.
@@ -140,7 +145,8 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
 
 ### 6.6 Coming back and sharing a link
 - Each balloon gets a link that encodes everything needed to show it again: start point and place name, release time, and the route itself (72 hourly points, quantised and compressed into the address). No server or database. The link works on any device and shows the same route.
-- The visitor's own balloons are also remembered in their browser (local storage) and listed on the start screen ("Your balloons"). Storage may be unavailable; everything must still work without it.
+- The visitor's own balloons are also remembered in their browser (local storage, at most 20) and listed on the start screen ("Your balloons"). Storage may be unavailable; everything must still work without it.
+- "Your balloons" is a short list of rows, the main reason to come back (owner's decision, 14 November 2026 (panel review)). Each row is one tap target at least 44 px tall: the start place, the time aloft ("25 min aloft", "14 h aloft") and, under them, where it is now ("Over the North Sea", "Near Dijon, France", "Landed near Strzelce Krajeńskie, Poland", "Came down in the North Sea"), worked out in the browser from the saved hourly points and the gazetteer. The newest three show on a phone (one on a screen under 760 px tall, such as a phone inside an in-app browser, so the person and the balloon keep the middle third), with "Show all 7" on the label's line.
 - "Use my location" uses the exact GPS position, with no rounding or moving (SK's decision). Nothing is sent to any server; the start point only leaves the phone if the visitor chooses to share their link or card.
 
 ### 6.7 Edge cases to handle
@@ -150,7 +156,7 @@ Three styles were prototyped (Sculpted terraces like Godus, Low-poly like Polyto
 - Places with little or no building data: fill built-up areas with generic houses in the same style, at a believable density.
 - Launches at night or in winter darkness: the scene must still read (lit windows, street lamps, a faint rim of light on the balloon).
 - Weather data late or missing: fall back to the previous run; if a route cannot be computed, say so plainly and offer to try again.
-- No WebGL or a very weak phone: show a simple 2D fallback of the route and the landing card.
+- No WebGL or a very weak phone: show a simple 2D fallback of the route and the landing card, with the note "Showing the map view on this device." where the view switch would be (owner's decision, 14 November 2026 (panel review): said neutrally, never "your phone can't").
 - Reduced motion setting: calmer camera, no fast replays unless asked.
 - Location permission refused: fall back to search, no nagging.
 - Say clearly, on screen, that it is a simulation using forecast winds, not a real balloon.
@@ -168,7 +174,7 @@ Agreed by SK after the panel. The prototype in `docs/reference/style-prototype/`
 - **Water:** faceted sea with occasional glinting facets; a deep blue edge (`#2b7fb0`) at the coast so coastlines read; shallows paler (`#8fd3cf`). Rivers and lakes from map data.
 - **Sky and light:** the sun and moon follow the real position for the balloon's place and time. Dawn, day, golden hour, dusk and night each have a defined palette. At night: ink-blue sky, stars, warm windows and street lamps, city glow where roads and buildings are densest.
 - **Distance:** the land runs to the horizon and fades into haze in the sky colour. No floating island, no edges.
-- **Wind streaks** (owner's decision, 14 November 2026): once the balloon is clearly up (from about 300 m above the ground, never in the launch's crane shot), thin, pale, off-white streaks fade in over a few seconds, all slanted along the wind and flowing with it, like rain blown sideways over the whole view (on any screen shape, portrait or landscape), varied in length and brightness and fading at both ends, with distance and into the haze. They live in world space round the balloon's height and are carried by the real wind at the balloon; since the balloon rides that wind (in its own frame the air is still), they flow past it at 5 m/s plus twice the wind's speed (three times the wind over the ground, plus 5 m/s), so they visibly flow in a light wind and faster in a strong one; in a calm they drift slowly the way the wind last blew, never stopping dead. Pause holds them still, still shown. More visible at night, subtle by day; never over the balloon (one in front of it fades out), and the land, the lights and the text read through them. They show in Ride, Above, Side-on and Film, fade out below that height and in the last minutes before landing, and are left out of the whole-trip replay. With reduced motion they are off, and on a software renderer (a browser drawing WebGL without a GPU), where they would cost frames for nothing. One draw call, a few thousand vertices, moved on the GPU.
+- **Wind streaks** (owner's decision, 14 November 2026): once the balloon is clearly up (from about 300 m above the ground, never in the launch's crane shot), thin, pale, off-white streaks fade in over a few seconds, all slanted along the wind and flowing with it, like rain blown sideways over the whole view (on any screen shape, portrait or landscape), varied in length and brightness and fading at both ends, with distance and into the haze. They live in world space round the balloon's height and are carried by the real wind at the balloon; since the balloon rides that wind (in its own frame the air is still), they flow past it at 5 m/s plus twice the wind's speed (three times the wind over the ground, plus 5 m/s), so they visibly flow in a light wind and faster in a strong one; in a calm they drift slowly the way the wind last blew, never stopping dead. Pause holds them still, still shown. More visible at night, subtle by day; never over the balloon (one in front of it fades out), and the land, the lights and the text read through them. They show in Film (its ride shots included), Above and Side-on, fade out below that height and in the last minutes before landing, and are left out of the whole-trip replay. With reduced motion they are off, and on a software renderer (a browser drawing WebGL without a GPU), where they would cost frames for nothing. One draw call, a few thousand vertices, moved on the GPU.
 - **Person** (ruling R62): anonymous and faceless, slightly stylised (a touch larger head and hands, soft rounded forms), low-poly and flat-shaded like the world but crafted from turned, bevelled shapes. A coat in a warm muted tone, a contrasting scarf whose end lifts gently in the wind, a hat or a hair shape, dark trousers, a neutral skin tone. One of four outfits (camel coat and beanie, plum coat and bob, ochre coat and flat cap, chestnut coat and bun), chosen from the start place so a place always shows the same person. Every colour stays far below the balloon's saturation. About 3,000 triangles, one draw call.
 - **Balloon:** smooth, glossy, bright orange-red (`#ff5a12`), the one bright element, with a pinched neck and a small tied knot where the string is tied. Physical: it squashes and stretches, leans into the wind, wobbles, slowly spins, and its string swings (a simple rope simulation).
 - **Signature detail:** the balloon's shadow stepping down the terraces as it drifts, visible in daylight.
@@ -191,22 +197,25 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
   | Footer | 11 px | | | |
 
 - **Shading behind text:**
-  - Bottom gradient: 300 px tall, ink `rgba(10,14,28)` fading from 0.6 to 0.
+  - Bottom gradient: 300 px tall, ink `rgba(10,14,28)` fading from 0.65 to 0 (0.6 at first; 0.65 keeps the 11 px small print at 4.5:1 over bright start scenes, owner's decision, 14 November 2026 (panel review)).
   - Top gradient: 170 px tall, from 0.5.
   - About once a second, measure how bright the scene is behind the text, and darken both gradients by up to 0.15 more when it is bright.
   - Text must reach 4.5:1 contrast over noon, snow and sand scenes.
+  - Over the live world in flight the bottom gradient starts from 0.68, not 0.6 (still up to 0.15 more when bright), and the fact line is weight 500 and swaps in 160 ms, so it never sits half-faded: busy, mid-bright ground such as farmland measures as only middling yet thin text over it needed the help (owner's decision, 14 November 2026 (panel review)).
 - **Layout (phones):**
   - Design for a visible area of about 390 x 660 inside in-app browsers. Use `100dvh` and safe-area padding, and keep the bottom 40 px free of anything important.
   - Top left: the clock, with "Over the Lake District" under it. There is no time-of-day word; the light shows it.
-  - Bottom, in order: the fact line, the string line, the view switch, the main action.
+  - Bottom, in order: the fact line, the string line (with the day line, "Add to calendar" and Pause under it), the view switch, the main action, the one line of small print.
+- **Small print (owner's decision, 14 November 2026 (panel review)):** one line at 11 px wherever the map shows: "A simulation" on the left (with "About" in the flight HUD), and the map credit "© OpenStreetMap · OpenMapTiles · Mapterhorn" on the right, each source a 24 px link. OpenFreeMap and every other source are credited in full in the About sheet. The disclaimer itself moved into the About sheet; "A simulation" stays visible for honesty.
 - **The string line (signature detail):**
   - A 1.5 px off-white track at 35% opacity, the full width.
   - An orange fill from release to now, ending in a 6 px knot.
   - Small ticks at each local midnight, and a hollow ring at 72 hours.
   - Under it: "Day 1 of 3 · 14 h aloft".
-- **View switch:** text only, "Film · Ride · Above · Side-on". The selected view is off-white with a 2 px underline; the others are at 66% opacity (60% at first; 66% keeps them at 4.5:1 over a bright noon scene under the full shading, ruling R54). No pills, boxes or background blur.
+- **View switch:** text only, "Film · Above · Side-on" (Ride dropped as a tab, owner's decision, 14 November 2026 (panel review): Film still cuts to its ride shots as it cycles, and a page or link that asks for "ride" shows Film chosen). The selected view is off-white with a 2 px underline; the others are at 66% opacity (60% at first; 66% keeps them at 4.5:1 over a bright noon scene under the full shading, ruling R54). No pills, boxes or background blur.
 - **Buttons:**
   - Let go: orange `#ff5a12` with a white label at least 19 px bold, so it counts as large text for contrast.
+  - Start-screen controls that choose a place are drawn as controls (owner's decision, 14 November 2026 (panel review)): the place chip, "Use my location" (outlined, 1.5 px, 52 px tall beside Let go) and the city chips (1 px hairline, 8 px corners, a faint ink tint, no blur). The chosen city's chip has a full-strength border.
   - During the flight the main action is "Show me the whole trip": off-white fill with ink text.
   - Orange is used only for Let go and the string line.
   - Touch targets are at least 44 px.
@@ -251,6 +260,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - Copy link (then "Link copied")
 - Let go of another
 - Let go of your own
+- About, Add to calendar, Show all 7 (owner's decision, 14 November 2026 (panel review))
 
 **Replay label:** Forecast route, 72 hours in 20 seconds
 
@@ -268,7 +278,7 @@ Interface chrome: quiet. Off-white text over soft gradient shading at the top an
 - No places found. Try a nearby town.
 - Location is off. Search for your town instead.
 - This balloon link is broken. [Let go of a new one]
-- Your phone can't show the 3D world, so here is the route on a map.
+- Showing the map view on this device. (owner's decision, 14 November 2026 (panel review); it replaced "Your phone can't show the 3D world, so here is the route on a map.")
 
 ## 8. The camera
 
@@ -279,10 +289,10 @@ Fully directed, like a film. People can choose a view with buttons, but cannot d
 - **Circling:** slow orbit from above and to one side, looking down at the balloon and the land.
 - **Side-on:** level with the balloon, land or sea passing below, horizon in view.
 - **Straight down:** looking down past the balloon at the ground.
-- In live mode the camera moves between these by itself with smooth, slow transitions (no hard cuts). Film mode changes shot on events: crossing a coast, sunset or sunrise, entering a city, or a landmark coming into view. The fixed rotation of 40 s Ride, 30 s Circling, 30 s Side-on and 20 s Straight down is only the fallback when nothing happens. The view buttons are Film (automatic), Ride, Above and Side-on.
+- In live mode the camera moves between these by itself with smooth, slow transitions (no hard cuts). Film mode changes shot on events: crossing a coast, sunset or sunrise, entering a city, or a landmark coming into view. The fixed rotation of 40 s Ride, 30 s Circling, 30 s Side-on and 20 s Straight down is only the fallback when nothing happens. The view buttons are Film (automatic), Above and Side-on; Ride is no longer a button of its own but stays one of Film's shots (owner's decision, 14 November 2026 (panel review)).
 - In Ride, the balloon fills between 18% and 35% of the screen height, never cropped or oversized.
 - Launch timing:
-  - On tap, the button scales to 0.97 and all chrome except the clock fades out over 300 ms, giving a clean frame for recordings.
+  - On tap, the button scales to 0.97 and all chrome fades out over 300 ms, the clock and the top shading too, giving a clean frame for recordings; the clock comes back with the HUD when the launch settles (owner's decision, 14 November 2026 (panel review): the lone clock read as clutter).
   - At 1.2 s the hand opens and the balloon squashes for 120 ms.
   - Then the crane shot (rulings R51, R57): in one eased move with no cuts the camera opens with the hand and rises with the balloon, close to it (the balloon about 6-9% of the frame's height), a little below it and to the side, the featured landmark beyond it where there is one. Facades and windows slide down the frame and the sky opens above; the camera eases back a little as it rises. It keeps the balloon in sight every frame, going round or over a building in the way, and never faces a wall close by.
   - Once the balloon has cleared the rooftops round it (within about 30 m, with a margin), and no wall that would hem Ride in stands over its path in the next few seconds, not at a fixed time, the camera pushes in on the balloon over the roofs and Ride settles; the HUD fades in over 600 ms when Ride settles, no sooner than about 12 s and no later than about 40 s. If the 40 s comes first (a tall landmark beside the balloon's path), the last crane frame is the balloon against the sky with the landmark beside it, and the camera eases into Ride from there. With reduced motion there is no crane: a still frame (the person, the balloon and the landmark) holds until the balloon leaves it, then cuts to Ride, and the 12 s floor does not apply (ruling R58).

@@ -15,7 +15,7 @@ import { SWIFTSHADER, eastward, linkTo } from './fixtures';
  * PERF_CITY=paris (or paris,tokyo) runs only those cities; PERF_SHOTS=dir saves a picture after the launch and of each climb view. Winds are the committed fixture run (Europe only), so the launch
  * itself is flown where it covers (London, Manchester, Paris); every city is also seen on its start
  * screen and from links released 2, 5 and 10 minutes before (the climb: about 180 m, 450 m and 900 m
- * up), each in the Film, Ride and Above views. The clock is set to the city's late afternoon with the
+ * up), each in the Film and Above views (Ride is one of Film's shots). The clock is set to the city's late afternoon with the
  * sun about 10 degrees up: a low sun throws the longest shadow box, the worst case for the shadow pass.
  * Each scene's peaks are recorded as annotations and in the log.
  */
@@ -142,10 +142,10 @@ for (const city of CITIES) {
       await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 120_000 });
       await expect.poll(async () => (await hook(page))?.state, { timeout: 60_000 }).toBe('flight');
       await page.waitForTimeout(12_000);
-      record(`${min} min up`, await sample(page, 24_000, ['film', 'ride', 'above']));
+      record(`${min} min up`, await sample(page, 24_000, ['film', 'above']));
       // PERF_SHOTS=dir: a picture of each view after the sample (to look for holes by the camera)
       if (process.env.PERF_SHOTS) {
-        for (const v of ['film', 'ride', 'above']) {
+        for (const v of ['film', 'above']) {
           await page.locator(`.view[data-view="${v}"]`).click().catch(() => {});
           await page.waitForTimeout(4000);
           await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-${min}min-${v}.png`, timeout: 60_000 }).catch(() => console.log(`perf-cities: no ${v} picture`));

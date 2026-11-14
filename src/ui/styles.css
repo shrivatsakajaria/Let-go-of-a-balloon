@@ -19,7 +19,8 @@
   /* how much the scene behind the text asks the shading to darken (0 to 0.15, measured) */
   --boost: 0;
   --shade-top: calc(0.5 + var(--boost));
-  --shade-bottom: calc(0.6 + var(--boost));
+  /* 0.65, not 7.1's 0.6: the 11 px "A simulation" line reaches 4.5:1 over bright start scenes (review of Task 29) */
+  --shade-bottom: calc(0.65 + var(--boost));
   --gutter: max(16px, env(safe-area-inset-left), env(safe-area-inset-right));
   color-scheme: dark;
 }
@@ -83,9 +84,15 @@ body {
     rgba(var(--ink), calc(var(--shade-top) * 0.1)) 93%,
     rgba(var(--ink), 0) 100%);
 }
-/* in the launch and the flight the HUD's clock and "Over ..." are the text under it */
+/* in the flight the HUD's clock and "Over ..." are the text under it */
 :root[data-view='launch'] .shade-top,
 :root[data-view='flight'] .shade-top { height: var(--shade-top-hud, 170px); }
+/*
+ * Over the live world the bottom band starts darker (0.68, not 0.6) and still takes up to 0.15 more over a
+ * bright scene: busy, mid-bright ground (fields, roofs) measures as only middling, yet thin text over it needs
+ * the help (owner's decision, 14 November 2026, panel review: the fact line read faint over farmland).
+ */
+:root[data-view='flight'] { --shade-bottom: calc(0.68 + var(--boost)); }
 .shade-bottom {
   bottom: 0;
   height: var(--shade-bottom-h, 300px);
@@ -175,27 +182,42 @@ a.link, .small a { color: var(--paper); }
 .link:hover { text-decoration-color: currentColor; }
 .link, .credits-link { display: inline-block; min-height: 44px; line-height: 44px; padding: 0 8px; white-space: nowrap; }
 
-.from {
-  align-self: flex-start;
-  margin-left: -8px;
+/*
+ * Controls that look like controls (owner's decision, 14 November 2026, panel review): the place is a chip with a
+ * pin and a chevron, "Use my location" an outlined button beside Let go, the cities a row of chips. Hairline
+ * borders and the same 8 px corners as Let go; no fills, no blur. Let go stays the one solid, orange thing.
+ */
+.icon { flex: none; display: block; }
+.chip, .secondary {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1px solid rgba(247, 243, 236, 0.5);
+  border-radius: 8px;
+  background: rgba(var(--ink), 0.18);
+  color: var(--paper);
   font-size: 15px;
   font-weight: 600;
-  text-decoration: none;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease), transform 160ms var(--ease);
 }
-.from .place {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
-  text-decoration-color: rgba(247, 243, 236, 0.45);
-  transition: text-decoration-color 160ms var(--ease);
-}
-.from:hover .place { text-decoration-color: currentColor; }
+.chip:hover, .secondary:hover { border-color: var(--paper); background: rgba(var(--ink), 0.3); }
+.chip:active, .secondary:active { transform: scale(0.97); }
+
+.from { align-self: flex-start; padding: 0 12px 0 10px; }
+.from .chev { margin-left: 2px; opacity: 0.85; }
 
 .go-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 10px;
 }
 .letgo {
   flex: 1 1 auto;
@@ -217,78 +239,90 @@ a.link, .small a { color: var(--paper); }
 .letgo:active { transform: scale(0.97); }
 .letgo[aria-busy='true'] { cursor: progress; }
 
-.locate { font-size: 15px; font-weight: 600; white-space: nowrap; }
-.locate[aria-busy='true'] { text-decoration-color: transparent; cursor: progress; }
+.secondary { flex: none; min-height: 52px; padding: 0 14px 0 12px; border-width: 1.5px; border-color: rgba(247, 243, 236, 0.7); }
+.locate[aria-busy='true'] { cursor: progress; }
+.locate[aria-busy='true'] .loc { animation: locate 1.2s var(--ease) infinite alternate; }
+@keyframes locate { to { opacity: 0.35; } }
 
+/* the cities: one sideways row of chips that reads as a scroller (the last chip runs under a soft edge fade) */
 .cities {
   display: flex;
-  gap: 4px;
-  margin: 8px calc(-1 * var(--gutter)) 0;
+  gap: 8px;
+  margin: 12px calc(-1 * var(--gutter)) 0;
   padding: 0 var(--gutter);
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: var(--gutter) 40px; /* a focused city at the end scrolls clear of the edge fade */
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--gutter) 48px; /* a focused city at the end scrolls clear of the edge fade */
   scrollbar-width: none;
   list-style: none;
-  /* a soft fade where the row runs off the right edge */
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
 }
 .cities::-webkit-scrollbar { display: none; }
-.cities li { flex: none; }
-.cities li:first-child .city { margin-left: -8px; }
-.city {
-  font-size: 15px;
-  font-weight: 600;
-  text-decoration-color: transparent;
-  white-space: nowrap;
-}
-.city:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
-.city[aria-pressed='true'] {
-  text-decoration-color: currentColor;
-  text-decoration-thickness: 2px;
-}
+.cities li { flex: none; scroll-snap-align: start; }
+/* room after the last chip, so it can scroll fully clear of the fade */
+.cities li:last-child { padding-right: 32px; }
+.city { padding: 0 14px; border-color: rgba(247, 243, 236, 0.38); }
+.city[aria-pressed='true'] { border-color: var(--paper); border-width: 1.5px; background: rgba(247, 243, 236, 0.14); }
 
-.mine {
-  display: flex;
+/* "Your balloons": a short list of rows, each one tap (the main reason to come back) */
+.mine { margin-top: 12px; }
+/* the label and "Show all" share a line; the 44 px target overhangs it rather than make it taller */
+.mine-head { display: flex; align-items: center; justify-content: space-between; min-height: 24px; }
+.mine-label { margin: 0; font-size: 13px; font-weight: 500; line-height: 1.35; }
+.mine-list { margin: 0; padding: 0; list-style: none; }
+.mine-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 1fr auto 16px;
+  grid-template-areas: 'name time chev' 'where where chev';
   align-items: baseline;
-  gap: 4px;
-  margin: 0 calc(-1 * var(--gutter));
-  padding: 0 var(--gutter);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-padding-inline: var(--gutter) 40px;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  column-gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  padding: 5px 0;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid rgba(247, 243, 236, 0.2);
+  background: none;
+  color: var(--paper);
+  text-align: left;
+  cursor: pointer;
 }
-.mine::-webkit-scrollbar { display: none; }
-.mine-label { flex: none; font-size: 13px; font-weight: 500; margin-right: 4px; }
-.mine .link { font-size: 15px; font-weight: 600; white-space: nowrap; text-decoration-color: transparent; }
-.mine .link:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
-.mine .status { font-variant-numeric: tabular-nums; font-weight: 450; } /* meta: quieter than the name */
+.mine-list li:last-child .mine-row { border-bottom: 1px solid rgba(247, 243, 236, 0.2); }
+.mine-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.mine-time { grid-area: time; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mine-where { grid-area: where; min-width: 0; min-height: 1.35em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 450; line-height: 1.35; }
+.mine-chev { grid-area: chev; align-self: center; transform: rotate(-90deg); opacity: 0.8; }
+.mine-row:hover .mine-name { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: rgba(247, 243, 236, 0.6); }
+.mine-row:focus-visible { border-radius: 4px; }
+.mine-more { margin: -10px -8px; font-size: 13px; font-weight: 600; }
+/* every balloon shown: the list scrolls in its own space rather than push the start screen off the top */
+.mine-list:has(li:nth-child(4)) { max-height: min(40dvh, 260px); overflow-y: auto; overscroll-behavior: contain; }
 
-/* one row of small print: the notice on the left, the map credit on the right, sharing a bottom line */
+/* the small print, one line (owner's decision, 14 November 2026): "A simulation" and the map's sources; the
+   full notice and every credit are in the About sheet */
 .fineprint {
   display: flex;
-  align-items: flex-end;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 12px;
+  column-gap: 12px;
+  margin: 10px 0 0;
 }
 .small {
   margin: 0;
   font-size: 11px; /* 7.1: footer 11 px */
   font-weight: 450;
-  line-height: 1.35;
+  line-height: 24px;
   color: rgba(247, 243, 236, 0.88);
-  text-wrap: pretty;
 }
-.notice { flex: 1 1 0; min-width: 0; max-width: 62ch; text-align: left; }
-/* wide enough on a phone that "OpenFreeMap © OpenMapTiles" share a line (three 24 px lines, not four), so the
-   row and the shading sized to it stay low; the cap yields to the min-content floor (min-width beats
-   max-width): never narrower than its longest link */
-.map-credit { flex: 0 1 auto; min-width: min-content; max-width: min(48%, 172px); text-align: right; line-height: 24px; }
+.fineprint .notice { flex: none; white-space: nowrap; }
+/* after .small, which zeroes margins: the small print sits clear of the controls above it */
+.start .fineprint { margin-top: 14px; }
+.map-credit { flex: 0 1 auto; min-width: 0; text-align: right; }
 .small a {
   /* each credit link is a 24 px target (WCAG 2.5.8): a line of links, not a sentence */
   display: inline-block;
@@ -300,6 +334,22 @@ a.link, .small a { color: var(--paper); }
   text-decoration-color: rgba(247, 243, 236, 0.45);
 }
 .small a:hover { text-decoration-color: currentColor; }
+.small .about-btn {
+  appearance: none;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(247, 243, 236, 0.6);
+  cursor: pointer;
+}
 
 /* ---- focus: 2 px off-white with a 2 px ink outer ring ---- */
 
@@ -309,7 +359,7 @@ a.link, .small a { color: var(--paper); }
   box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px rgb(var(--ink));
   border-radius: 4px;
 }
-.letgo:focus-visible { border-radius: 8px; }
+.letgo:focus-visible, .chip:focus-visible, .secondary:focus-visible { border-radius: 8px; }
 
 /* ---- town search ---- */
 
@@ -419,6 +469,9 @@ a.link, .small a { color: var(--paper); }
 .credits li { font-size: 15px; line-height: 1.4; padding: 12px 0; border-top: 1px solid rgba(247, 243, 236, 0.16); }
 .credits li a { color: var(--paper); text-underline-offset: 3px; text-decoration-color: rgba(247, 243, 236, 0.5); }
 .credits .sig { margin: 24px 0 0; font-size: 15px; font-weight: 650; }
+.about-text { margin: 16px 0 0; max-width: 46ch; font-size: 16px; font-weight: 450; line-height: 1.45; text-wrap: pretty; }
+.about-sub { margin: 32px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.about-sub + footer ul { margin-top: 8px; }
 
 .sr {
   position: absolute !important;
@@ -442,7 +495,8 @@ a.link, .small a { color: var(--paper); }
   .bottom { padding-bottom: 28px; }
   /* the column stays 560 px; the small print spans the screen, so the map credit sits in its corner */
   .bottom > :not(.fineprint) { max-width: 560px; }
-  .cities, .mine { margin-right: 0; -webkit-mask-image: none; mask-image: none; }
+  .cities { margin-right: 0; -webkit-mask-image: none; mask-image: none; flex-wrap: wrap; row-gap: 8px; }
+  .cities li:last-child { padding-right: 0; }
   .search { padding-top: 32px; }
   .search > * { width: 100%; max-width: 560px; }
 }
@@ -477,7 +531,8 @@ a.link, .small a { color: var(--paper); }
 :root[data-view='link'] .start .top,
 :root[data-view='link'] .start .bottom,
 :root[data-view='link'] .shade,
-:root:not([data-view='launch']):not([data-view='flight']) .hud-top .clock,
+:root:not([data-view='flight']) .hud-top .clock,
+:root[data-view='launch'] .shade-top,
 :root:not([data-view='flight']) .hud-top .over,
 :root:not([data-view='flight']) .hud .stats,
 :root:not([data-view='flight']) .hud-bottom,
@@ -489,7 +544,8 @@ a.link, .small a { color: var(--paper); }
   transition: opacity 300ms var(--ease), visibility 0s linear 300ms;
 }
 :root[data-view='launch'] .letgo { transform: scale(0.97); }
-/* the HUD comes in slower than the chrome goes out */
+/* the HUD comes in slower than the chrome goes out (the clock with it: owner's decision, 14 November 2026) */
+:root[data-view='flight'] .hud-top .clock,
 :root[data-view='flight'] .hud-top .over,
 :root[data-view='flight'] .hud .stats,
 :root[data-view='flight'] .hud-bottom,
@@ -579,10 +635,10 @@ a.link, .small a { color: var(--paper); }
   display: flex;
   align-items: flex-end;
   font-size: 16px;
-  font-weight: 450;
+  font-weight: 500;
   line-height: 1.35;
   text-wrap: pretty;
-  transition: opacity 220ms var(--ease);
+  transition: opacity 160ms var(--ease);
 }
 .fact.out { opacity: 0; }
 
@@ -600,6 +656,9 @@ a.link, .small a { color: var(--paper); }
 .day-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .day { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .pause { margin-right: -8px; font-size: 15px; font-weight: 600; }
+.day-row .cal { margin-left: auto; font-size: 15px; font-weight: 600; }
+.day-row .cal + .pause { margin-left: -8px; }
+.cal[hidden], .hud.is-landed .cal, .hud.is-replay .cal { display: none; }
 
 .views { display: flex; align-items: center; margin-left: -8px; }
 .view {
@@ -809,10 +868,8 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
   .start, :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
   .start > *, .hud > * { flex-shrink: 0; }
   .hud-top, .go-row, .views, .actions, .day-row { flex-wrap: wrap; }
-  .link, .credits-link, .locate, .view { white-space: normal; line-height: 1.35; padding-block: 12px; }
-  .fineprint { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .notice { flex: none; max-width: none; }
-  .map-credit { max-width: none; text-align: left; }
+  .link, .credits-link, .view { white-space: normal; line-height: 1.35; padding-block: 12px; }
+  .map-credit { text-align: left; }
   /* a text control wrapped onto its own line keeps its label on the column */
-  .go-row .locate, .day-row .pause { margin-left: -8px; }
+  .day-row .pause { margin-left: -8px; }
 }

@@ -99,14 +99,14 @@ test('London: the climb past Big Ben at golden hour, from a link released a minu
   await live(page);
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 180_000 }).toBe('flight');
   await page.waitForTimeout(20_000); // the streets and Big Ben come in
-  for (const v of ['film', 'side', 'ride']) {
+  for (const v of ['film', 'side', 'above']) {
     await page.locator(`.view[data-view="${v}"]`).click();
     await page.waitForTimeout(6_000);
     await shot(page, `london-climb-${v}`);
   }
 });
 
-test('Manchester: the Ride view over the Pennine moors', async ({ context, page }) => {
+test('Manchester: the Film view over the Pennine moors', async ({ context, page }) => {
   const now = goldenHour(ALBERT_SQUARE, 14); // early afternoon: the moors in clear light
   await page.clock.setSystemTime(now);
   await realWorld(context, now);
@@ -116,9 +116,9 @@ test('Manchester: the Ride view over the Pennine moors', async ({ context, page 
   await page.goto(`/#b=${await encodeBalloon(b)}`);
   await live(page);
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.view), { timeout: 180_000 }).toBe('flight');
-  await page.getByRole('button', { name: 'Ride' }).click();
+  // Ride is no longer a tab (owner's decision, 14 November 2026): Film cuts to its ride shots as it cycles
   for (const [i, wait] of [20_000, 6_000, 6_000].entries()) {
     await page.waitForTimeout(wait);
-    await shot(page, `moors-ride-${'abc'[i]}`);
+    await shot(page, `moors-film-${'abc'[i]}`);
   }
 });

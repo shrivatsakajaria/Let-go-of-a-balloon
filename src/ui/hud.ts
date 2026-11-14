@@ -14,8 +14,11 @@ import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
 import { shadeBottomPx, shadeTopPx } from './shade';
-import { MAP_CREDIT, creditHtml } from './credits';
-import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
+import { MAP_LINE, creditHtml } from './credits';
+import { VIEW_TABS, clockFor, dayLine, heightText, progress, speedText, viewTab } from './hudmath';
+import { calendarWay, landingEvent, saveIcs } from './ics';
+import { startName } from './card';
+import { nearestPlace } from '../geo/gazetteer';
 import type { LatLon } from '../geo/coords';
 
 export type HudHandlers = {
@@ -30,12 +33,19 @@ export type HudHandlers = {
 
 export type HudFrame = { now: number; point: LatLon; aglM: number; speedMs: number; landed: boolean };
 
-const VIEWS: [DirectorMode, string][] = [['film', 'Film'], ['ride', 'Ride'], ['above', 'Above'], ['side', 'Side-on']];
+/** Film · Above · Side-on (owner's decision, 14 November 2026: Ride is one of Film's shots, not a tab of its own). */
+const VIEW_LABELS: Record<(typeof VIEW_TABS)[number], string> = { film: 'Film', above: 'Above', side: 'Side-on' };
+const VIEWS = VIEW_TABS.map((m) => [m, VIEW_LABELS[m]] as const);
+/** "About" in the small print opens the start screen's About sheet (start.ts listens for it). */
+const ABOUT_EVENT = 'lgoab:about';
 
 export type Hud = {
   readonly el: HTMLElement;
-  /** A new flight: its release time, its midnight ticks (0..1) and whether it is the visitor's own. */
-  setFlight(f: { release: number; ticks: number[]; own: boolean }): void;
+  /**
+   * A new flight: its release time, its midnight ticks (0..1), whether it is the visitor's own, and the start
+   * place as said in a sentence (for "Add to calendar": "My balloon from London lands").
+   */
+  setFlight(f: { release: number; ticks: number[]; own: boolean; home?: string; start?: LatLon }): void;
   /** Every frame (cheap: text is only written when it changes). */
   frame(f: HudFrame): void;
   /** "Over the North Sea", or "Landed near Bergen". */
@@ -88,6 +98,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       </div>
       <div class="day-row">
         <p class="day"></p>
+        <button type="button" class="link cal" hidden>${COPY.addToCalendar}</button>
         <button type="button" class="link pause">${COPY.pause}</button>
       </div>
       ${opts.note ? `<p class="hud-note">${esc(opts.note)}</p>` : `<div class="views" role="group" aria-label="${COPY.view}">
@@ -99,10 +110,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         <button type="button" class="link show-card" hidden>${COPY.showCard}</button>
         <button type="button" class="link again"></button>
       </div>
-      <div class="fineprint">
-        <p class="small notice">${esc(COPY.notice)}</p>
-        <p class="small map-credit">${creditHtml(MAP_CREDIT)}</p>
-      </div>
+      <p class="small fineprint"><span class="notice">${COPY.simulation} · <button type="button" class="about-btn" aria-haspopup="dialog">${COPY.about}</button></span><span class="map-credit">${creditHtml(MAP_LINE)}</span></p>
     </div>
     <p class="sr status" role="status" aria-live="polite"></p>`;
 
@@ -112,11 +120,21 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
   const pauseBtn = $<HTMLButtonElement>('.pause'), again = $<HTMLButtonElement>('.again'), status = $('.status');
   const bottom = $('.hud-bottom');
   const showCard = $<HTMLButtonElement>('.show-card');
+  const cal = $<HTMLButtonElement>('.cal');
+  $<HTMLButtonElement>('.about-btn').addEventListener('click', () => document.dispatchEvent(new Event(ABOUT_EVENT)));
   let cardOpen: (() => void) | null = null;
   showCard.addEventListener('click', () => cardOpen?.());
 
   let clockNow = clockFor();
   let release = 0;
+  let own = false;
+  let home = '';
+  /** The start as the calendar names it: a "Use my location" start by its place, as on the card. */
+  let calHome = '';
+  let calAsk = 0;
+  const calWay = calendarWay(typeof navigator !== 'undefined' ? navigator.userAgent : '', typeof navigator !== 'undefined' ? navigator.maxTouchPoints ?? 0 : 0);
+  /** "It flies on for three days...": shown first, once, when a flight of the visitor's own settles. */
+  let lead = '';
   let facts: string[] = [];
   let idx = 0;
   let paused = false;
@@ -141,7 +159,7 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     swap = window.setTimeout(() => {
       fact.textContent = s;
       fact.classList.remove('out');
-    }, 220);
+    }, 160);
   };
   const timer = window.setInterval(() => {
     if (paused || facts.length === 0) return;
@@ -162,7 +180,8 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
 
   // ---- controls ----
   const setView = (mode: DirectorMode) => {
-    root.querySelectorAll<HTMLButtonElement>('.view').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
+    const tab = viewTab(mode);
+    root.querySelectorAll<HTMLButtonElement>('.view').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === tab)));
   };
   root.querySelectorAll<HTMLButtonElement>('.view').forEach((b) =>
     b.addEventListener('click', () => {
@@ -181,6 +200,12 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     handlers.onPause(paused);
   });
   again.addEventListener('click', () => handlers.onAgain());
+  // the landing as a calendar event, with this balloon's own link (the address once the flight is on screen)
+  cal.addEventListener('click', () => {
+    const link = /^#b=/.test(location.hash) ? location.href : `${location.origin}/`;
+    const uid = `${Math.round(release / 60e3)}-${location.hash.slice(3, 27) || 'balloon'}`;
+    saveIcs(landingEvent({ release, home: calHome || home, own, link, now: Date.now(), uid }), calWay);
+  });
   const trip = $<HTMLButtonElement>('.trip'), back = $<HTMLButtonElement>('.back'), replaySlot = $('.replay-slot');
   let tripOn = false;
   trip.addEventListener('click', () => handlers.onTrip?.());
@@ -191,6 +216,19 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     setFlight(f) {
       clockNow = clockFor(); // another balloon may be in another time zone
       release = f.release;
+      own = f.own;
+      home = f.home ?? '';
+      // only while it is new: a balloon of your own opened again on day 3 does not need telling
+      lead = f.own && f.home && Date.now() - f.release < 6 * 3600e3 ? COPY.next : '';
+      calHome = f.home ?? '';
+      const ask = ++calAsk;
+      const start = f.start;
+      if (start && f.home === COPY.yourLocation.toLowerCase()) {
+        nearestPlace(start)
+          .then((p) => startName(start, p), () => startName(start, null))
+          .then((n) => ask === calAsk && (calHome = n));
+      }
+      cal.hidden = !f.home || calWay === 'none';
       lastP = -1;
       again.textContent = f.own ? COPY.letGoAnother : COPY.letGoYourOwn;
       ticksEl.innerHTML = f.ticks.map((t) => `<i style="left:${(t * 100).toFixed(3)}%"></i>`).join('');
@@ -214,13 +252,18 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
         fill.style.width = pc;
         knot.style.left = pc;
         root.classList.toggle('is-landed', f.landed);
+        if (f.landed) cal.hidden = true; // nothing left to remind anyone of
+        else if (home && calWay !== 'none') cal.hidden = false;
       }
     },
     setOver(s) {
       text(over, s);
     },
     setFacts(list) {
-      facts = list;
+      // the first facts of a flight of your own start with what happens next; it then rotates out
+      if (lead && shown && shown !== lead) lead = '';
+      facts = lead && list.length && !root.classList.contains('is-landed') ? [lead, ...list] : list;
+      list = facts;
       if (!list.length) return;
       if (!shown) {
         idx = 0;
