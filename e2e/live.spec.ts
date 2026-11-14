@@ -199,7 +199,8 @@ test('Let go with the keyboard: when the flight comes in, focus is on the HUD\'s
   await page.keyboard.press('Enter');
   await expect.poll(() => view(page), { timeout: 110_000, intervals: [250] }).toBe('flight');
   await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
-  // hudFocusTarget's order: the way back to the card, else the whole trip, else Pause
+  // hudFocusTarget's order: the way back to the card, else the whole trip, else Pause. Focus moves on the
+  // next frame, which a software renderer on a busy machine can take seconds to draw
   await expect
     .poll(
       () =>
@@ -208,7 +209,7 @@ test('Let go with the keyboard: when the flight comes in, focus is on the HUD\'s
           const want = hud.querySelector('.show-card:not([hidden])') ?? hud.querySelector('.trip:not([hidden])') ?? hud.querySelector('.pause');
           return want !== null && document.activeElement === want;
         }),
-      { timeout: 5000 },
+      { timeout: 30_000 },
     )
     .toBe(true);
   await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
