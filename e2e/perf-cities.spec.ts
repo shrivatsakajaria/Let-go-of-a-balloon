@@ -12,7 +12,7 @@ import { SWIFTSHADER, eastward, linkTo } from './fixtures';
  *
  *   PERF_CITIES=1 CI=1 E2E_PORT=47522 npx playwright test e2e/perf-cities.spec.ts --workers=1
  *
- * PERF_CITY=paris (or paris,tokyo) runs only those cities; PERF_SHOTS=dir saves a picture of each climb view. Winds are the committed fixture run (Europe only), so the launch
+ * PERF_CITY=paris (or paris,tokyo) runs only those cities; PERF_SHOTS=dir saves a picture after the launch and of each climb view. Winds are the committed fixture run (Europe only), so the launch
  * itself is flown where it covers (London, Manchester, Paris); every city is also seen on its start
  * screen and from links released 2, 5 and 10 minutes before (the climb: about 180 m, 450 m and 900 m
  * up), each in the Film, Ride and Above views. The clock is set to the city's late afternoon with the
@@ -127,6 +127,7 @@ for (const city of CITIES) {
     if (city.winds) {
       await page.getByRole('button', { name: 'Let go', exact: true }).click();
       record('launch and first 40 s', await sample(page, 40_000));
+      if (process.env.PERF_SHOTS) await page.screenshot({ path: `${process.env.PERF_SHOTS}/${city.id}-launch.png`, timeout: 120_000 });
     }
 
     // the climb, from links: 2, 5 and 10 minutes after release
