@@ -158,7 +158,7 @@ Design A, "from high up" (owner's decision, 14 November 2026: "it's the nicest o
 - Each balloon gets a link that encodes everything needed to show it again: start point and place name, release time, and the route itself (72 hourly points, quantised and compressed into the address). No server or database. The link works on any device and shows the same route.
 - The visitor's own balloons are also remembered in their browser (local storage, at most 20) and listed on the start screen ("Your balloons"). Storage may be unavailable; everything must still work without it.
 - "Your balloons" is a short list of rows, the main reason to come back (owner's decision, 14 November 2026 (panel review)). Each row is one tap target at least 44 px tall: the start place, the time aloft ("25 min aloft", "14 h aloft") and, under them, where it is now ("Over the North Sea", "Near Dijon, France", "Landed near Strzelce Krajeńskie, Poland", "Came down in the North Sea"), worked out in the browser from the saved hourly points and the gazetteer. The newest three show on a phone (one on a screen under 760 px tall, such as a phone inside an in-app browser, so the person and the balloon keep the middle third), with "Show all 7" on the label's line.
-- "Use my location" uses the exact GPS position, with no rounding or moving (SK's decision). Nothing is sent to any server; the start point only leaves the phone if the visitor chooses to share their link or card.
+- "Use my location" uses the exact GPS position, with no rounding or moving (SK's decision). The position is never sent to any server, not even to the site's own counter (section 16); the start point only leaves the phone if the visitor chooses to share their link or card. The site counts visits and a few presses anonymously (section 16), and says so in the About sheet.
 
 ### 6.7 Edge cases to handle
 - Long stretches over open sea, desert or farmland: the world must still look alive (faceted sea with glints, land-use colour, fields, the odd ship or village, cloud shadows).
@@ -351,7 +351,7 @@ Recognition comes from, in order: coastline and rivers, street pattern, parks an
 
 ## 12. How it should be built
 
-- Static site, no backend, no database. A build tool such as Vite is fine. three.js for the 3D world. Map tiles decoded and turned into meshes in a Web Worker so the screen never freezes.
+- Static site, no backend, no database. A build tool such as Vite is fine. The one exception, approved by SK for the anonymous counts (section 16): a tiny Pages Function that writes counts to Workers Analytics Engine, free and with no server to run. three.js for the 3D world. Map tiles decoded and turned into meshes in a Web Worker so the screen never freezes.
 - Level of detail by distance: full detail (buildings, roofs, trees, terraces) near the balloon; simplified ground in the middle distance; large coarse tiles fading into haze at the horizon. Hard caps on triangles and draw calls; draw each kind of object in batches (instancing).
 - Performance budget: something on screen within 2 seconds on a mid-range phone over 4G, a smooth frame rate while flying, screen sharpness capped at about 1.5x, live shadows only near the balloon, no full-screen blur effects.
 - Prove the data first (shared rules): before building the world, show SK a real GFS sample turned into a real route from a real town, and real map tiles turned into a real piece of town.
@@ -393,3 +393,35 @@ Decided by Claude during planning (SK can overrule):
 - Over high ground the balloon keeps its clearance above the terrain and reads winds at its true altitude; it always flies the full 72 hours (section 6.7).
 - The balloon's shadow is a soft, stylised game shadow under it, strongest during the low early phase and in wide shots; it does not need to be physically exact.
 - Testing happens on Cloudflare Pages preview links, not Claude artifact links (section 12).
+
+## 16. Anonymous counts (analytics)
+
+Approved by SK on 14 November 2026 (Task 30). SK wants to know how many people visit, from where (country and referring site), on what device, how many let go, watch the whole trip, see the landing card and share or save it, add the calendar reminder, open shared links and landed links, and how long they stay. Privacy is a product promise, so the counts are anonymous by design.
+
+**The promise.** No cookies, no ids in storage, no fingerprinting, no IP address kept. No coordinates or place names that could locate a person: a featured city goes by its id (one of the seven on the start screen, picked by everyone); a searched place and "Use my location" are counted only by kind. The country comes from Cloudflare's edge (`request.cf.country`), never from the page. A browser with Global Privacy Control on (`navigator.globalPrivacyControl`) sends nothing. The About sheet says: "Visits are counted anonymously: no cookies, nothing that identifies you."
+
+**Two parts.**
+
+1. **Cloudflare Web Analytics** for visits, countries, referrers and devices: Pages' own one-click setup (it adds Cloudflare's beacon to the page; no cookies). The CSP allows exactly the beacon: `script-src https://static.cloudflareinsights.com` and `connect-src https://cloudflareinsights.com` (and its `/cdn-cgi/rum` on this site, which `'self'` covers). Cloudflare's beacon does not itself look at Global Privacy Control.
+2. **Our own events**, through this site's Pages Function `POST /api/e` (`functions/api/e.ts`) into Workers Analytics Engine (dataset `lgoab_events`, bound as `LGOAB_EVENTS` in `wrangler.toml`). The page (`src/analytics/track.ts`) sends tiny JSON with `sendBeacon`, only from the live hosts (the pages.dev address and `SITE_URL`), never from previews, localhost or the browser tests, at most 30 events a page.
+
+**The events** (`src/analytics/events.ts` is the whitelist; anything else is dropped):
+
+| Event | Detail | When |
+| --- | --- | --- |
+| `start_view` | | The start screen is the first thing shown |
+| `let_go` | `source`: featured, search or location; `city` (featured only) | Let go pressed |
+| `link_open` | `landed`: true or false | A shared balloon link opened |
+| `replay_done` | | "Show me the whole trip" played to the end |
+| `card_shown` | | The landing card on screen |
+| `card_share` | `method`: share, save or copy | A card button pressed |
+| `calendar_add` | | "Add to calendar" pressed |
+| `view_change` | `view`: film, above or side | A view button pressed |
+| `session_end` | `secs`: <10s, 10-30s, 30-60s, 1-3m, 3-10m, 10m+ | The page goes away (pagehide) |
+
+Each stored row is: event, detail, featured city (or empty), country. The counter always answers 204 with no body, sets no cookie and logs nothing; it stores an event only when it is on the whitelist, the body is under 160 characters, and it arrived at a live host from the same origin. With no dataset bound it stores nothing and the site carries on.
+
+**Reading it.** `node scripts/stats.mjs [--days N | --yesterday | --date YYYY-MM-DD]` prints a plain summary from the Web Analytics GraphQL API and the Analytics Engine SQL API, with a read-only token (Account Analytics Read) from `CF_ANALYTICS_TOKEN` or a proxy that adds it. SK's steps are in `docs/for-sk/analytics.md`.
+
+**Cost.** Free: Analytics Engine on the Workers Free plan allows 100,000 data points written and 10,000 queries a day, and keeps data for three months; Web Analytics is free.
+
