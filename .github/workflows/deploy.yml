@@ -22,7 +22,26 @@ jobs:
       # The public address of the site; scripts/check-cors.mjs and scripts/check-new-run.sh read it.
       SITE_URL: https://let-go-of-a-balloon.pages.dev
     steps:
+      # The live site is the Pages branch "main", so the hourly wind refresh must build main's code.
+      # A scheduled run starts on the repository's default branch, which is not main until launch,
+      # so it checks out main by name once main exists. Before then (and for every push or manual
+      # run) the checkout is left as it was: the commit that started the run.
+      - name: Pick the code to build
+        id: ref
+        env:
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" = "schedule" ] && git ls-remote --exit-code --heads "https://github.com/$REPO.git" main > /dev/null; then
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Scheduled run: building the main branch." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Check for Cloudflare secrets
         id: cf
