@@ -793,6 +793,19 @@ describe('launch crane', () => {
     }
   });
 
+  test('following the balloon away over the person (a landmark downwind, a strong wind), the camera goes over their head, never through them', () => {
+    const ground = 10;
+    let near = 0;
+    launch({
+      ground, heading: 100, speed: 6.4, landmark: 95, until: 8,
+      each: (_t, cam) => {
+        const dh = Math.hypot(cam.position.x, cam.position.z);
+        if (dh < 1) { near++; expect(cam.position.y - ground).toBeGreaterThan(2.25); } // the person is 1.75 m tall: half a metre over their head
+      },
+    });
+    expect(near).toBeGreaterThan(0); // it did pass over them
+  });
+
   test('a late release (the route not ready at 1.2 s): the street shot holds until the hand opens, then the crane', () => {
     const ground = 10;
     const cam = mkPhone(50);
