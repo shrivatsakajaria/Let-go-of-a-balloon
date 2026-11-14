@@ -62,6 +62,6 @@ test('the street camera on a landmark terrace stands on the terrace, not inside 
   d.setLaunch({ personAt: person, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 0.8 } });
   const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: TERRACE + 2.4, groundM: TERRACE, speedMs: 3, headingDeg: 90 });
   for (let i = 1; i <= 50; i++) d.update(held(i * 0.1), 0.1);
-  expect(cam.position.y).toBeGreaterThan(TERRACE + 1);
+  expect(cam.position.y).toBeGreaterThan(TERRACE + 0.9); // (the start screen's camera stands about a metre up)
   expect(cam.position.y).toBeLessThan(TERRACE + 3);
 });

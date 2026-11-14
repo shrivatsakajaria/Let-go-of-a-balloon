@@ -40,7 +40,7 @@ function launch(withGrip: boolean) {
     }
     b.setState(pt, DT, DAY, { pos, camera: cam });
     person.lookAt(b.mesh.position);
-    b.stringPoint(b.rope.segments, end);
+    b.stringPoint(b.stringSegments, end);
     frames.push({ t, s: releasedAt >= 0 ? t - releasedAt : -1, releaseT: person.releaseT, end: end.clone(), hand: person.hand.clone(), centre: b.mesh.position.clone() });
   };
   for (let i = 0; i < 60; i++) step();
@@ -98,7 +98,7 @@ describe('the hand and the string (StringGrip)', () => {
       t += DT;
       pos.y = 1.5 + CLIMB_RATE_MS * t;
       b.setState(pt, DT, DAY, { pos, camera: cam });
-      b.stringPoint(b.rope.segments, end);
+      b.stringPoint(b.stringSegments, end);
       if (end.distanceTo(hand) < 1e-3) pinnedAt.push(t);
     }
     expect(pinnedAt.length).toBeGreaterThan(5); // it did follow the grip at first

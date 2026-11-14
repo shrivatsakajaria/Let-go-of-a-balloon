@@ -105,6 +105,12 @@ export type LiveHook = {
   streaks: number;
   /** How many wind streaks are on screen now (0: not drawn). */
   streaksOnScreen: number;
+  /** The camera's vertical field of view (deg) and the way it looks (a unit vector), for the launch's smoothness probe. */
+  fov: number;
+  look: number[];
+  /** The director's own probe (camera/director.ts), and the drawn balloon's slide up a facade [lift, back] (m). */
+  cam: unknown;
+  slide: number[];
 };
 
 export class Live {
@@ -169,7 +175,7 @@ export class Live {
   private readonly subject: [number, number] = [0, 0];
   private readonly v1 = new Vector3();
   private readonly v2 = new Vector3();
-  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', launchS: 0, paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, streaks: 0, streaksOnScreen: 0, replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
+  readonly hook: LiveHook = { state: 'start', person: null, aglM: 0, shot: '', launchS: 0, paused: false, camera: [0, 0, 0], target: [0, 0, 0], fact: '', over: '', frames: 0, route: null, groundM: 0, feetM: 0, subjectPx: null, routeMs: null, routeError: null, triangles: 0, calls: 0, peak: { triangles: 0, calls: 0, shadowTriangles: 0, shadowCalls: 0 }, contextLosses: 0, streaks: 0, streaksOnScreen: 0, fov: 50, look: [0, 0, -1], cam: null, slide: [0, 0], replay: false, trail: false, now: 0, replayMs: null, recentres: 0 };
   private readonly context: ContextWatch;
 
   constructor(private readonly deps: LiveDeps, choice: StartChoice) {
@@ -585,6 +591,11 @@ export class Live {
     h.paused = this.hud.paused;
     this.scene.camera.position.toArray(h.camera);
     this.scene.balloon.mesh.position.toArray(h.target);
+    h.fov = this.scene.camera.fov;
+    this.scene.camera.getWorldDirection(this.v1).toArray(h.look);
+    h.cam = this.scene.director.probe;
+    h.slide[0] = this.scene.slide.lift;
+    h.slide[1] = this.scene.slide.back;
     h.fact = this.hud.fact;
     h.over = this.over;
     if (f.released) {
