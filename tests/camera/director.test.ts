@@ -465,6 +465,51 @@ describe('Director', () => {
     }
   });
 
+  test.each(['ride', 'film', 'side'] as const)('%s low over a park (a link opened in the first minutes): the camera is never inside a tree\'s crown', (mode) => {
+    const trees: [number, number][] = [];
+    for (let i = -30; i <= 30; i++) for (let j = -12; j <= 12; j++) trees.push([i * 14 + 3, j * 14 + 4.2]);
+    const TOP = 22, RAD = 5;
+    let lookups = 0;
+    const crownNear = (p: LatLon, r: number, out: { lat: number; lon: number; radius: number; base: number; top: number }) => {
+      lookups++;
+      const sp = toScene(p);
+      let best = -1, gap = Infinity;
+      trees.forEach(([x, z], i) => {
+        const g = Math.hypot(sp.x - x, sp.z - z) - RAD;
+        if (g <= r && g < gap) { gap = g; best = i; }
+      });
+      if (best < 0) return false;
+      Object.assign(out, fromScene(trees[best][0], trees[best][1]), { radius: RAD, base: 0, top: TOP });
+      return true;
+    };
+    const treeTopAt = (p: LatLon, r: number) => {
+      const sp = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(sp.x - x, sp.z - z) <= r + RAD) ? TOP : -Infinity;
+    };
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, buildingTopAt: () => 0, treeTopAt, crownNear }));
+    d.set(mode);
+    // the balloon a little over the treetops, crossing the park west to east
+    const mk = (t: number): RoutePoint => ({ ...balloon(t, 30, 90), lon: (-300 + 3 * t) / K, speedMs: 3 });
+    run(d, 0, 120, 0.1, mk, (t) => {
+      const c = cam.position;
+      for (const [x, z] of trees) if (c.y < TOP) expect(Math.hypot(c.x - x, c.z - z), `${t.toFixed(1)} ${d.shot}`).toBeGreaterThanOrEqual(RAD * (1 - c.y / TOP) - 1e-6);
+    });
+    expect(lookups).toBeGreaterThan(0);
+  });
+
+  test('high up, the crown lookup costs nothing (the camera is far over any tree)', () => {
+    let lookups = 0;
+    const crownNear = () => {
+      lookups++;
+      return false;
+    };
+    const d = new Director(mkPhone(50), deps({ balloonRadius: REAL, crownNear }));
+    d.set('ride');
+    run(d, 0, 30, 0.1, (t) => balloon(t, 1500));
+    expect(lookups).toBe(0);
+  });
+
   test('trees streaming in after the street spot was chosen: it is chosen again where it sees the person', () => {
     const cam = mkPhone(50);
     let trees: [number, number][] = [];

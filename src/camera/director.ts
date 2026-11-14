@@ -142,8 +142,13 @@ const STILL_EDGE = 0.85;
 const PERSON_OVER_M = 2.8;
 const PERSON_CLEAR_M = 1.2;
 const PERSON_EASE_M = 4;
-/** The launch camera keeps this far out of a tree's crown (outOfCrowns). */
+/** The camera keeps this far out of a tree's crown (outOfCrowns). */
 const CROWN_GAP_M = 0.5;
+/**
+ * Outside the launch, crowns are looked for only with the camera this low over the ground (m): the
+ * tallest drawn trees are well under it, so a camera higher up costs no lookup at all.
+ */
+const CROWN_CHECK_M = 45;
 /** No building within this radius of the camera's ground point, or the camera goes over its roof. */
 const STREET_CLEAR_M = 1.5;
 /** The start screen frames the person and the held balloon: feet to the top of the balloon, about 3 m. */
@@ -1344,6 +1349,9 @@ export class Director {
    * both rules come in with the push back in to the balloon, which ends above the rooftops.
    */
   private clamp(p: THREE.Vector3, b: RoutePoint, B: THREE.Vector3, B0: THREE.Vector3): void {
+    // trees first: a sideways push out of a crown, which the rules below (the balloon, the person, the
+    // ground and buildings) may then move again, so those always have the last word
+    this.outOfCrowns(p, b, B0);
     // balloon: a sphere a little bigger than it, and a narrow column below it where the string hangs
     const v = p.clone().sub(B);
     const dist = v.length();
@@ -1387,18 +1395,20 @@ export class Director {
       floor = Math.max(floor, this.deps.buildingTopAt(ll, STREET_CLEAR_M) + 1);
     }
     if (p.y < floor) p.y = floor;
-    if (this._shot === 'launch') this.outOfCrowns(p, b, B0);
   }
 
   /**
-   * The launch camera, low among trees (a park), never inside a tree's crown: below a crown's top and
-   * within its cone there, it is pushed out sideways to the cone plus CROWN_GAP_M (not lifted: a lift
-   * would be a jump). Twice, for a camera between two crowns. No allocation.
+   * The camera low among trees (the launch in a park; Ride or Film low over one, as a link opened in the
+   * first minutes, or a landed balloon), never inside a tree's crown: below a crown's top and within its
+   * cone there, it is pushed out sideways to the cone plus CROWN_GAP_M (not lifted: a lift would be a
+   * jump). Twice, for a camera between two crowns. Outside the launch only when the camera is within
+   * CROWN_CHECK_M of the ground (the lookup is the stream's grid index). No allocation.
    */
   private outOfCrowns(p: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): void {
     const near = this.deps.crownNear;
     if (!near) return;
     const cr = this.crown;
+    if (this._shot !== 'launch' && p.y - this.deps.groundAt(this.fromScene(p.x, p.z, b, B0, this.ll)) > CROWN_CHECK_M) return;
     for (let k = 0; k < 2; k++) {
       if (!near(this.fromScene(p.x, p.z, b, B0, this.ll), CROWN_GAP_M, cr)) return;
       const H = cr.top - cr.base;
