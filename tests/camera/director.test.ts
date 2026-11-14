@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Director, type DirectorDeps } from '../../src/camera/director';
-import { displayScale } from '../../src/balloon/balloon';
+import { Balloon, displayScale } from '../../src/balloon/balloon';
 import { FacadeSlide } from '../../src/balloon/slide';
 import type { RoutePoint } from '../../src/flight/route';
 import type { LatLon } from '../../src/geo/coords';
+import { lightFor } from '../../src/world/palette';
+
+const DAYLIGHT = lightFor(30);
 
 // Flat local frame: 1 deg = 111 km, x east, z = -north, origin at (50, 0).
 const K = 111_000;
@@ -939,15 +942,16 @@ describe('launch crane', () => {
 
   test('following the balloon away over the person (a landmark downwind, a strong wind), the camera goes over their head, never through them', () => {
     const ground = 10;
-    let near = 0;
+    let nearest = Infinity;
     launch({
       ground, heading: 100, speed: 6.4, landmark: 95, until: 8,
       each: (_t, cam) => {
         const dh = Math.hypot(cam.position.x, cam.position.z);
-        if (dh < 1) { near++; expect(cam.position.y - ground).toBeGreaterThan(2.25); } // the person is 1.75 m tall: half a metre over their head
+        nearest = Math.min(nearest, dh);
+        if (dh < 1.5) expect(cam.position.y - ground).toBeGreaterThan(2.25); // the person is 1.75 m tall: half a metre over their head
       },
     });
-    expect(near).toBeGreaterThan(0); // it did pass over them
+    expect(nearest).toBeLessThan(1.5); // it did pass over them
   });
 
   test('a late release (the route not ready at 1.2 s): the street shot holds until the hand opens, then the crane', () => {
@@ -1065,5 +1069,133 @@ describe('launch crane', () => {
     expect(jump).toBeGreaterThan(5); // a cut, not a move
     expect(d.shot).toBe('ride');
     expect(cam.position.distanceTo(ballPos(mk(45)))).toBeLessThan(2.5);
+  });
+});
+
+/**
+ * The launch is one smooth, calm move (Task 26c): from Let go to Ride settled the camera's target never steps
+ * (relative to the balloon it moves no faster than 12 m/s), the camera's acceleration stays under 10 m/s/s,
+ * and the way it looks turns at most 35 deg/s and changes that at most 60 deg/s/s (a kick: ten times the
+ * peak of a calm 6 s eased move of 30 deg). The balloon is the drawn one (Balloon: it leaves the hand at rest).
+ */
+describe('launch: one smooth move', () => {
+  type Box = { x0: number; x1: number; z0: number; z1: number; top: number };
+  const city = (boxes: Box[], ground: number) => (p: LatLon, r: number) => {
+    const s = toScene(p);
+    let best = ground;
+    for (const b of boxes) if (s.x + r > b.x0 && s.x - r < b.x1 && s.z + r > b.z0 && s.z - r < b.z1) best = Math.max(best, b.top);
+    return best;
+  };
+  type Opts = { boxes?: Box[]; heading?: number; speed?: number; landmark?: number; hz?: number; jitterMs?: number; stallAt?: number; wait?: boolean };
+  function fly(o: Opts) {
+    const ground = 10;
+    const cam = mkPhone(50);
+    const d = new Director(cam, deps({ balloonRadius: REAL, groundAt: () => ground, buildingTopAt: city(o.boxes ?? [], ground) }));
+    const balloon = new Balloon(new THREE.Scene());
+    const hand = new THREE.Vector3(0.25, ground + 1.05, 0);
+    balloon.hold(hand);
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: o.landmark, startUtcMs: 0, waiting: o.wait === false ? undefined : { centerY: 0.15, spanY: 0.7 }, cueRelease: true });
+    const h = ((o.heading ?? 70) * Math.PI) / 180, v = o.speed ?? 3;
+    const at = (t: number, rel: number): RoutePoint => {
+      const fl = Math.max(0, t - rel);
+      const ll = fromScene(Math.sin(h) * v * fl, -Math.cos(h) * v * fl);
+      return { tSec: fl, lat: ll.lat, lon: ll.lon, altM: ground + 2.4 + 1.5 * fl, groundM: ground, speedMs: v, headingDeg: o.heading ?? 70 };
+    };
+    const pos = new THREE.Vector3();
+    const step = (t: number, dt: number, rel: number, elapsed = dt) => {
+      const b = at(t, rel);
+      const s = toScene(b);
+      pos.set(s.x, b.altM, s.z);
+      balloon.setState(b, dt, DAYLIGHT, { pos, camera: cam.position, elapsedS: elapsed });
+      d.update({ ...b, altM: balloon.mesh.position.y }, Math.min(dt, 0.25), balloon.mesh.position);
+    };
+    // the start screen, then Let go at 0; the hand opens at 1.2 s
+    for (let t = -3; t < 0; t += 0.05) step(t, 0.05, Infinity);
+    d.go();
+    const hz = o.hz ?? 60;
+    let seed = 5;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const rec: { t: number; dt: number; cam: THREE.Vector3; look: THREE.Vector3; rel: THREE.Vector3; shot: string }[] = [];
+    let t = 0, released = false, settled = Number.NaN;
+    while (t < 45 && !(t > settled + 3)) {
+      let dt = 1 / hz + (o.jitterMs ? ((rnd() - 0.5) * o.jitterMs) / 1000 : 0);
+      let elapsed = dt;
+      if (o.stallAt !== undefined && t < o.stallAt && t + dt >= o.stallAt) {
+        dt = 0.25;
+        elapsed = 1;
+      }
+      t += elapsed;
+      if (!released && t >= 1.2) {
+        released = true;
+        balloon.release();
+        d.release();
+      }
+      step(t, dt, 1.2, elapsed);
+      if (Number.isNaN(settled) && d.shot !== 'launch') settled = t;
+      const look = new THREE.Vector3();
+      cam.getWorldDirection(look);
+      const tg = new THREE.Vector3().fromArray(d.probe.target);
+      rec.push({ t, dt: elapsed, cam: cam.position.clone(), look, rel: tg.sub(balloon.mesh.position), shot: d.shot });
+    }
+    return { rec, settled };
+  }
+  /** The worst of each over the run: the target's speed relative to the balloon, the camera's acceleration, the look's rate and its change. */
+  function worst(rec: ReturnType<typeof fly>['rec'], skip = () => false) {
+    const RADD = 180 / Math.PI;
+    let tgt = 0, acc = 0, w = 0, a = 0;
+    let at = { tgt: 0, acc: 0, w: 0, a: 0 };
+    for (let i = 2; i < rec.length; i++) {
+      const r = rec[i], q = rec[i - 1], p = rec[i - 2];
+      if (skip()) continue;
+      const vt = r.rel.distanceTo(q.rel) / r.dt;
+      if (vt > tgt) [tgt, at.tgt] = [vt, r.t];
+      const v1 = r.cam.clone().sub(q.cam).divideScalar(r.dt), v0 = q.cam.clone().sub(p.cam).divideScalar(q.dt);
+      const ac = v1.distanceTo(v0) / ((r.dt + q.dt) / 2);
+      if (ac > acc) [acc, at.acc] = [ac, r.t];
+      const w1 = new THREE.Vector3().crossVectors(q.look, r.look).multiplyScalar(RADD / r.dt);
+      const w0 = new THREE.Vector3().crossVectors(p.look, q.look).multiplyScalar(RADD / q.dt);
+      if (w1.length() > w) [w, at.w] = [w1.length(), r.t];
+      const aa = w1.distanceTo(w0) / ((r.dt + q.dt) / 2);
+      if (aa > a) [a, at.a] = [aa, r.t];
+    }
+    return { tgt, acc, w, a, at };
+  }
+  const expectSmooth = (r: ReturnType<typeof worst>, msg: string) => {
+    expect(r.tgt, `${msg}: target speed at ${r.at.tgt.toFixed(2)} s`).toBeLessThan(12);
+    expect(r.acc, `${msg}: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(10);
+    expect(r.w, `${msg}: turn rate at ${r.at.w.toFixed(2)} s`).toBeLessThan(35);
+    expect(r.a, `${msg}: turn acceleration at ${r.at.a.toFixed(2)} s`).toBeLessThan(60);
+  };
+
+  test('in the open, at 30 and 60 Hz with jitter, any wind: from Let go to Ride the target never steps and nothing kicks', () => {
+    for (const [hz, jitterMs] of [[30, 6], [60, 4]]) {
+      for (const heading of [0, 70, 160, 250]) {
+        const { rec, settled } = fly({ hz, jitterMs, heading });
+        expect(settled).toBeGreaterThan(11.9);
+        expectSmooth(worst(rec), `${hz} Hz wind ${heading}`);
+      }
+    }
+  });
+
+  test('with a featured landmark (any wind) and without the start screen, the same', () => {
+    for (const heading of [20, 110, 200, 290]) expectSmooth(worst(fly({ landmark: 30, heading }).rec), `landmark, wind ${heading}`);
+    expectSmooth(worst(fly({ wait: false }).rec), 'no start screen');
+  });
+
+  test('down a street between terraces, over a block across it: the camera goes over, smoothly', () => {
+    const boxes: Box[] = [
+      { x0: -200, x1: 200, z0: 8, z1: 40, top: 32 },
+      { x0: -200, x1: 30, z0: -40, z1: -8, top: 28 },
+      { x0: 40, x1: 70, z0: -8, z1: 8, top: 36 },
+    ];
+    for (const heading of [80, 100]) expectSmooth(worst(fly({ boxes, heading, hz: 60, jitterMs: 4 }).rec), `street, wind ${heading}`);
+  });
+
+  test('a stalled frame (the scene counts 0.25 s while the balloon moved on 1 s) does not step the target', () => {
+    for (const stallAt of [1.25, 4, 9]) {
+      const { rec } = fly({ stallAt });
+      const r = worst(rec);
+      expect(r.tgt, `stall at ${stallAt} s`).toBeLessThan(12);
+    }
   });
 });
