@@ -15,8 +15,8 @@ const page = (name: string) => resolve(__dirname, `${name}.html`);
 export default defineConfig({
   // the share tags in index.html name the live address, which is set once, in src/config.ts
   plugins: [{ name: 'site-url', transformIndexHtml: (html: string) => html.replaceAll('%SITE_URL%', SITE_URL) }],
-  // test-only switches in the page (window.__lgoabStreaks) are read in a test or preview build only: the live
-  // site's build leaves the code out
+  // test-only switches in the page (window.__lgoabStreaks, ?backdrop=) are read in a test or preview build
+  // only: the live site's build leaves the code out
   define: { __LGOAB_TEST_HOOKS__: JSON.stringify(proofPages) },
   // e2e/ holds the Playwright browser tests (npm run e2e)
   test: { exclude: [...configDefaults.exclude, 'e2e/**', '.claude/**'] },
