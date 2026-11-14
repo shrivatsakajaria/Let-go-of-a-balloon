@@ -7,6 +7,7 @@
  *   trip=bergen|bialystok|huddersfield|sea|night|tokyo   a trip below (default bergen)
  *   reveal=0                                             open the card without its reveal
  *   at=s                                                 hold the reveal at s seconds (window.__revealAt)
+ *   flat=1                                               the 2D fallback's card (the flat map, no 3D)
  */
 import '../ui/styles.css';
 import { routeFromHourly } from '../flight/route';
@@ -18,6 +19,8 @@ import type { BuildReply, BuildRequest } from '../world/worker';
 import { cardScene, farStats } from '../app/cardshot';
 import { cardHook, presentCard } from '../app/landingcard';
 import type { LiveScene } from '../app/scene';
+import { mapScene } from '../app/mapcard';
+import { Fallback } from '../fallback/fallback2d';
 
 type Trip = { name: string; a: LatLon; b: LatLon; wig: number[]; landsUtc: string };
 
@@ -55,7 +58,8 @@ function hourly(t: Trip, n = 73): LatLon[] {
 
 const q = new URLSearchParams(location.search);
 const trip = TRIPS[q.get('trip') ?? 'bergen'] ?? TRIPS.bergen;
-const reveal = q.get('reveal') !== '0';
+const flat = q.get('flat') === '1';
+const reveal = q.get('reveal') !== '0' && !flat;
 if (q.has('at')) (window as unknown as { __revealAt?: number }).__revealAt = Number(q.get('at'));
 
 async function main() {
@@ -66,6 +70,8 @@ async function main() {
   const pool = new WorkerPool<BuildRequest, BuildReply>(() => new Worker(new URL('../world/worker.ts', import.meta.url), { type: 'module' }), 4, { timeoutMs: 60000 });
   const live = { pool, gone: false } as unknown as LiveScene;
   cardHook.world = farStats;
-  await presentCard({ scene: cardScene(live, { reveal }), route, saved, own: true, landing: landingPlace(route).catch(() => null), isCurrent: () => true, reveal });
+  // the 2D map's card: its coastline map for this route (Fallback.cardMap reads only the flight)
+  const map = { cardMap: (w: number, h: number, b: Parameters<Fallback['cardMap']>[2]) => Fallback.prototype.cardMap.call({ flight: { route } } as unknown as Fallback, w, h, b) };
+  await presentCard({ scene: flat ? mapScene(map) : cardScene(live, { reveal }), route, saved, own: true, landing: landingPlace(route).catch(() => null), isCurrent: () => true, reveal });
 }
 void main();

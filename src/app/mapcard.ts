@@ -26,6 +26,12 @@ export function mapScene(f: Pick<Fallback, 'cardMap'>): CardScene {
     async cardPicture(route: Route): Promise<CardPicture | null> {
       const map = await f.cardMap(CARD_W, PICTURE_H, BAND);
       if (!map) return null;
+      // a little deeper than the live map, so the off-white names read over the pale land
+      const ctx = map.image.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgba(10, 14, 28, 0.22)';
+        ctx.fillRect(0, 0, CARD_W, PICTURE_H);
+      }
       const pts = Array.from({ length: map.px.length / 2 }, (_, i) => ({ x: map.px[i * 2], y: map.px[i * 2 + 1], seen: true }));
       return {
         image: map.image,
