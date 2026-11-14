@@ -163,7 +163,7 @@ export class BalloonString {
     if (this.held && dt > 0) {
       // how the held shape moves (smoothed over a few frames), to carry on with as the hand opens
       if (this.heldFrames++ > 0) {
-        const k = 1 - Math.exp(-dt / 0.08);
+        const k = 1 - Math.exp(-dt / 0.02);
         track(this.v1, this.c1, this.p1, dt, k);
         track(this.v2, this.c2, this.p2, dt, k);
       }

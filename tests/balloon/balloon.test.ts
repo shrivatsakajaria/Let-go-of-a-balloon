@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Balloon } from '../../src/balloon/balloon';
+import { Person } from '../../src/balloon/person';
 import type { RoutePoint } from '../../src/flight/route';
 import { lightFor } from '../../src/world/palette';
 
@@ -198,6 +199,56 @@ describe('the string, through a scripted flight', () => {
       expect(b.stringPoint(b.stringSegments, end).distanceTo(hand)).toBeLessThan(1e-6);
       const knot = b.stringPoint(0, new THREE.Vector3());
       expect(knot.y).toBeGreaterThan(hand.y + 0.8); // the balloon floats over the hand
+    }
+  });
+
+  test('let go by the person (the string slipping out of the opening fingers, StringGrip): the end follows the hand until releaseT is 1, then eases to hanging, the tip within the same limits from there', () => {
+    for (const hz of [30, 60, 120]) {
+      const scene = new THREE.Scene();
+      const person = new Person(scene, { lat: 51.5, lon: -0.12 }, 0, { x: 0, y: 0, z: 0 });
+      const b = new Balloon(scene);
+      b.hold(person.hand, person);
+      const cam = new THREE.Vector3(2, 1.6, -4);
+      const pos = new THREE.Vector3(0, 1.5, 0);
+      let t = -2, relAt = Number.NaN, fromY = 0, asked = false;
+      const run: Frame[] = [];
+      const end = new THREE.Vector3();
+      let slipping = 0, freeAt = Number.NaN;
+      for (let i = 0; t < 4; i++) {
+        const dt = 1 / hz;
+        person.update(dt);
+        t += dt;
+        if (Number.isFinite(relAt)) {
+          const u = t - relAt;
+          pos.set(3 * u, fromY + 1.5 * u, 0);
+        }
+        b.setState({ tSec: 0, lat: 51.5, lon: -0.12, altM: pos.y, groundM: 0, speedMs: 3, headingDeg: 90 }, dt, DAY, { pos, camera: cam, elapsedS: dt });
+        if (t > 0 && !asked) {
+          asked = true;
+          person.play(() => {
+            relAt = t + dt;
+            fromY = b.mesh.position.y;
+            b.release();
+          });
+        }
+        b.stringPoint(b.stringSegments, end);
+        if (Number.isFinite(relAt) && person.releaseT > 0 && person.releaseT < 1) {
+          slipping++;
+          expect(end.distanceTo(person.hand)).toBeLessThan(0.05);
+        }
+        if (Number.isNaN(freeAt) && person.releaseT >= 1) freeAt = t;
+        run.push(sample(b, t, dt, false));
+      }
+      expect(slipping).toBeGreaterThan(0);
+      // (while it slips out, its end goes with the opening fingers, as person.ts moves them: they hand it over
+      // moving up toward the knot at about 35 deg/s, so it carries on a little and comes back down to hang.
+      // No jump as it comes free; within 0.3 s it turns within the string's own limit, and from 0.5 s on its
+      // turning changes within it too)
+      for (let i = 1; i < run.length; i++) if (run[i].t > freeAt - 0.1 && run[i].t < freeAt + 0.3) expect(Math.acos(Math.min(1, run[i].dir.dot(run[i - 1].dir))) / RAD, `${hz} Hz t=${run[i].t.toFixed(2)}`).toBeLessThan(45 / hz);
+      expect(turning(run, freeAt + 0.3).w, `${hz} Hz`).toBeLessThanOrEqual(MAX_TURN_DEG_S);
+      const r = turning(run, freeAt + 0.5);
+      expect(r.a, `${hz} Hz at t=${r.aAt.toFixed(2)} s`).toBeLessThanOrEqual(MAX_TURN_ACCEL_DEG_S2);
+      expect(Math.max(...run.map((f) => f.aboveM))).toBeLessThan(0);
     }
   });
 
