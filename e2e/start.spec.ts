@@ -48,6 +48,8 @@ test.describe('start screen', () => {
     await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByRole('dialog', { name: 'About' })).toContainText('A simulation using forecast winds, not a real balloon. Real party balloons climb higher and pop; this one floats at about 1.5 km so you can see the ground.');
     await expect(page.getByRole('dialog', { name: 'About' })).toContainText('It flies on for three days. Come back any time to see where it is.');
+    // the honest line about the anonymous counts (spec 16)
+    await expect(page.getByRole('dialog', { name: 'About' })).toContainText('Visits are counted anonymously: no cookies, nothing that identifies you.');
   });
 
   test('the notice and the map credit share one row of small print', async ({ page }) => {

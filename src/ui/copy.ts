@@ -44,6 +44,8 @@ export const COPY = {
   simulation: 'A simulation',
   /** What happens next: the About sheet, and the first fact once a flight of your own has settled. */
   next: 'It flies on for three days. Come back any time to see where it is.',
+  /** The About sheet's line on the anonymous counts (spec 16). */
+  privacy: 'Visits are counted anonymously: no cookies, nothing that identifies you.',
   addToCalendar: 'Add to calendar',
   showAll: (n: number) => `Show all ${n}`,
   showFewer: 'Show fewer',
