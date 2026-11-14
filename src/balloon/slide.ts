@@ -13,7 +13,7 @@ import { CLIMB_RATE_MS } from '../config';
  *   just ahead (it is pressed against the wall and slides up it), let go again as the lift clears it. Its
  *   own speed along the drift changes by no more than brakeMs2 (Task 26c): it slows to a stop short of a
  *   wall it sees coming at its height, gets going again once it is clear, and catches up with its route at
- *   up to catchUp of its speed again, easing off as it gets there.
+ *   up to catchUp of its speed again, easing off as it gets there (at half brakeMs2).
  * Both are then eased (critically damped, over smoothLiftS and smoothBackS): no lurch the launch camera,
  * aimed at it, would pass on.
  * No allocation per step.
@@ -52,7 +52,8 @@ export class FacadeSlide {
     if (!Number.isFinite(this.drawnV)) this.drawnV = room > 0 ? v : 0;
     // (the drawn balloon, eased, runs on ahead of this by what the easing lags: that much less room)
     const lag = Math.max(0, this.rawBack - this.back);
-    const want = Math.min(v + Math.min(SLIDE.catchUp * v, Math.sqrt(2 * a * this.rawBack)), Math.sqrt(2 * a * Math.max(0, room - lag)));
+    // (it eases off catching up at half that: a camera pushing in on it, slowing with it, keeps its distance)
+    const want = Math.min(v + Math.min(SLIDE.catchUp * v, Math.sqrt(a * this.rawBack)), Math.sqrt(2 * a * Math.max(0, room - lag)));
     this.drawnV = want < this.drawnV ? want : Math.min(want, this.drawnV + a * dt);
     this.rawBack = Math.max(0, this.rawBack + (v - this.drawnV) * dt);
   }
