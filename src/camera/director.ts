@@ -124,6 +124,10 @@ const STILL_FILL = 0.8;
 const STILL_MIN_M = 16;
 /** ...and the cut comes early if the drifting balloon is about to leave it (NDC). */
 const STILL_EDGE = 0.85;
+/** The launch camera passing over the person keeps this high over their ground (m): the crane eases up within PERSON_EASE_M of them, the clamp holds it within PERSON_CLEAR_M. */
+const PERSON_OVER_M = 2.8;
+const PERSON_CLEAR_M = 1.2;
+const PERSON_EASE_M = 4;
 /** No building within this radius of the camera's ground point, or the camera goes over its roof. */
 const STREET_CLEAR_M = 1.5;
 /** The start screen frames the person and the held balloon: feet to the top of the balloon, about 3 m. */
@@ -1066,15 +1070,18 @@ export class Director {
     let g = this.deps.groundAt(ll);
     if (!Number.isFinite(g)) g = this.deps.groundAt(o.personAt);
     p.y = Math.max(g + EYE_M, B.y - d * Math.sin(el) - lagY);
+    // following the balloon away over the person: up over their head, eased in (clamp keeps it there)
+    const dP = Math.hypot(p.x - ps.x, p.z - ps.z);
+    if (dP < PERSON_EASE_M) p.y = Math.max(p.y, this.deps.groundAt(o.personAt) + PERSON_OVER_M * (0.5 + 0.5 * Math.cos((Math.PI * dP) / PERSON_EASE_M)));
     const r = inOut(rel, rel + CRANE_EASE_S, t);
     tg.y0 = mix(0.6, CRANE_Y0, r);
     tg.fov = fovT;
-    // the balloon shares the frame with the person just after the release, then with the landmark if it
-    // is in sight (else it comes to the middle), worked out from where the camera is and how wide it sees
+    // the balloon shares the frame with the person just after the release (held at the edge rather than
+    // let go of them), then with the landmark if it is in sight (else it comes to the middle), worked out from where the camera is and how wide it sees
     const at = this.ready ? this.pos : p;
     const fovNow = this.ready ? this.fov : tg.fov;
     const w = inOut(rel + 2, rel + 5, t);
-    const share = mix(this.shareX(at, B, fovNow, Math.atan2(ps.x - at.x, -(ps.z - at.z)), true), this.shareX(at, B, fovNow, this.lmBearing(), true), w);
+    const share = mix(this.shareX(at, B, fovNow, Math.atan2(ps.x - at.x, -(ps.z - at.z))), this.shareX(at, B, fovNow, this.lmBearing(), true), w);
     tg.x0 = mix(this.craneX0, share, inOut(rel, rel + CRANE_SHARE_S, t));
     tg.x0Now = true;
     // moves with the balloon (the release registers first)
@@ -1286,6 +1293,12 @@ export class Director {
       wBuild = c;
     }
     let floor = this.deps.groundAt(ll) + clearance;
+    // the crane passing the person (it follows the balloon away over them): over their head, never through it
+    if (this._shot === 'launch' && this.launchOpts && !this.wait) {
+      const ps = this.deps.toScene(this.launchOpts.personAt);
+      const dh = Math.hypot(p.x - ps.x, p.z - ps.z);
+      if (dh < PERSON_CLEAR_M) floor = Math.max(floor, this.deps.groundAt(this.launchOpts.personAt) + PERSON_OVER_M * (0.5 + 0.5 * Math.cos((Math.PI * dh) / PERSON_CLEAR_M)));
+    }
     if (this.deps.buildingTopAt) {
       if (wBuild > 0) {
         // within 30 m, or as near as the balloon is (Ride, a string's length away, is not lifted 30 m over a
