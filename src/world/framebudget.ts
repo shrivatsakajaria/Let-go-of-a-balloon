@@ -73,7 +73,7 @@ export class FrameBudget {
     this.overage = Math.max(0, this.overage + over);
     if (over > 0 && this.camera && this.cap !== Infinity) {
       this.cap -= over;
-      this.viewTiles = this.stream.fitView(this.camera, this.cap);
+      this.viewTiles = this.stream.fitView(this.camera, this.cap, true);
     }
   }
 
