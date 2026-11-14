@@ -155,6 +155,8 @@ const liftLater = (need: number, inS: number) => need - LIFT_EASY_MS * Math.max(
 const PLAN_S = 40;
 const PLAN_STEP_S = 0.5;
 const PLAN_AHEAD_S = 6;
+/** The crane stays at least this far off the balloon across (m), along the plan's bearing from it. */
+const PLAN_MIN_H_M = 1.5;
 /** Ride's bearing (rideYaw) comes round to the wind's over this smooth time (s), at most RIDE_YAW_MAX rad/s. */
 const RIDE_YAW_T_S = 8;
 const RIDE_YAW_MAX = 6 * RAD;
@@ -197,7 +199,7 @@ const CLAMP_MAX_V = 8;
 const CLAMP_LAUNCH_A = 0.45;
 const CLAMP_V_T_S = 0.15;
 /** ...and, whatever the easing, never lower than this over the ground, nor than this over a roof within HARD_ROOF_R_M (m). */
-const HARD_GROUND_M = 0.5;
+const HARD_GROUND_M = 0.2;
 const HARD_ROOF_M = 0.2;
 const HARD_ROOF_R_M = 0.3;
 /** The look turns no faster than this about the vertical (rad/s): passing under the balloon is not a spin. */
@@ -339,7 +341,7 @@ export class Director {
    * The launch's plan, made as the hand opens: the route's balloon then, the smooth maximum's value then,
    * and the lift the predicted path needs (every PLAN_STEP_S).
    */
-  private plan: { B: THREE.Vector3; d0: number; sm0: number; need: Float64Array; from: number } | null = null;
+  private plan: { B: THREE.Vector3; d0: number; sm0: number; need: Float64Array; from: number; ux: number; uz: number } | null = null;
   /** The launch camera's lift over buildings (m) and its rate. */
   private lift = 0;
   private liftV = 0;
@@ -1155,6 +1157,16 @@ export class Director {
     const k = smoother((u - pl.from) / FOLLOW_S);
     out.x = H.x + k * (B.x - pl.B.x);
     out.z = H.z + k * (B.z - pl.B.z);
+    // never right under the balloon (looking straight up, the frame spins): PLAN_MIN_H_M off it at least,
+    // along the plan's bearing from it (a smooth maximum, so the move has no corner)
+    const dx = out.x - B.x, dz = out.z - B.z;
+    const along = dx * pl.ux + dz * pl.uz;
+    const want = (along + Math.sqrt(along * along + 0.25)) / 2;
+    if (want < PLAN_MIN_H_M) {
+      const push = (PLAN_MIN_H_M - want) * smoother(1 - want / PLAN_MIN_H_M);
+      out.x += pl.ux * push;
+      out.z += pl.uz * push;
+    }
     // (at the distance it holds from the balloon: it never sinks while the balloon gets ahead of it)
     out.y = H.y + softMax(B.y - pl.d0 * Math.tan(CRANE_ELEV) - H.y) - pl.sm0;
     return out;
@@ -1169,7 +1181,9 @@ export class Director {
     // (the follow starts sooner in a strong wind: the balloon is soon well clear of the person anyway)
     const v = Number.isFinite(b.speedMs) ? Math.max(0, b.speedMs) : 0;
     const from = Math.min(FOLLOW_FROM_S, Math.max(FOLLOW_SOON_S, FOLLOW_FROM_S + 0.3 - 0.1 * v));
-    this.plan = { B: B0.clone(), d0, sm0, need, from };
+    const hx = H.x - B0.x, hz = H.z - B0.z, hl = Math.hypot(hx, hz);
+    const ux = hl > 1e-6 ? hx / hl : 0, uz = hl > 1e-6 ? hz / hl : 1;
+    this.plan = { B: B0.clone(), d0, sm0, need, from, ux, uz };
     // the predicted path: on with the wind, climbing
     const raw = new Float64Array(n);
     const Bp = new THREE.Vector3(), C = new THREE.Vector3();
@@ -1603,12 +1617,15 @@ export class Director {
     const g = this.guard;
     // only the launch eases: elsewhere (Ride, Above, Side-on, circling, replay) and while paused the
     // correction is taken at once, so no view ever sits in a building or the ground
-    if (this._shot !== 'launch' || this.paused) {
+    // (what is left of the launch's eased correction at the hand-over is still eased out, so the hand-over
+    // is not a jump; once it has met the correction, the correction is taken at once)
+    const launch = this._shot === 'launch';
+    const want = g.want.copy(out).sub(this.pos);
+    if (this.paused || (!launch && (!g.on || (want.distanceTo(g.off) < 0.02 && g.v.length() < 0.05)))) {
       g.on = false;
       this.hardFloor(out, b, B0);
       return;
     }
-    const want = g.want.copy(out).sub(this.pos);
     const dt = this.stepS;
     if (!g.on || !finite3(want)) {
       if (finite3(want)) g.off.copy(want);
