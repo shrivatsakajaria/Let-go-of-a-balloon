@@ -1,4 +1,4 @@
-import { WINDS_BASE } from '../config';
+import { FLIGHT_HOURS, WINDS_BASE } from '../config';
 import { decodeTile, type WindTile } from './format';
 import type { LatLon } from '../geo/coords';
 import { wrapLon } from '../geo/coords';
@@ -35,11 +35,35 @@ export type FetchFn = (url: string) => Promise<Response>;
 const pageFetch: FetchFn = (url) => fetch(url);
 
 const HOUR_MS = 3.6e6;
-const MAX_RUN_AGE_MS = 24 * HOUR_MS;
+/** A run older than this is never used, however far ahead it reaches (R59: runs go to f120, 120 - 72 = 48). */
+const MAX_RUN_AGE_MS = 48 * HOUR_MS;
+/**
+ * How much later than the manifest's `nowMs` a release may come and still be covered: app/data.ts
+ * keeps a loaded manifest for 20 minutes before reading it again.
+ */
+const RELEASE_SLACK_MS = 30 * 60e3;
 const CRUISE_LAT_MAX = 70;
 const CLIMB_LAT_MAX = 85;
 
-/** Load the manifest and keep only runs issued less than 24 h ago, newest first. */
+/**
+ * Whether `run` can carry a whole flight released at `releaseMs` (or up to RELEASE_SLACK_MS later):
+ * issued less than 48 h before, and its last forecast hour at or after the landing, 72 h on.
+ */
+export function runCoversFlight(run: ManifestRun, releaseMs: number): boolean {
+  const issued = Date.parse(run.issued);
+  const last = Array.isArray(run.hours) && run.hours.length > 0 ? run.hours[run.hours.length - 1] : NaN;
+  if (!Number.isFinite(issued) || !Number.isFinite(last)) return false;
+  if (issued <= releaseMs - MAX_RUN_AGE_MS) return false;
+  return issued + last * HOUR_MS >= releaseMs + FLIGHT_HOURS * HOUR_MS + RELEASE_SLACK_MS;
+}
+
+/**
+ * Load the manifest and keep only the runs that cover a whole flight released now (runCoversFlight),
+ * newest first. WindField starts on the first and falls back down the list only while a tile is
+ * missing, so a newer usable run is always preferred. Every forecast hour a flight from these runs
+ * reads is then inside the run, so the clamping in WindField (to 0 .. last hour) only ever trims the
+ * release slack.
+ */
 export async function loadManifest(
   base = WINDS_BASE,
   fetchFn: FetchFn = pageFetch,
@@ -53,10 +77,10 @@ export async function loadManifest(
   } catch (e) {
     throw new WindUnavailableError(`wind manifest unavailable: ${(e as Error).message}`);
   }
-  const runs = (m.runs ?? [])
-    .filter((r) => Date.parse(r.issued) > nowMs - MAX_RUN_AGE_MS)
+  const runs = (Array.isArray(m.runs) ? m.runs : [])
+    .filter((r) => runCoversFlight(r, nowMs))
     .sort((a, b) => Date.parse(b.issued) - Date.parse(a.issued));
-  if (runs.length === 0) throw new WindUnavailableError('no wind run under 24 h old');
+  if (runs.length === 0) throw new WindUnavailableError('no wind run under 48 h old that covers the whole 72 h flight');
   return { runs };
 }
 
