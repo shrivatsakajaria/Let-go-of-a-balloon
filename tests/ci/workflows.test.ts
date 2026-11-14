@@ -145,18 +145,24 @@ describe('deploy.yml', () => {
     expect(deploy.match(/steps\.deploy\.outcome == 'success'/g)!.length).toBe(deploy.match(/steps\.deploy_plain\.outcome == 'success'/g)!.length);
   });
 
-  test('the set-aside step moves wrangler.toml away and warns, and does not fail', () => {
+  test('the set-aside step keeps wrangler.toml but drops its analytics binding, warns, and does not fail', () => {
     const script = runBlock(step(deploy, 'Set the analytics settings aside after a failed deploy'));
+    const toml = 'name = "x"\npages_build_output_dir = "dist"\n\n[[analytics_engine_datasets]]\nbinding = "B"\ndataset = "d"\n';
     for (const has of [true, false]) {
       const work = mkdtempSync(join(tmpdir(), 'wf-aside-'));
-      if (has) writeFileSync(join(work, 'wrangler.toml'), 'name = "x"\n');
+      if (has) writeFileSync(join(work, 'wrangler.toml'), toml);
       const summary = join(work, 'summary');
       const r = spawnSync('bash', ['-e', '-c', script], { cwd: work, env: { PATH: process.env.PATH, GITHUB_STEP_SUMMARY: summary }, encoding: 'utf8' });
       expect(r.status, r.stderr).toBe(0);
-      expect(existsSync(join(work, 'wrangler.toml'))).toBe(false);
-      expect(existsSync(join(work, 'wrangler.toml.off'))).toBe(has);
+      expect(existsSync(join(work, 'wrangler.toml'))).toBe(has);
+      if (has) {
+        const left = readFileSync(join(work, 'wrangler.toml'), 'utf8');
+        expect(left).toContain('pages_build_output_dir = "dist"');
+        expect(left).not.toContain('analytics_engine_datasets');
+        expect(left).not.toContain('binding');
+      }
       expect(r.stdout).toMatch(/^::warning title=Deployed without analytics::/m);
-      expect(readFileSync(summary, 'utf8')).toContain('without wrangler.toml');
+      expect(readFileSync(summary, 'utf8')).toContain('without the analytics binding');
     }
   });
 

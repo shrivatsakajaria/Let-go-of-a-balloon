@@ -223,10 +223,12 @@ jobs:
 
       - name: Set the analytics settings aside after a failed deploy
         if: steps.deploy.outcome == 'failure'
+        # Keep wrangler.toml but drop its analytics binding (the last block): with no wrangler.toml at
+        # all, Pages keeps the binding stored by the failed attempt and fails again (14 Nov 2026).
         run: |
-          if [ -f wrangler.toml ]; then mv wrangler.toml wrangler.toml.off; fi
-          echo "::warning title=Deployed without analytics::The deploy failed with wrangler.toml (the event counter's settings), so it is retried without them. The site works; the event counter stores nothing until this is fixed."
-          echo "Deploy retried without wrangler.toml: the event counter stores nothing until this is fixed." >> "$GITHUB_STEP_SUMMARY"
+          if [ -f wrangler.toml ]; then sed -i '/^\[\[analytics_engine_datasets\]\]/,$d' wrangler.toml; fi
+          echo "::warning title=Deployed without analytics::The deploy failed with the event counter's binding (wrangler.toml), so it is retried without it. The site works; the event counter stores nothing until this is fixed (is Analytics Engine switched on in the Cloudflare dashboard?)."
+          echo "Deploy retried without the analytics binding in wrangler.toml: the event counter stores nothing until this is fixed." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Deploy to Cloudflare Pages without analytics
         id: deploy_plain
