@@ -986,6 +986,9 @@ export class Director {
       cr.x0 = mix(cr.x0 ?? 0, end.x0 ?? 0, c);
       cr.fov = mix(cr.fov, end.fov, c);
     }
+    // (kept clear of roofs, crowns and the person before the follower: a floor it meets, or leaves, is taken
+    // in at the follower's acceleration, not as a jolt after it)
+    this.clamp(cr.pos, b, B, B0);
     this.followStep(cr.pos);
     // the lens, from where the camera is: never wider than keeps the balloon at MIN_FRAC of the frame (a smooth
     // minimum), so it reads while the camera catches up with it
