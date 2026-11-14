@@ -22,7 +22,8 @@ import { sunPosition } from '../geo/sun';
 import type { Label } from '../world/meshjob';
 import type { TileKey } from '../world/lod';
 import { SLOT_COUNT } from '../world/materials';
-import { lerpHex, lightFor, regionStyle, type Light } from '../world/palette';
+import { CONTOUR, lerpHex, lightFor, regionStyle, type Light } from '../world/palette';
+import { mixRGB, rgb } from '../world/geom';
 import { Sky } from '../world/sky';
 import { WorldStream, type BuildPool } from '../world/stream';
 import { cardShot, cardTiles, dropAt, EARTH_R_M, fromCard, poseAt, poseCamera, revealStart, toCard, type CardPose, type CardShot } from './cardframe';
@@ -63,6 +64,25 @@ export function cardLook(landing: LatLon, utcMs: number): CardLook {
 /** The map label's English name, without the other languages a sea's name can carry. */
 export function labelText(l: Pick<Label, 'name' | 'en'>): string {
   return (l.en || l.name.split(' / ')[0]).trim();
+}
+
+/** The water's mid tone (water.ts facets lie between its shallows and this, its deep band on the coast). */
+const SEA_MID = mixRGB(rgb(CONTOUR.waterShallow), rgb(CONTOUR.waterDeep), 0.32);
+const SEA_DEEP = rgb(CONTOUR.waterDeep);
+
+/**
+ * Draw a water mesh's facet colours a share k of the way toward the one mid tone (every tile alike, so
+ * no tile shows as a square), leaving the deep coast band as it is.
+ */
+function calmColours(g: THREE.BufferGeometry, k: number): void {
+  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!c) return;
+  for (let i = 0; i < c.count; i++) {
+    const r = c.getX(i), gg = c.getY(i), b = c.getZ(i);
+    if (Math.abs(r - SEA_DEEP[0]) + Math.abs(gg - SEA_DEEP[1]) + Math.abs(b - SEA_DEEP[2]) < 0.03) continue;
+    c.setXYZ(i, r + (SEA_MID[0] - r) * k, gg + (SEA_MID[1] - gg) * k, b + (SEA_MID[2] - b) * k);
+  }
+  c.needsUpdate = true;
 }
 
 export class CardWorld {
@@ -212,11 +232,16 @@ export class CardWorld {
       const g = this.stream.groupOf(t.key);
       if (!g) continue;
       g.updateMatrixWorld(true);
+      const z = Number(t.key.split('/')[0]);
       g.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh || !m.geometry || this.bent.has(m.geometry)) return;
         const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
         if (!pos) return;
+        // the sea seen from far up (z5 to z7): its facets' colours drawn together toward one tone, so
+        // earcut's long thin triangles do not show as fans and every tile's sea matches its neighbours'
+        const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.Material | undefined;
+        if (z <= 7 && mat && /-water-/.test(mat.name)) calmColours(m.geometry, 0.7);
         inv.copy(m.matrixWorld).invert();
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
