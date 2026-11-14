@@ -26,21 +26,33 @@ const sceneEl = document.getElementById('scene')!;
 const appEl = document.getElementById('app')!;
 const hudEl = document.getElementById('hud')!;
 const noticeEl = document.getElementById('notice')!;
+/**
+ * Focus was on the start screen when the launch began (Let go pressed with the keyboard). The launch hides
+ * the start screen's bottom, and the browser drops that focus to <body> long before the flight comes in.
+ */
+let launchedFromApp = false;
 const setView = (v: View) => {
   const was = html.dataset.view;
   html.dataset.view = v;
+  if (v === 'launch' && was !== 'launch') launchedFromApp = appEl.contains(document.activeElement);
+  else if (v !== 'launch' && v !== 'flight') launchedFromApp = false;
   if (v === 'flight' && was !== 'flight') focusFlight();
 };
 
 /**
  * When the flight comes on screen (from "Your balloons" or the launch), focus left on the start screen
  * (now hidden) moves to the HUD's main action, so a keyboard user is not sent back to the top of the page
- * (2.4.3). Focus on nothing (a link just opened) stays there: no ring is drawn that nobody asked for.
+ * (2.4.3). So does focus the launch dropped to <body>. Focus on nothing otherwise (a link just opened)
+ * stays there: no ring is drawn that nobody asked for.
  */
 function focusFlight(): void {
+  const launched = launchedFromApp;
+  launchedFromApp = false;
   requestAnimationFrame(() => {
     const a = document.activeElement;
-    if (!a || !appEl.contains(a)) return;
+    const fromApp = !!a && appEl.contains(a);
+    const dropped = launched && (!a || a === document.body);
+    if (!fromApp && !dropped) return;
     hudFocusTarget(hudEl)?.focus({ preventScroll: true });
   });
 }

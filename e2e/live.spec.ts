@@ -189,6 +189,31 @@ test('a balloon opened from "Your balloons" with the keyboard: focus moves to th
   await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
 });
 
+test('Let go with the keyboard: when the flight comes in, focus is on the HUD\'s main action, not lost to the page', async ({ context, page }) => {
+  test.setTimeout(200_000); // the launch is up to 40 s of the director's clock, which slow frames stretch
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await page.getByRole('button', { name: 'Let go', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => view(page), { timeout: 110_000, intervals: [250] }).toBe('flight');
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
+  // hudFocusTarget's order: the way back to the card, else the whole trip, else Pause
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const hud = document.getElementById('hud')!;
+          const want = hud.querySelector('.show-card:not([hidden])') ?? hud.querySelector('.trip:not([hidden])') ?? hud.querySelector('.pause');
+          return want !== null && document.activeElement === want;
+        }),
+      { timeout: 5000 },
+    )
+    .toBe(true);
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
+});
+
 test('a link opened by a tap or a click draws no focus ring: focus is not moved for it', async ({ context, page }) => {
   await liveWorld(context);
   await page.goto(await linkTo(eastward(14)));
