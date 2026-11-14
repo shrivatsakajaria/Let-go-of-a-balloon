@@ -13,7 +13,8 @@ import { SHADE_FAINT } from '../src/fallback/map2d';
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 90_000 });
 
-const NOTE = "Your phone can’t show the 3D world, so here is the route on a map.";
+// owner's decision, 14 November 2026 (panel review): said neutrally, not "your phone can't"
+const NOTE = 'Showing the map view on this device.';
 const Z5 = readFileSync(new URL('../tests/fixtures/omt_5_15_10.pbf', import.meta.url));
 const view = (page: Page) => page.evaluate(() => document.documentElement.dataset.view);
 
@@ -110,7 +111,7 @@ test('at 640x360 the HUD fits without scrolling: the credit runs as wide as the 
     };
   });
   expect(m.scroll).toBeLessThanOrEqual(0);
-  expect(m.links).toHaveLength(4);
+  expect(m.links).toHaveLength(3);
   for (const h of m.links) expect(h).toBeGreaterThanOrEqual(24);
   expect(m.gap).toBeGreaterThanOrEqual(4);
 });
@@ -174,6 +175,32 @@ test.describe('without WebGL', () => {
     await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeVisible();
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
+    // nothing left to put in a calendar
+    await expect(page.getByRole('button', { name: 'Add to calendar' })).toBeHidden();
+  });
+
+  test('Add to calendar saves the landing as a text/calendar event with this balloon\'s own link (owner\'s decision, 14 November 2026)', async ({ context, page }) => {
+    await liveWorld(context);
+    await coast(context);
+    await noWebGL(context);
+    const b = eastward(14);
+    await page.goto(await linkTo(b));
+    await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
+    const cal = page.getByRole('button', { name: 'Add to calendar' });
+    await expect(cal).toBeVisible();
+    const [dl] = await Promise.all([page.waitForEvent('download'), cal.click()]);
+    expect(dl.suggestedFilename()).toBe('balloon-landing.ics');
+    const ics = readFileSync((await dl.path())!, 'utf8');
+    const lines = ics.replace(/\r\n /g, '').split('\r\n');
+    const at = new Date(b.release + 72 * 3600e3);
+    const stamp = at.toISOString().replace(/[-:]/g, '').slice(0, 13) + '00Z';
+    expect(lines).toContain(`DTSTART:${stamp}`);
+    expect(lines).toContain('TRIGGER:-PT15M');
+    // someone else's balloon (opened from a link): "A balloon from Manchester lands"
+    expect(lines).toContain('SUMMARY:A balloon from Manchester lands');
+    const href = await page.evaluate(() => location.href);
+    expect(href).toMatch(/#b=/);
+    expect(lines).toContain(`URL:${href}`);
   });
 
   test('the winds error still says so plainly, with Try again', async ({ context, page }) => {
@@ -231,11 +258,11 @@ test.describe('without WebGL', () => {
   });
 });
 
-test('the credits list every source and end with "A Still Signal build"', async ({ page }) => {
+test('the About sheet lists every source and ends with "A Still Signal build"', async ({ page }) => {
   await offline(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Credits' }).click();
-  const footer = page.getByRole('dialog', { name: 'Credits' }).locator('footer');
+  await page.getByRole('button', { name: 'About' }).click();
+  const footer = page.getByRole('dialog', { name: 'About' }).locator('footer');
   await expect(footer).toBeVisible();
   const text = (await footer.innerText()).replace(/\s+/g, ' ');
   for (const want of [
@@ -249,7 +276,7 @@ test('the credits list every source and end with "A Still Signal build"', async 
     expect(text).toContain(want);
   await expect(footer.locator('.sig')).toHaveText('A Still Signal build');
   // the map corner credit is the one line over the scene, linked
-  await expect(page.locator('.start .map-credit')).toHaveText('OpenFreeMap © OpenMapTiles Data from OpenStreetMap © Mapterhorn');
+  await expect(page.locator('.start .map-credit')).toHaveText('© OpenStreetMap · OpenMapTiles · Mapterhorn');
 });
 
 test.describe('WebGL context loss', () => {

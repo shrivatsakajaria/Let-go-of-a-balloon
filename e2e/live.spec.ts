@@ -35,14 +35,13 @@ test('Let go from Albert Square: the chrome fades, the person lets go, the ballo
 
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
   const t0 = Date.now();
-  // all chrome but the clock goes in 300 ms: a clean frame for recordings (polled: a loaded test machine
-  // can be a frame or two late)
+  // all chrome goes in 300 ms, the clock too (owner's decision, 14 November 2026): a clean frame for recordings
+  // (polled: a loaded test machine can be a frame or two late)
   expect(await page.locator('.start .bottom').evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0\.3s/);
   await expect.poll(() => opacity(page, '.start .bottom'), { timeout: 5000 }).toBe(0);
   await expect.poll(() => opacity(page, '.start .top'), { timeout: 5000 }).toBe(0);
-  await expect.poll(() => opacity(page, '.hud-top .clock'), { timeout: 5000 }).toBe(1);
+  await expect.poll(() => opacity(page, '.hud-top .clock'), { timeout: 5000 }).toBe(0);
   expect(await opacity(page, '.hud-bottom')).toBe(0);
-  expect(await page.locator('.hud-top .clock').innerText()).toMatch(/\d\d:\d\d/);
 
   // the hand opens, the balloon rises past the roofs
   await expect.poll(async () => (await hook(page))?.person, { timeout: 15_000 }).toBe('released');
@@ -336,11 +335,11 @@ test('HUD text reaches 4.5:1 over snow, noon and sand with the shading at its br
   }
 });
 
-test('with the world live, the HUD never takes taps meant for the start screen (Credits on start, error and broken views)', async ({ context, page }) => {
+test('with the world live, the HUD never takes taps meant for the start screen (About on start, error and broken views)', async ({ context, page }) => {
   await liveWorld(context, { windsDown: true });
   await startAtAlbertSquare(context);
   const credits = async () => {
-    await page.getByRole('button', { name: 'Credits' }).click();
+    await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
@@ -378,7 +377,7 @@ test('with no WebGL a link opens on the 2D map (not that the winds failed); "Let
     } as typeof get;
   });
   await page.goto(await linkTo(eastward(10)));
-  await expect(page.getByText("Your phone can’t show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Showing the map view on this device.')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.map2d')).toBeVisible();
   await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeHidden();
   await page.getByRole('button', { name: 'Let go of your own' }).click();
