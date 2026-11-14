@@ -19,6 +19,7 @@ import { hudFocusTarget } from './ui/focus';
 import type { View } from './app/live';
 import { resumeAction, type Handover, type World } from './app/world';
 import { canUseWebGL } from './fallback/detect';
+import { letGoEvent, linkOpenEvent, startTracking, track } from './analytics/track';
 
 const params = new URLSearchParams(location.search);
 /**
@@ -187,7 +188,10 @@ function open(b: SavedBalloon) {
 const start = mountStart(
   document.getElementById('app')!,
   {
-    onLetGo: letGo,
+    onLetGo(c) {
+      track(letGoEvent(c));
+      letGo(c);
+    },
     onOpenBalloon: open,
     onStartChange(c) {
       latest = c;
@@ -220,11 +224,19 @@ function route() {
   const payload = payloadFromLocation(location);
   if (!payload) return false;
   setView('link');
-  decodeBalloon(payload).then(open, showBroken);
+  decodeBalloon(payload).then((b) => {
+    track(linkOpenEvent(b, Date.now()));
+    open(b);
+  }, showBroken);
   return true;
 }
 
-if (!route()) setView('start');
+// anonymous counts, on the live site only (analytics/track.ts, spec 16)
+startTracking();
+if (!route()) {
+  setView('start');
+  track({ e: 'start_view' });
+}
 // a link pasted into the address bar of an open page
 window.addEventListener('hashchange', () => {
   broken?.remove();

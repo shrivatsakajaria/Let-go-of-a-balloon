@@ -10,6 +10,7 @@
 import { COPY } from './copy';
 import { canShareFiles, downloadBlob, openInBrowserHref, shareCard, type CardWords, type ShareEnv } from './card';
 import { REDUCED_FADE_S, revealAt, type RevealState } from './revealmath';
+import { track } from '../analytics/track';
 
 /**
  * The reveal (spec 6.5, design A) drawn into the card's frame: each frame `draw` paints the card at that
@@ -155,12 +156,19 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
     const sharable = canShareFiles(nav);
     const share = button(COPY.shareCard, 'main-action card-share');
     share.hidden = !sharable;
-    share.addEventListener('click', () => void shareCard(o.blob, o.words, o.link, env));
+    share.addEventListener('click', () => {
+      track({ e: 'card_share', method: 'share' });
+      void shareCard(o.blob, o.words, o.link, env);
+    });
     const save = button(COPY.saveImage, sharable ? 'link card-save' : 'main-action card-save');
-    save.addEventListener('click', () => downloadBlob(o.blob, o.words.filename));
+    save.addEventListener('click', () => {
+      track({ e: 'card_share', method: 'save' });
+      downloadBlob(o.blob, o.words.filename);
+    });
     const copy = button(COPY.copyLink, 'link card-copy');
     let reset = 0;
     copy.addEventListener('click', async () => {
+      track({ e: 'card_share', method: 'copy' });
       if (!(await copyText(o.link))) {
         // say so, and put the link where it can be selected and copied by hand
         if (!el.querySelector('.card-link')) {
@@ -195,6 +203,7 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
   status.setAttribute('aria-live', 'polite');
   el.append(head, frame, actions, status);
   document.body.append(el);
+  track({ e: 'card_shown' });
   const inert = INERT.map((id) => document.getElementById(id)).filter((n): n is HTMLElement => !!n && !n.inert);
   for (const n of inert) n.inert = true;
   document.documentElement.classList.add('card-open');
