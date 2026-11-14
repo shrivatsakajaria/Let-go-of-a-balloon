@@ -1231,6 +1231,9 @@ describe('launch: one smooth move', () => {
       expect(r.spin, msg).toBeLessThan(45);
       const steepest = Math.max(...rec.filter((q) => q.shot === 'launch').map((q) => -q.look.y));
       expect(Math.asin(steepest) * (180 / Math.PI), `block ${near} m off, ${speed} m/s`).toBeLessThan(70);
+      // and pushing in on it as it catches up with its route past the roof, it never runs into it
+      const nearest = Math.min(...rec.filter((q) => q.shot === 'launch' && q.t > 3).map((q) => q.rel.length()));
+      expect(nearest, `block ${near} m off, ${speed} m/s`).toBeGreaterThan(1);
     }
   });
 

@@ -15,7 +15,10 @@ import { liveWorld, SWIFTSHADER } from './fixtures';
  * dropped frame now and then (LAUNCH_PROBE_FIXED=1: 30 Hz exactly). LAUNCH_PROBE_REAL=1 runs on the real
  * clock instead, as a phone would, and records the main thread's long tasks for the first 20 s.
  * LAUNCH_PROBE_SHOTS=1 saves a picture a second from the tap, and four a second for the first 4 s.
- * LAUNCH_PROBE_CITY=london (or london,paris) runs only those.
+ * LAUNCH_PROBE_CITY=london (or london,paris) runs only those. LAUNCH_PROBE_PLACES=1 runs ordinary places
+ * instead (a suburb, a field, a seafront, an old town, high-rises, a lakeside valley) on the real map and
+ * terrain (fetched from the test's side, through the environment's proxy: run it with NODE_USE_ENV_PROXY=1),
+ * the winds still the fixture's.
  */
 test.skip(!process.env.LAUNCH_PROBE, 'the launch probe: LAUNCH_PROBE=1');
 test.use(SWIFTSHADER);
@@ -26,6 +29,7 @@ const REAL = !!process.env.LAUNCH_PROBE_REAL;
 const FIXED = !!process.env.LAUNCH_PROBE_FIXED;
 const SHOTS = !!process.env.LAUNCH_PROBE_SHOTS;
 const ONLY = process.env.LAUNCH_PROBE_CITY?.split(',');
+const PLACES = !!process.env.LAUNCH_PROBE_PLACES;
 
 type City = { id: string; name: string; lat: number; lon: number; kind: string; cityId?: string };
 const CITIES: City[] = [
@@ -33,6 +37,35 @@ const CITIES: City[] = [
   { id: 'manchester', name: 'Manchester', lat: 53.47945, lon: -2.2455, kind: 'search' },
   { id: 'paris', name: 'Paris', lat: 48.8556, lon: 2.2986, kind: 'featured', cityId: 'paris' },
 ];
+const ORDINARY: City[] = [
+  { id: 'didsbury', name: 'Didsbury', lat: 53.41455, lon: -2.23045, kind: 'search' },
+  { id: 'lincolnshire', name: 'Lincolnshire', lat: 53.1805, lon: -0.2305, kind: 'search' },
+  { id: 'brighton', name: 'Brighton', lat: 50.8192, lon: -0.1365, kind: 'search' },
+  { id: 'york', name: 'York', lat: 53.95955, lon: -1.0805, kind: 'search' },
+  { id: 'canarywharf', name: 'Canary Wharf', lat: 51.50455, lon: -0.0185, kind: 'search' },
+  { id: 'windermere', name: 'Windermere', lat: 54.3628, lon: -2.9205, kind: 'search' },
+];
+
+/** The real map and terrain, fetched from the test's side (the page's own requests cannot leave). */
+async function realWorld(context: import('@playwright/test').BrowserContext) {
+  const CORS = { 'Access-Control-Allow-Origin': '*' };
+  await context.route(/^https:\/\/(tiles\.openfreemap\.org|download\.mapterhorn\.com)\//, async (route) => {
+    const req = route.request();
+    const range = req.headers()['range'];
+    try {
+      const res = await fetch(req.url(), { headers: range ? { range } : {} });
+      const body = Buffer.from(await res.arrayBuffer());
+      const headers: Record<string, string> = { ...CORS, 'Content-Type': res.headers.get('content-type') ?? 'application/octet-stream' };
+      const cr = res.headers.get('content-range');
+      if (cr) headers['Content-Range'] = cr;
+      const ce = res.headers.get('content-encoding');
+      if (ce && !/gzip|br|deflate/.test(ce)) headers['Content-Encoding'] = ce;
+      await route.fulfill({ status: res.status, headers, body });
+    } catch {
+      await route.abort('failed').catch(() => {});
+    }
+  });
+}
 
 /** The page's clock, taken over: frames are stepped from the test, at the times it chooses. */
 function clockScript() {
@@ -103,15 +136,18 @@ function rng(seed = 7) {
   return () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 }
 
-for (const c of CITIES) {
+for (const c of PLACES ? ORDINARY : CITIES) {
   test(`launch probe: ${c.name}`, async ({ context, page }) => {
     test.skip(!!ONLY && !ONLY.includes(c.id), 'not asked for');
     mkdirSync(OUT, { recursive: true });
     await liveWorld(context);
+    if (PLACES) await realWorld(context);
     await context.addInitScript((p) => localStorage.setItem('lgoab.lastPlace.v1', p), JSON.stringify({ name: c.name, lat: c.lat, lon: c.lon, kind: c.kind, cityId: c.cityId }));
     await context.addInitScript(clockScript);
     await page.goto('/');
     await page.waitForFunction(() => document.getElementById('scene')?.dataset.live === '1', null, { timeout: 120_000 });
+    // (the real map and terrain come over the network: let them in first)
+    if (PLACES) await page.waitForTimeout(20_000);
     const tag = `${c.id}-${REAL ? 'real' : FIXED ? 'fixed' : 'jitter'}`;
     const shot = (name: string) => (SHOTS ? page.screenshot({ path: join(OUT, `${tag}-${name}.png`), timeout: 300_000 }) : Promise.resolve());
 
