@@ -185,6 +185,6 @@ test('a town ahead in another country than the start is named with its country; 
   const leeds = { name: 'Leeds', population: 455_000, distanceKm: 12, country: 'United Kingdom' };
   const cross = (homeCountry: string | null) => factsFor(state({ nearestTown: leeds, homeCountry })).find((f) => f.startsWith('At this speed'));
   expect(cross('United Kingdom')).toMatch(/cross Leeds in /);
-  expect(cross('Ireland')).toMatch(/cross Leeds, United Kingdom in /);
+  expect(cross('Ireland')).toMatch(/cross Leeds, United Kingdom, in /);
   expect(cross(null)).toMatch(/cross Leeds in /);
 });

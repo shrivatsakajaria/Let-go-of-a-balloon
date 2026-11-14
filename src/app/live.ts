@@ -395,7 +395,7 @@ export class Live {
     // until the camera has settled (frame), so the lookups never compete with the launch's tiles
     if (!launched) this.prepareReplaySoon();
     this.hud.setTrip(true);
-    this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own });
+    this.hud.setFlight({ release: route.release, ticks: midnightTicks(route), own, home: home.name });
     this.said = null;
     this.lastCountry = null;
     this.lastTown = null;

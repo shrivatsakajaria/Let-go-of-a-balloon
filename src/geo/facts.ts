@@ -127,7 +127,11 @@ export function factsFor(s: FactState): string[] {
   const town = s.nearestTown;
   if (town && kmh >= MIN_CROSSING_KMH && town.distanceKm <= TOWN_AHEAD_KM) {
     const mins = (townDiameterKm(town.population) / kmh) * 60;
-    if (mins <= MAX_CROSSING_MIN) facts.push(`At this speed it would cross ${withCountry(town.name, town.country, s.homeCountry)} in ${crossingTime(mins)}`);
+    if (mins <= MAX_CROSSING_MIN) {
+      // "cross Rijssen, Netherlands, in about 8 minutes": the country set off by commas, as in a sentence
+      const where = withCountry(town.name, town.country, s.homeCountry);
+      facts.push(`At this speed it would cross ${where}${where === town.name ? '' : ','} in ${crossingTime(mins)}`);
+    }
   }
 
   const gone = fromHomeKm < 1 ? `Just let go from ${home.name}` : `${distanceText(fromHomeKm)} km from ${home.name} so far`;

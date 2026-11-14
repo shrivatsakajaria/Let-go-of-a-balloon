@@ -336,7 +336,7 @@ export class Fallback implements World {
     this.said = null;
     this.lastCountry = null;
     this.placeAt = -Infinity;
-    this.hud.setFlight({ release: fl.route.release, ticks: midnightTicks(fl.route), own: fl.own });
+    this.hud.setFlight({ release: fl.route.release, ticks: midnightTicks(fl.route), own: fl.own, home: fl.home.name });
     this.hud.setOver('');
     this.deps.setView('flight');
     this.wrap.classList.add('on');
