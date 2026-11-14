@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three';
 import { Person, HOLD_S, MAX_HOLD_S, PERSON_HEIGHT_M } from '../../src/balloon/person';
+import { OUTFITS, outfitFor } from '../../src/balloon/figure';
+import { SLIP_FROM_S, SLIP_S } from '../../src/balloon/gesture';
 
 const AT = { lat: 51.5007, lon: -0.1246 };
 const DT = 1 / 60;
@@ -27,9 +29,9 @@ describe('person', () => {
   test('is about 1.7 m tall, anonymous and stands at its feet', () => {
     const { p } = mk();
     p.update(0);
-    const box = new THREE.Box3().setFromObject(p.root);
+    const box = new THREE.Box3().setFromObject(p.root, true);
     expect(box.max.y - box.min.y).toBeGreaterThan(1.62);
-    expect(box.max.y - box.min.y).toBeLessThan(1.82);
+    expect(box.max.y - box.min.y).toBeLessThan(1.85); // to the top of a hat
     expect(Math.abs(box.min.y)).toBeLessThan(0.03);
     expect(PERSON_HEIGHT_M).toBeCloseTo(1.7, 1);
     expect(p.at).toEqual(AT);
@@ -163,16 +165,19 @@ describe('person', () => {
       p.update(DT);
       handYs.push(p.handPosition(hand).y);
     }
-    // idle: the hand is at about hip height and moves a little, never a lot
+    // idle: the string held at about chest height, in front; the hand moves a little, never a lot
     const span = Math.max(...handYs) - Math.min(...handYs);
     expect(span).toBeGreaterThan(1e-4);
     expect(span).toBeLessThan(0.05);
-    expect(hand.y).toBeGreaterThan(0.8);
-    expect(hand.y).toBeLessThan(1.3);
+    expect(hand.y).toBeGreaterThan(1.15);
+    expect(hand.y).toBeLessThan(1.45);
+    expect(hand.z).toBeLessThan(-0.2); // in front of the body (it faces -z)
     const head0 = p.headPitch;
     p.play(() => {});
     await runFor(p, 4, [], clock);
-    expect(p.headPitch).toBeGreaterThan(head0 + 0.4); // looking up (radians, chin up)
+    expect(head0).toBeGreaterThan(0.45); // on the start screen already looking up at it
+    expect(p.headPitch).toBeGreaterThan(head0 + 0.2); // and further up after it goes (radians, chin up)
+    expect(p.headPitch).toBeGreaterThan(0.8);
     expect(p.handPosition(hand).y).toBeGreaterThan(1.35); // arm raised toward the balloon
   });
 
@@ -186,19 +191,163 @@ describe('person', () => {
     expect(scene.children.length).toBe(0);
   });
 
-  test('head, hands and hair are a neutral non-skin tone: no identifying detail', () => {
-    const { p } = mk();
-    const hsl = { h: 0, s: 0, l: 0 };
-    let n = 0;
-    p.root.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
-      const m = o.material as THREE.MeshStandardMaterial;
-      m.color.getHSL(hsl, THREE.SRGBColorSpace);
-      expect(hsl.s).toBeLessThan(0.15); // greys and slates only, nothing that reads as a skin or hair colour
-      n++;
-    });
-    expect(n).toBeGreaterThan(8);
+  test('one of four warm outfits, chosen from the place: the same place always gets the same person', () => {
+    expect(OUTFITS.length).toBe(4);
+    const places = [AT, { lat: 48.8584, lon: 2.2945 }, { lat: 40.7128, lon: -74.006 }, { lat: 53.4794, lon: -2.2453 }, { lat: -22.9519, lon: -43.2105 }, { lat: 41.4036, lon: 2.1744 }, { lat: 25.1972, lon: 55.2744 }, { lat: 51.4545, lon: -2.5879 }];
+    const seen = new Set<number>();
+    for (const at of places) {
+      const i = outfitFor(at);
+      expect(outfitFor({ ...at })).toBe(i);
+      expect(new Person(new THREE.Scene(), at, 0).outfit).toBe(i);
+      seen.add(i);
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(3);
+    expect(new Person(new THREE.Scene(), AT, 0, undefined, { outfit: 2 }).outfit).toBe(2);
   });
+
+  test('the balloon stays the one bright thing: every colour on the person is far below its chroma, and the coats are warm', () => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    const chroma = (hex: string) => {
+      new THREE.Color(hex).getHSL(hsl, THREE.SRGBColorSpace);
+      return (1 - Math.abs(2 * hsl.l - 1)) * hsl.s;
+    };
+    const balloon = chroma('#ff5a12');
+    expect(balloon).toBeGreaterThan(0.9);
+    for (const o of OUTFITS) {
+      for (const k of ['coat', 'trim', 'scarf', 'trousers', 'shoes', 'skin', 'hair', 'hat'] as const) {
+        expect(chroma(o[k]), `${o.name} ${k}`).toBeLessThan(0.36);
+      }
+      new THREE.Color(o.coat).getHSL(hsl, THREE.SRGBColorSpace);
+      const warm = hsl.h < 50 / 360 || hsl.h > 320 / 360;
+      expect(warm, `${o.name} coat`).toBe(true);
+      // the scarf contrasts with the coat (in hue or in lightness)
+      const c = new THREE.Color(o.coat).getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace);
+      const f = new THREE.Color(o.scarf).getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace);
+      const dh = Math.min(Math.abs(c.h - f.h), 1 - Math.abs(c.h - f.h));
+      expect(dh > 0.2 || Math.abs(c.l - f.l) > 0.25, `${o.name} scarf`).toBe(true);
+    }
+  });
+
+  test('cheap: one draw call and under about 3,000 triangles', () => {
+    for (let i = 0; i < OUTFITS.length; i++) {
+      const p = new Person(new THREE.Scene(), AT, 0, undefined, { outfit: i });
+      let meshes = 0;
+      p.root.traverse((o) => {
+        if (o instanceof THREE.Mesh) meshes++;
+      });
+      expect(meshes).toBe(1);
+      expect(p.triangles).toBeLessThan(3200);
+    }
+  });
+
+  test('the grip: releaseT is 0 while held, runs 0 to 1 as the string slips out of the opening hand, then stays 1', async () => {
+    const { p } = mk();
+    for (let i = 0; i < 30; i++) p.update(DT);
+    expect(p.releaseT).toBe(0);
+    let releasedAt = -1;
+    let t = 0;
+    p.play(() => (releasedAt = t + DT));
+    const samples: { t: number; r: number; hand: THREE.Vector3 }[] = [];
+    for (let i = 0; i < Math.round(3 / DT); i++) {
+      p.update(DT);
+      t += DT;
+      samples.push({ t, r: p.releaseT, hand: p.hand.clone() });
+      if (releasedAt < 0) expect(p.releaseT).toBe(0);
+    }
+    expect(releasedAt).toBeGreaterThan(0);
+    const after = (s: number) => samples.find((x) => x.t >= releasedAt + s - 1e-9)!;
+    expect(after(SLIP_FROM_S * 0.5).r).toBe(0);
+    expect(after(SLIP_FROM_S + SLIP_S * 0.5).r).toBeGreaterThan(0.2);
+    expect(after(SLIP_FROM_S + SLIP_S * 0.5).r).toBeLessThan(0.8);
+    expect(after(SLIP_FROM_S + SLIP_S + 0.02).r).toBe(1);
+    expect(samples[samples.length - 1].r).toBe(1);
+    // the end travels out of the fist, not a jump: a few centimetres over the slip, smoothly
+    let worst = 0;
+    for (let i = 1; i < samples.length; i++) worst = Math.max(worst, samples[i].hand.distanceTo(samples[i - 1].hand));
+    expect(worst).toBeLessThan(0.03); // m per 60 Hz frame
+    const slipStart = after(SLIP_FROM_S).hand, slipEnd = after(SLIP_FROM_S + SLIP_S).hand;
+    expect(slipStart.distanceTo(slipEnd)).toBeGreaterThan(0.04);
+  });
+
+  test('the grip point is in the closed fist on the start screen and moves with the hand, every frame', () => {
+    const { p } = mk();
+    p.update(DT);
+    const a = p.hand.clone();
+    p.place({ x: 10, y: 2, z: -5 });
+    expect(p.hand.x - a.x).toBeCloseTo(10, 6);
+    expect(p.hand.y - a.y).toBeCloseTo(2, 6);
+    const r = p.handPosition(new THREE.Vector3());
+    expect(r.equals(p.hand)).toBe(true);
+  });
+
+  test('a launch called off eases back to holding: no snap from the anticipation', async () => {
+    const { p } = mk();
+    p.play(() => {}, { readyAt: new Promise<void>(() => {}), holdS: Infinity });
+    for (let i = 0; i < 70; i++) p.update(DT);
+    const before = p.hand.clone();
+    p.holdIdle();
+    p.update(DT);
+    expect(p.hand.distanceTo(before)).toBeLessThan(0.01);
+    for (let i = 0; i < 60; i++) p.update(DT);
+    expect(p.state).toBe('idle');
+  });
+
+  test('a call-off eases right through to the start screen pose, then holds it exactly', async () => {
+    const scene = new THREE.Scene();
+    const p = new Person(scene, AT, 0, new THREE.Vector3(0, 0, 0));
+    const still = new Person(scene, AT, 0, new THREE.Vector3(0, 0, 0)); // never launched: the same clock
+    p.play(() => {}, { readyAt: new Promise<void>(() => {}), holdS: Infinity });
+    for (let i = 0; i < 70; i++) {
+      p.update(DT);
+      still.update(DT);
+    }
+    p.holdIdle();
+    let prev = p.hand.clone(), worst = 0;
+    for (let i = 0; i < 90; i++) {
+      p.update(DT);
+      still.update(DT);
+      worst = Math.max(worst, p.hand.distanceTo(prev));
+      prev = p.hand.clone();
+    }
+    expect(worst).toBeLessThan(0.012); // m a frame: eased, no snap
+    expect(p.blending).toBe(false);
+    expect(p.hand.distanceTo(still.hand)).toBeLessThan(1e-6); // at rest in the start screen pose
+  });
+
+  test('a call-off after the release eases back with no snap, and the string stays let go', async () => {
+    const { p } = mk();
+    p.play(() => {});
+    for (let i = 0; i < Math.round((HOLD_S + 1) / DT); i++) p.update(DT);
+    expect(p.state).toBe('released');
+    p.holdIdle();
+    let prev = p.hand.clone(), worst = 0;
+    for (let i = 0; i < 90; i++) {
+      p.update(DT);
+      worst = Math.max(worst, p.hand.distanceTo(prev));
+      prev = p.hand.clone();
+      expect(p.releaseT).toBe(1);
+    }
+    expect(worst).toBeLessThan(0.03);
+    expect(p.blending).toBe(false);
+  });
+
+  for (const how of ['holdIdle', 'play', 'dispose'] as const) {
+    test(`releaseT latches at 1: ${how}() mid-slip never takes the string back into the fist`, async () => {
+      const { p } = mk();
+      p.play(() => {});
+      while (p.state !== 'released') p.update(DT);
+      p.update(DT);
+      p.update(DT);
+      expect(p.releaseT).toBeGreaterThan(0);
+      expect(p.releaseT).toBeLessThan(1);
+      if (how === 'holdIdle') p.holdIdle();
+      else if (how === 'play') p.play(() => {});
+      else p.dispose();
+      expect(p.releaseT).toBe(1);
+      for (let i = 0; i < 30; i++) p.update(DT);
+      expect(p.releaseT).toBe(1);
+    });
+  }
 
   test('dispose cancels the launch: a late route never releases', async () => {
     const { p } = mk();

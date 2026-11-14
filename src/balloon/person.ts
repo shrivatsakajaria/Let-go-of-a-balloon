@@ -1,39 +1,61 @@
 import * as THREE from 'three';
 import type { LatLon } from '../geo/coords';
-import { CONTOUR, lerpHex } from '../world/palette';
+import { buildFigure, OUTFITS, outfitFor, type Rig } from './figure';
+import { copyPose, mixPose, newPose, poseAt, releaseTAt, type Phase, type Pose } from './gesture';
 
 /**
- * The person who lets go (spec 6.2): simple, stylised, anonymous. Capsule body, sphere head with no
- * face, two-part arms, faceted like the rest of Contour. Slate coat; head and hands in grey chalk, a
- * neutral non-skin tone, and the hair (a hood-like cap) in the coat colour: no identifying detail.
+ * The person who lets go (spec 6.2, Task 26d, ruling R62): anonymous and faceless, so anyone can see
+ * themselves in them, and warm through silhouette, colour and posture (figure.ts: a coat in a warm
+ * muted tone, a scarf whose end lifts in the wind, a hat or a hair shape; one of four outfits, chosen
+ * from the start place). The performance is gesture.ts: pose to pose, slow in and slow out.
  *
- *   const person = new Person(scene, at, facingDeg, feet);   // feet: scene position of the feet
- *   balloon.hold(person.hand);                               // person.hand is updated every frame
+ *   const person = new Person(scene, at, facingDeg, feet, { reducedMotion, wind });
+ *   balloon.hold(person.hand, person);       // the string's grip (StringGrip below), read every frame
  *   person.play(() => balloon.release(), { readyAt: routeReady, onTimeout: showWindError });
- *   person.lookAt(balloon.mesh.position);                    // optional: the eyes follow the balloon
- *   person.update(dt);                                       // every frame
+ *   person.lookAt(balloon.mesh.position);    // the head follows the balloon
+ *   person.update(dt);                       // every frame
  *
- * Before play() the person holds the balloon with an idle sway (the start screen). The launch
- * (spec 8): hold with idle sway from 0 to 1.2 s; the hand opens at 1.2 s (onRelease, the balloon
- * squashes for 120 ms); the head tips up to watch it from 1.2 to 3 s; the arm half-raises toward
- * it from 2 to 3.5 s. If the route is not ready at 1.2 s the person keeps holding and lets go as
- * soon as it is; at 6 s without a route (or at once if `readyAt` rejects) the launch times out:
- * onRelease is never called, `timedOut` is set and onTimeout runs, so the app can show the wind
- * error. Post-release beats are timed from the actual release.
- *
- * Body motion is pose-to-pose with slow-in slow-out (sine) easing; it is character motion, not
- * interface motion, so it does not use the interface curve. No overshoot.
+ * Before play() the person holds the balloon on the start screen: the string in a loosely closed
+ * hand at chest height, the head tilted up toward it, breathing. The launch (spec 8): from the tap
+ * the arm lifts a little, up onto the toes, a breath in; the hand opens at 1.2 s (onRelease, the
+ * balloon squashes for 120 ms): thumb and fingers open over 0.25 s while the string's end slips out
+ * of the fingers (releaseT 0 to 1); the open hand follows the balloon up while the head and body tilt
+ * up to watch; around 3 to 6 s a quiet reaction (the arm lowers, the other hand to the chest); then a
+ * calm rest. If the route is not ready at 1.2 s the person keeps holding (the anticipation held) and
+ * lets go as soon as it is; at 6 s without a route (or at once if `readyAt` rejects) the launch times
+ * out: onRelease is never called, `timedOut` is set and onTimeout runs, so the app can show the wind
+ * error. Post-release beats are timed from the actual release. Reduced motion: the same hand
+ * opening, a third of the body motion.
  */
 export const PERSON_HEIGHT_M = 1.71;
 export const HOLD_S = 1.2;
 export const MAX_HOLD_S = 6;
-const LOOK_S = 1.8; // 1.2 -> 3 s
-const RAISE_FROM_S = 0.8; // 2 s
-const RAISE_S = 1.5; // -> 3.5 s
-const LOWER_FROM_S = 6.5;
-const LOWER_S = 3;
-const DEFAULT_LOOK = 0.85; // rad, when nothing to look at
-const MAX_LOOK = 1.15;
+const DEFAULT_LOOK = 1; // rad up, when there is nothing to look at
+const MAX_HEAD_PITCH = 0.95;
+/** Back from an interrupted launch to holding, over this long (s). */
+const BLEND_S = 0.8;
+
+/**
+ * The hand/string contract (Task 26d with the string in balloon.ts): what the string reads from the
+ * person's hand every frame. Person implements it; pass it to Balloon.hold(person.hand, person).
+ */
+export interface StringGrip {
+  /**
+   * World position of the string's end (scene metres), correct after every update(): in the closed
+   * fist while held, moving with the fingers as they open, and sliding out past the fingertips while
+   * releaseT runs from 0 to 1. The same Vector3 for the person's life: hold on to it.
+   */
+  readonly hand: THREE.Vector3;
+  /**
+   * 0 while the fist is closed round the string (also before the hand opens, and on the start
+   * screen); from the hand opening it runs 0 to 1 over the slip (about 0.2 s, starting 0.03 s after
+   * onRelease) as the end leaves the fingers; 1 once it is free, and it stays 1 for the person's
+   * life (latched: a launch called off, a new play() or dispose() mid-slip never takes it back to 0;
+   * a new balloon is held by a new person). While it is below 1 the string's end belongs to the hand
+   * (pin it to `hand`); at 1 it is the string's own.
+   */
+  readonly releaseT: number;
+}
 
 export type PersonState = 'idle' | 'holding' | 'released' | 'timedOut';
 export type PlayOpts = {
@@ -46,50 +68,46 @@ export type PlayOpts = {
    */
   holdS?: number;
   /**
-   * A real clock (ms, e.g. performance.now): the hold (1.2 s, and holdS) is then counted in real
-   * time, so a phone at a frame or two a second still lets go at 1.2 s once the route is ready. By
-   * default it is counted in frame time (update's dt, at most 0.1 s a frame).
+   * A real clock (ms, e.g. performance.now): the hold (1.2 s, and holdS) and the performance after it
+   * are then counted in real time, so a phone at a frame or two a second still lets go at 1.2 s once
+   * the route is ready. By default they are counted in frame time (update's dt, at most 0.1 s a frame).
    */
   now?: () => number;
 };
+export type PersonOpts = {
+  reducedMotion?: boolean;
+  /** The wind at the start (the scarf's end lifts downwind): speed m/s, heading the compass bearing it blows toward. */
+  wind?: { speedMs: number; headingDeg: number };
+  /** An outfit index (default: chosen from the place). */
+  outfit?: number;
+};
 
 type V3 = { x: number; y: number; z: number };
-type ArmPose = { upper: number; elbow: number; out: number };
-const HOLD: ArmPose = { upper: 0.28, elbow: 1.1, out: 0.1 };
-const RAISE: ArmPose = { upper: 1.6, elbow: 0.4, out: 0.22 };
-const REST: ArmPose = { upper: 0.05, elbow: 0.12, out: 0.07 };
+type Arm = { side: 1 | -1; shoulder: THREE.Bone; roll: THREE.Bone; elbow: THREE.Bone; wrist: THREE.Bone; thumb: THREE.Bone; finger1: THREE.Bone; finger2: THREE.Bone };
 const RAD = Math.PI / 180;
+const smooth = (x: number) => x * x * (3 - 2 * x);
 
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-/** Slow in, slow out. */
-const easeInOut = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * clamp01(x));
-const mixPose = (a: ArmPose, b: ArmPose, f: number): ArmPose => ({
-  upper: a.upper + (b.upper - a.upper) * f,
-  elbow: a.elbow + (b.elbow - a.elbow) * f,
-  out: a.out + (b.out - a.out) * f,
-});
-
-type Arm = { shoulder: THREE.Group; elbow: THREE.Group; hand: THREE.Mesh };
-
-export class Person {
+export class Person implements StringGrip {
   readonly at: LatLon;
   readonly facingDeg: number;
   /** Feet, at the scene position; rotated to face facingDeg. */
   readonly root = new THREE.Group();
-  /** World position of the holding hand (the string's grip), updated by update(). */
+  /** The string's grip in world space (StringGrip.hand), updated by update(). */
   readonly hand = new THREE.Vector3();
+  /** Which of OUTFITS this person wears. */
+  readonly outfit: number;
+  /** Triangles in the figure. */
+  readonly triangles: number;
   state: PersonState = 'idle';
 
   private readonly scene: THREE.Object3D;
-  private readonly body = new THREE.Group(); // sways from the ankles
-  private readonly torso = new THREE.Group(); // leans back from the hips
-  private readonly head = new THREE.Group();
-  private readonly right: Arm;
-  private readonly left: Arm;
-  private readonly materials: THREE.Material[] = [];
+  private readonly rig: Rig;
+  private readonly reduced: boolean;
+  private wind = { speedMs: 3, headingDeg: 0 };
   private t = 0;
   private clock = 0;
   private releasedAt = Infinity;
+  private releasedMs = 0;
   private ready = true;
   private failed = false;
   private token = 0;
@@ -98,102 +116,78 @@ export class Person {
   private holdS = MAX_HOLD_S;
   private realNow: (() => number) | null = null;
   private startMs = 0;
+  private held = 0;
   private look: V3 | null = null;
-  // smoothed joint values
-  private j = { headPitch: 0, headYaw: 0, lean: 0, rUpper: HOLD.upper, rElbow: HOLD.elbow, rOut: HOLD.out, open: 0 };
+  /** The pose applied last frame, and the one being built (scratch: a frame allocates nothing). */
+  private readonly cur: Pose = newPose();
+  private readonly from: Pose = newPose();
+  private posed = false;
+  private lastKind: Phase['kind'] = 'idle';
+  private blendAt = Number.NaN;
+  /** Released once: the string has gone (StringGrip.releaseT stays 1). */
+  private letGo = false;
+  private readonly phaseIdle: Phase = { kind: 'idle' };
+  private readonly phaseAnt: Phase & { kind: 'anticipate' } = { kind: 'anticipate', s: 0 };
+  private readonly phaseRel: Phase & { kind: 'released' } = { kind: 'released', s: 0 };
+  private readonly arms: Arm[];
+  private head = { pitch: 0, yaw: 0, init: false };
+  // scratch
+  private readonly v1 = new THREE.Vector3();
+  private readonly v2 = new THREE.Vector3();
+  private readonly q1 = new THREE.Quaternion();
+  private readonly axis = new THREE.Vector3();
 
-  constructor(scene: THREE.Object3D, at: LatLon, facingDeg: number, feet?: V3) {
+  constructor(scene: THREE.Object3D, at: LatLon, facingDeg: number, feet?: V3, opts: PersonOpts = {}) {
     this.scene = scene;
     this.at = at;
     this.facingDeg = facingDeg;
-    const mat = (hex: string) => {
-      const m = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.92, metalness: 0, flatShading: true });
-      this.materials.push(m);
-      return m;
-    };
-    // cool slate coat, darker slate trousers: calm, and nothing near the balloon's hue
-    const coat = mat(CONTOUR.roof[2]);
-    const trousers = mat(lerpHex(CONTOUR.roof[2], '#3a3f46', 0.5));
-    const shoes = mat(lerpHex(CONTOUR.roof[2], '#2a2d33', 0.75));
-    // grey chalk (chalk wall toward slate roof): a mannequin, not a portrait; no skin or hair colour
-    const skin = mat(lerpHex(CONTOUR.building[1], CONTOUR.roof[2], 0.6));
-    const hair = coat;
-    const capsule = (r: number, len: number, m: THREE.Material) => new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 3, 10), m);
-
-    // legs and shoes
-    for (const sx of [-1, 1]) {
-      const leg = capsule(0.068, 0.74, trousers);
-      leg.position.set(0.092 * sx, 0.45, 0);
-      const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 6), shoes);
-      shoe.scale.set(0.95, 0.55, 1.75);
-      shoe.position.set(0.092 * sx, 0.035, -0.04);
-      this.body.add(leg, shoe);
-    }
-    // torso: a coat to mid-thigh, a little broader than deep
-    this.torso.position.y = 0.95; // hip pivot
-    const coatMesh = capsule(0.155, 0.48, coat);
-    coatMesh.scale.set(1.1, 1, 0.74);
-    coatMesh.position.y = 0.2; // spans about 0.74 to 1.54 m
-    this.torso.add(coatMesh);
-    // neck and head (no face)
-    this.head.position.y = 1.5 - 0.95;
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.048, 0.1, 8), skin);
-    neck.position.y = 0.04;
-    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.104, 14, 10), skin);
-    headMesh.scale.set(0.92, 1.06, 1);
-    headMesh.position.y = 0.1;
-    // short hair over the crown and back of the head reads which way they face, still without a face
-    const hairMesh = new THREE.Mesh(new THREE.SphereGeometry(0.109, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), hair);
-    hairMesh.scale.set(0.93, 1.02, 1.02);
-    hairMesh.position.set(0, 0.108, 0.006);
-    hairMesh.rotation.x = 0.55; // tipped back: covers crown and back, leaves the front bare
-    this.head.add(neck, headMesh, hairMesh);
-    this.torso.add(this.head);
-    // arms
-    this.right = this.makeArm(1, coat, skin);
-    this.left = this.makeArm(-1, coat, skin);
-    this.body.add(this.torso);
-    this.root.add(this.body);
+    this.reduced = !!opts.reducedMotion;
+    this.outfit = opts.outfit !== undefined ? ((Math.round(opts.outfit) % OUTFITS.length) + OUTFITS.length) % OUTFITS.length : outfitFor(at);
+    this.rig = buildFigure(OUTFITS[this.outfit]);
+    this.triangles = this.rig.triangles;
+    this.wind = opts.wind && Number.isFinite(opts.wind.speedMs + opts.wind.headingDeg) ? { ...opts.wind } : { speedMs: 3, headingDeg: facingDeg + 200 };
+    const b = this.rig.bones;
+    this.arms = (['R', 'L'] as const).map((s) => ({
+      side: s === 'R' ? 1 : -1,
+      shoulder: b[`shoulder${s}`],
+      roll: b[`roll${s}`],
+      elbow: b[`elbow${s}`],
+      wrist: b[`wrist${s}`],
+      thumb: b[`thumb${s}`],
+      finger1: b[`finger1${s}`],
+      finger2: b[`finger2${s}`],
+    }));
+    this.root.add(this.rig.mesh);
     this.root.rotation.y = -facingDeg * RAD; // model faces -z (north); compass heading clockwise
     if (feet) this.place(feet);
     scene.add(this.root);
     this.pose(0);
   }
 
-  private makeArm(side: 1 | -1, coat: THREE.Material, skin: THREE.Material): Arm {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(0.205 * side, 1.43 - 0.95, 0);
-    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.22, 3, 8), coat);
-    upper.position.y = -0.15;
-    const elbow = new THREE.Group();
-    elbow.position.y = -0.3;
-    const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.044, 0.2, 3, 8), coat);
-    fore.position.y = -0.14;
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.046, 10, 8), skin);
-    hand.position.y = -0.31;
-    elbow.add(fore, hand);
-    shoulder.add(upper, elbow);
-    this.torso.add(shoulder);
-    return { shoulder, elbow, hand };
-  }
-
   /** Move the feet to a scene position (for example after a floating-origin shift). */
   place(feet: V3): void {
     this.root.position.set(feet.x, feet.y, feet.z);
     this.root.updateMatrixWorld(true);
-    this.hand.copy(this.handPosition(new THREE.Vector3()));
+    this.updateHand();
   }
 
-  /** Something to watch after letting go (the balloon); null to look straight up-ish. */
+  /** Something to watch (the balloon); null to look up at nothing in particular. */
   lookAt(target: V3 | null): void {
     this.look = target;
+  }
+
+  /** The wind at the start: the scarf's end lifts downwind. */
+  setWind(w: { speedMs: number; headingDeg: number }): void {
+    if (Number.isFinite(w.speedMs + w.headingDeg)) this.wind = { ...w };
   }
 
   /** Start the launch timeline. */
   play(onRelease: () => void, opts: PlayOpts = {}): void {
     const token = ++this.token;
+    if (this.state !== 'idle') this.startBlend();
     this.state = 'holding';
     this.t = 0;
+    this.held = 0;
     this.releasedAt = Infinity;
     this.onRelease = onRelease;
     this.onTimeout = opts.onTimeout ?? null;
@@ -208,9 +202,10 @@ export class Person {
     );
   }
 
-  /** Back to holding the balloon with an idle sway, with no timeline running (the start screen). */
+  /** Back to holding the balloon on the start screen, with no timeline running (eased back, no snap). */
   holdIdle(): void {
     this.token++;
+    if (this.state !== 'idle') this.startBlend();
     this.state = 'idle';
     this.t = 0;
     this.releasedAt = Infinity;
@@ -222,9 +217,15 @@ export class Person {
     return this.state === 'timedOut';
   }
 
+  /** StringGrip.releaseT: 0 while the fist holds the string, 0 to 1 as it slips out, 1 once free. */
+  get releaseT(): number {
+    if (this.state === 'released') return releaseTAt(this.sinceRelease());
+    return this.letGo ? 1 : 0;
+  }
+
   /** How far the person is looking up, in radians (head plus lean back). */
   get headPitch(): number {
-    return this.j.headPitch + this.j.lean;
+    return this.head.pitch + this.cur.body.lean;
   }
 
   update(dtSec: number): void {
@@ -233,15 +234,18 @@ export class Person {
     if (this.state === 'holding') {
       this.t += dt;
       // how long it has held: real time when play() was given a clock, else frame time
-      const held = this.realNow ? (this.realNow() - this.startMs) / 1000 : this.t;
-      if (held >= this.holdS - 1e-9 || this.failed) {
+      this.held = this.realNow ? (this.realNow() - this.startMs) / 1000 : this.t;
+      if (this.held >= this.holdS - 1e-9 || this.failed) {
         this.state = 'timedOut';
+        this.startBlend();
         const cb = this.onTimeout;
         this.onTimeout = this.onRelease = null;
         cb?.();
-      } else if (held >= HOLD_S - 1e-9 && this.ready) {
+      } else if (this.held >= HOLD_S - 1e-9 && this.ready) {
         this.state = 'released';
+        this.letGo = true;
         this.releasedAt = this.t;
+        this.releasedMs = this.realNow ? this.realNow() : 0;
         const cb = this.onRelease;
         this.onRelease = this.onTimeout = null;
         cb?.();
@@ -252,71 +256,129 @@ export class Person {
     this.pose(dt);
   }
 
-  /** World position of the holding (right) hand. */
+  /** World position of the string's grip (the same as `hand`). */
   handPosition(out: THREE.Vector3): THREE.Vector3 {
-    this.root.updateMatrixWorld(true);
-    return this.right.hand.getWorldPosition(out);
+    return out.copy(this.hand);
+  }
+
+  /** Seconds since the hand opened (real time when play() was given a clock). */
+  private sinceRelease(): number {
+    if (this.state !== 'released') return 0;
+    return this.realNow ? Math.max(0, (this.realNow() - this.releasedMs) / 1000) : this.t - this.releasedAt;
+  }
+
+  private phase(): Phase {
+    if (this.state === 'holding') {
+      this.phaseAnt.s = this.held;
+      return this.phaseAnt;
+    }
+    if (this.state === 'released') {
+      this.phaseRel.s = this.sinceRelease();
+      return this.phaseRel;
+    }
+    return this.phaseIdle;
+  }
+
+  /** The pose is about to jump (an interrupted launch): ease from where it is now. */
+  private startBlend(): void {
+    if (!this.posed) return;
+    copyPose(this.cur, this.from);
+    this.blendAt = this.clock;
+  }
+
+  /** Whether an eased change-over from an interrupted launch is running. */
+  get blending(): boolean {
+    return !Number.isNaN(this.blendAt);
   }
 
   private pose(dt: number): void {
-    const c = this.clock;
-    // idle: a slow weight shift and breath, small enough to read as calm
-    this.body.rotation.z = 0.013 * Math.sin((2 * Math.PI * c) / 4.6);
-    this.body.rotation.x = 0.006 * Math.sin((2 * Math.PI * c) / 6.1 + 1);
-    const breath = Math.sin((2 * Math.PI * c) / 3.9);
-    this.torso.scale.set(1 + 0.004 * breath, 1 + 0.006 * breath, 1 + 0.008 * breath);
+    const ph = this.phase();
+    // idle to anticipation and anticipation to release continue from the pose before; anything else
+    // (a launch called off) eases over from where the body was
+    const natural = ph.kind === this.lastKind || (this.lastKind === 'idle' && ph.kind === 'anticipate') || (this.lastKind === 'anticipate' && ph.kind === 'released');
+    if (!natural && !this.blending) this.startBlend();
+    this.lastKind = ph.kind;
+    const p = poseAt(ph, this.clock, this.reduced, this.cur);
+    if (this.blending) {
+      const f = (this.clock - this.blendAt) / BLEND_S;
+      if (f >= 1) this.blendAt = Number.NaN;
+      else mixPose(this.from, p, smooth(Math.max(0, f)), p);
+    }
+    this.posed = true;
+    this.apply(p, dt);
+  }
 
-    // targets for this moment of the timeline
-    let arm = HOLD;
-    let look = 0;
-    let open = 0;
-    let lookPitch = DEFAULT_LOOK;
-    let lookYaw = 0;
-    if (this.state === 'released') {
-      const s = this.t - this.releasedAt;
-      open = clamp01(s / 0.15);
-      look = easeInOut(s / LOOK_S);
-      const up = easeInOut((s - RAISE_FROM_S) / RAISE_S);
-      const down = easeInOut((s - LOWER_FROM_S) / LOWER_S);
-      arm = mixPose(mixPose(HOLD, RAISE, up), REST, down);
-      // the hand flicks open a touch as it lets go
-      const flick = s < 0.4 ? Math.sin(Math.PI * clamp01(s / 0.4)) * 0.18 : 0;
-      arm = { ...arm, elbow: arm.elbow + flick };
-      if (this.look) {
-        const headW = this.head.getWorldPosition(new THREE.Vector3());
-        const d = new THREE.Vector3(this.look.x - headW.x, this.look.y - headW.y, this.look.z - headW.z);
-        const local = d.applyQuaternion(this.root.quaternion.clone().invert()); // into the body frame (faces -z)
-        const horiz = Math.hypot(local.x, local.z);
-        lookPitch = Math.min(MAX_LOOK, Math.max(0, Math.atan2(local.y, horiz)));
-        lookYaw = Math.max(-0.9, Math.min(0.9, Math.atan2(-local.x, -local.z)));
-      }
-    } else {
-      // holding: the arm gives a little with the balloon's tug
-      arm = { ...HOLD, elbow: HOLD.elbow + 0.04 * Math.sin(c * 0.9) + 0.015 * Math.sin(c * 2.1 + 1) };
+  private apply(p: Pose, dt: number): void {
+    const b = this.rig.bones;
+    const { body } = p;
+    b.feet.rotation.x = -body.heel;
+    b.body.position.y = body.rise;
+    b.body.rotation.z = body.shift;
+    b.torso.rotation.x = body.lean;
+    const ch = body.chest;
+    b.torso.scale.set(1 + 0.01 * ch, 1 + 0.005 * ch, 1 + 0.02 * ch);
+
+    for (let i = 0; i < 2; i++) {
+      const arm = this.arms[i], a = i === 0 ? p.r : p.l, side = arm.side;
+      arm.shoulder.rotation.set(a.pitch, 0, a.out * side);
+      arm.roll.rotation.y = a.roll * side;
+      arm.elbow.rotation.x = a.elbow;
+      arm.wrist.rotation.set(a.dev, a.twist * side, -side * a.wrist, 'YXZ');
+      // the thumb: splayed forward when open, across the front of the curled fingers when closed
+      arm.thumb.rotation.set(0.89 - 1.75 * a.thumb, 0, -side * (0.3 + 0.56 * a.thumb));
+      arm.finger1.rotation.z = -side * (0.06 + 1.5 * a.fingers);
+      arm.finger2.rotation.z = -side * (0.08 + 1.55 * a.fingers);
     }
 
-    const j = this.j;
-    const k = dt > 0 ? 1 - Math.exp(-dt * 9) : 1; // follow the targets closely, never jump
-    const total = look * lookPitch;
-    j.headPitch += (total * 0.78 - j.headPitch) * k;
-    j.lean += (total * 0.22 - j.lean) * k;
-    j.headYaw += (look * lookYaw - j.headYaw) * k;
-    j.rUpper += (arm.upper - j.rUpper) * k;
-    j.rElbow += (arm.elbow - j.rElbow) * k;
-    j.rOut += (arm.out - j.rOut) * k;
-    j.open += (open - j.open) * k;
+    // the head: up toward the balloon by `look` of the way (less what the body's lean already gives)
+    let pitch = DEFAULT_LOOK, yaw = 0;
+    if (this.look) {
+      // where the neck was drawn last frame (the one matrix update a frame is at the end)
+      const headW = this.v1.setFromMatrixPosition(b.neck.matrixWorld);
+      const d = this.v2.set(this.look.x - headW.x, this.look.y - headW.y, this.look.z - headW.z);
+      d.applyQuaternion(this.q1.copy(this.root.quaternion).invert()); // into the body frame (faces -z)
+      const horiz = Math.hypot(d.x, d.z);
+      pitch = Math.max(0, Math.atan2(d.y, horiz));
+      yaw = Math.max(-0.9, Math.min(0.9, Math.atan2(-d.x, -d.z)));
+      if (horiz < 0.05) yaw = 0;
+    }
+    const wantPitch = Math.max(-0.1, Math.min(MAX_HEAD_PITCH, body.look * pitch - body.lean));
+    const wantYaw = body.look * yaw * 0.8;
+    const h = this.head;
+    const k = !h.init || dt <= 0 ? (h.init ? 0 : 1) : 1 - Math.exp(-dt * 5);
+    h.pitch += (wantPitch - h.pitch) * k;
+    h.yaw += (wantYaw - h.yaw) * k;
+    h.init = true;
+    b.neck.rotation.set(h.pitch, h.yaw, 0, 'YXZ');
 
-    this.head.rotation.set(j.headPitch, j.headYaw, 0, 'YXZ');
-    this.torso.rotation.x = j.lean;
-    this.right.shoulder.rotation.set(j.rUpper, 0, j.rOut);
-    this.right.elbow.rotation.x = j.rElbow;
-    this.right.hand.scale.set(1 + 0.15 * j.open, 1 - 0.12 * j.open, 1 + 0.15 * j.open);
-    const ls = 0.02 * Math.sin((2 * Math.PI * c) / 4.6 + 0.6);
-    this.left.shoulder.rotation.set(REST.upper + ls, 0, -REST.out);
-    this.left.elbow.rotation.x = REST.elbow;
+    // the scarf's end lifts gently downwind, a slow flutter running down it (always a little behind)
+    const c = this.clock;
+    const rel = (this.wind.headingDeg - this.facingDeg) * RAD;
+    const wn = Math.min(1, Math.max(0, this.wind.speedMs) / 9);
+    const calm = this.reduced ? 0.3 : 1;
+    const dx = Math.sin(rel), dz = -Math.cos(rel) * 0.7 + 0.75; // downwind in the body frame, biased behind
+    const dl = Math.hypot(dx, dz) || 1;
+    this.axis.set(-dz / dl, 0, dx / dl); // turns -y toward (dx, 0, dz)
+    const flutter = calm * (0.05 + 0.08 * wn);
+    const a1 = 0.1 + 0.28 * wn + flutter * (Math.sin(c * 2.1) + 0.45 * Math.sin(c * 5.3 + 1));
+    const a2 = 0.16 + 0.32 * wn + flutter * 1.4 * (Math.sin(c * 2.1 - 0.9) + 0.45 * Math.sin(c * 5.3 - 0.4));
+    b.tail1.quaternion.setFromAxisAngle(this.axis, a1);
+    b.tail2.quaternion.setFromAxisAngle(this.axis, a2);
 
     this.root.updateMatrixWorld(true);
-    this.right.hand.getWorldPosition(this.hand);
+    this.updateHand();
+  }
+
+  /** The grip: in the fist, then along the opening fingers and out past the fingertips. */
+  private updateHand(): void {
+    const a = this.rig.gripIn.getWorldPosition(this.v1);
+    const t = this.releaseT;
+    if (t <= 0) {
+      this.hand.copy(a);
+      return;
+    }
+    const out = this.rig.gripOut.getWorldPosition(this.v2);
+    this.hand.copy(a).lerp(out, smooth(t));
   }
 
   /** Removes the person; any running launch is cancelled (a late route or timeout never calls back). */
@@ -325,10 +387,10 @@ export class Person {
     this.onRelease = null;
     this.onTimeout = null;
     this.state = 'idle';
+    this.letGo ||= this.releasedAt < Infinity;
     this.scene.remove(this.root);
-    this.root.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
-    });
-    for (const m of this.materials) m.dispose();
+    this.rig.mesh.geometry.dispose();
+    this.rig.mesh.skeleton.dispose();
+    this.rig.material.dispose();
   }
 }
