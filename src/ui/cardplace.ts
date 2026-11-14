@@ -107,8 +107,8 @@ export const subFont: CardFont = { size: SUB_SIZE, weight: 500, condensed: false
 export type NameBlock = { text: string; sub: string; size: number; w: number; h: number; nameW: number; subW: number };
 
 /** The name at the largest size from NAME_MAX down to NAME_MIN that fits NAME_MAX_W (else cut short with an ellipsis). */
-export function fitName(text: string, sub: string, m: Measure, maxW = NAME_MAX_W): NameBlock {
-  let size = NAME_MAX;
+export function fitName(text: string, sub: string, m: Measure, maxW = NAME_MAX_W, maxSize = NAME_MAX): NameBlock {
+  let size = Math.max(NAME_MIN, Math.min(NAME_MAX, maxSize));
   while (size > NAME_MIN && m(text, nameFont(size)) > maxW) size -= 4;
   let t = text;
   if (m(t, nameFont(size)) > maxW) {
@@ -152,6 +152,31 @@ export type NameInput = { block: NameBlock; at: Pt; clear: Box };
 /** The last placement's candidates and their scores (for checks). */
 export const lastSpots: string[] = [];
 
+/** The sizes tried, largest first, when every spot at a size covers the route or a marker. */
+export const NAME_STEPS = [NAME_MAX, 112, 96, 84, NAME_MIN];
+
+/**
+ * The names at the largest size at which neither has to cover the route or a marker (down to NAME_MIN,
+ * where the least bad spot is taken anyway). `block(size)` measures a name at that largest size.
+ */
+export function placeNamesFitting(o: {
+  start: ((size: number) => NameInput) | null;
+  landing: ((size: number) => NameInput) | null;
+  route: Pt[];
+  grid: CostGrid;
+  bounds: Box;
+}): { start: PlacedName | null; landing: PlacedName | null; hit: boolean; startIn: NameInput | null; landingIn: NameInput | null } {
+  let last: ReturnType<typeof placeNames> | null = null;
+  let si: NameInput | null = null, li: NameInput | null = null;
+  for (const size of NAME_STEPS) {
+    si = o.start?.(size) ?? null;
+    li = o.landing?.(size) ?? null;
+    last = placeNames({ start: si, landing: li, route: o.route, grid: o.grid, bounds: o.bounds });
+    if (!last.hit) break;
+  }
+  return { ...last!, startIn: si, landingIn: li };
+}
+
 /** The penalty for a name over something it must never cover (it is chosen only if nothing else fits). */
 const HIT = 100;
 
@@ -168,7 +193,7 @@ function candidates(n: NameInput, bounds: Box): { box: Box; align: Align; spot: 
  * The best spots for the start's name and the landing's (either may be absent): least land and glare
  * covered, nothing it must not cover (the route, both markers, each other), near its own marker.
  */
-export function placeNames(o: { start: NameInput | null; landing: NameInput | null; route: Pt[]; grid: CostGrid; bounds: Box }): { start: PlacedName | null; landing: PlacedName | null } {
+export function placeNames(o: { start: NameInput | null; landing: NameInput | null; route: Pt[]; grid: CostGrid; bounds: Box }): { start: PlacedName | null; landing: PlacedName | null; hit: boolean } {
   const markers = [o.start?.clear, o.landing?.clear].filter((b): b is Box => !!b);
   const score = (c: { box: Box; slid: number }) => {
     let s = costUnder(o.grid, c.box) + c.slid / 120;
@@ -190,7 +215,7 @@ export function placeNames(o: { start: NameInput | null; landing: NameInput | nu
     }
   const placed = (c: { box: Box; align: Align; spot: string } | null, n: NameInput | null): PlacedName | null =>
     c && n ? { box: c.box, align: c.align, spot: c.spot, baseline: Math.round(c.box.y0 + n.block.size * 0.74) } : null;
-  return { start: placed(best!.a, o.start), landing: placed(best!.b, o.landing) };
+  return { start: placed(best!.a, o.start), landing: placed(best!.b, o.landing), hit: best!.s >= HIT };
 }
 
 // ---- the map's names ----

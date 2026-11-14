@@ -22,7 +22,7 @@ import { sunPosition } from '../geo/sun';
 import type { Label } from '../world/meshjob';
 import type { TileKey } from '../world/lod';
 import { SLOT_COUNT } from '../world/materials';
-import { lightFor, regionStyle, type Light } from '../world/palette';
+import { lerpHex, lightFor, regionStyle, type Light } from '../world/palette';
 import { Sky } from '../world/sky';
 import { WorldStream, type BuildPool } from '../world/stream';
 import { cardShot, cardTiles, dropAt, EARTH_R_M, fromCard, poseAt, poseCamera, revealStart, toCard, type CardPose, type CardShot } from './cardframe';
@@ -48,6 +48,8 @@ export type CardView = {
 
 export type CardLook = { light: Light; night: number; sunElevationDeg: number };
 
+/** The land's tint at night is drawn toward this pale blue-grey (the sea stays dark). */
+const NIGHT_LAND = '#c4d2e2';
 const WATER_KINDS = new Set(['ocean', 'sea', 'bay', 'strait', 'gulf']);
 
 /** The look for the landing's local time: the sun's real height there, held inside the keyed range. */
@@ -74,12 +76,25 @@ export class CardWorld {
   readonly look: CardLook;
   /** Relief lifted this many times, so it reads from far up. */
   readonly exag: number;
+  private readonly groundTint: string;
   private readonly camera = new THREE.PerspectiveCamera();
   private readonly bent = new WeakSet<THREE.BufferGeometry>();
   private readonly landing: LatLon;
   private readonly route: LatLon[];
   private heights: Float32Array | null = null;
   private disposed = false;
+  /** The route in card-world metres (x, z per point), worked out once. */
+  private readonly routeLocal: Float64Array;
+  private routePx: { x: number; y: number; seen: boolean }[] = [];
+  private labelCache: { text: string; kind: string; rank?: number; x: number; z: number }[] | null = null;
+  // scratch vectors for the reveal's frames (no garbage per frame)
+  private readonly sv = new THREE.Vector3();
+  private readonly sC = new THREE.Vector3();
+  private readonly sN = new THREE.Vector3();
+  private readonly sCentre = new THREE.Vector3();
+  private readonly sA = new THREE.Vector3();
+  private readonly sB = new THREE.Vector3();
+  private readonly sDir = new THREE.Vector3();
   private readonly finalTiles: TileKey[];
   private readonly revealTiles: TileKey[];
   private wanted: TileKey[];
@@ -90,6 +105,12 @@ export class CardWorld {
     const pts = route.points.map((p) => ({ lat: p.lat, lon: p.lon }));
     this.route = pts;
     this.landing = pts[pts.length - 1];
+    this.routeLocal = new Float64Array(pts.length * 2);
+    pts.forEach((p, i) => {
+      const c = toCard(this.landing, p);
+      this.routeLocal[i * 2] = c.x;
+      this.routeLocal[i * 2 + 1] = c.z;
+    });
     this.shot = cardShot(pts);
     this.start = revealStart(this.shot);
     // (held back: lifted much more, the steep faces turn to clay and the reveal's start, near the ground, bristles)
@@ -109,6 +130,8 @@ export class CardWorld {
     // the land hazes toward the horizon's colour whichever way it is seen from (looking down from far
     // up, the haze would otherwise take the greyer colour under the horizon); the sky is painted in 2D
     this.sky.haze.uLow.value.copy(this.sky.haze.uHor.value);
+    // at night the land is lit a little more than the sea, so the coast still reads under the town lights
+    this.groundTint = this.look.night > 0.4 ? lerpHex(L.groundTint, NIGHT_LAND, 0.45 * this.look.night) : L.groundTint;
     this.sky.dome.mesh.visible = false;
     this.sky.sunDisc.visible = false;
     this.sky.moonDisc.visible = false;
@@ -125,7 +148,7 @@ export class CardWorld {
     this.wanted = this.finalTiles;
     this.stream = new WorldStream(this.scene, pool, regionStyle, {
       haze: this.sky.haze,
-      groundTint: L.groundTint,
+      groundTint: this.groundTint,
       origin: this.landing,
       want: () => this.wanted,
       maxTiles: this.finalTiles.length + this.revealTiles.length + 4,
@@ -156,15 +179,28 @@ export class CardWorld {
       // tiles that came in just now are placed and bent
       this.step();
       this.heights = null;
+      this.labelCache = null;
     }
     return how;
   }
 
+  /** Whether every tile asked for is in (one step first, so what came in just now counts). */
+  complete(): boolean {
+    this.step();
+    return this.stream.stats().ready;
+  }
+
   /** The reveal's tiles as well (once the card's own are in): until they are all in, or the time is up. */
-  async loadReveal(o: { maxMs: number; alive: () => boolean }): Promise<'ready' | 'timeout' | 'cancelled' | 'stopped'> {
+  async loadReveal(o: { maxMs: number; alive: () => boolean; stop?: () => boolean; inFlight?: number }): Promise<'ready' | 'timeout' | 'cancelled' | 'stopped'> {
     this.wanted = [...this.finalTiles, ...this.revealTiles];
     this.phase = 1;
-    return this.load(o);
+    // fewer builds at once while the replay still streams its own tiles on the same workers
+    this.stream.setMaxInFlight(o.inFlight ?? 8);
+    try {
+      return await this.load(o);
+    } finally {
+      this.stream.setMaxInFlight(8);
+    }
   }
 
   /** Each tile's vertices bent by the Earth's curve (and its relief lifted), once, as it comes in. */
@@ -233,69 +269,99 @@ export class CardWorld {
   }
 
   /** What the 2D layer draws over the picture from a pose, w x h picture pixels. */
-  view(pose: CardPose, w: number, h: number): CardView {
+  /**
+   * What the 2D layer draws over the picture from a pose, w x h picture pixels. `reuse`: the reveal's
+   * frames fill one array of route points (painted at once, no garbage per frame); the still keeps its own.
+   */
+  view(pose: CardPose, w: number, h: number, reuse = false): CardView {
     const cam = poseCamera(pose, w / h, this.camera);
-    const v = new THREE.Vector3();
-    const toPx = (x: number, y: number, z: number) => {
+    const v = this.sv, cp = cam.position;
+    const toPx = (x: number, y: number, z: number, out: { x: number; y: number; seen: boolean }) => {
       v.set(x, y - dropAt(x, z), z);
       const nx = v.x, ny = v.y + EARTH_R_M, nz = v.z;
-      const facing = nx * (cam.position.x - v.x) + ny * (cam.position.y - v.y) + nz * (cam.position.z - v.z) > 0;
+      const facing = nx * (cp.x - v.x) + ny * (cp.y - v.y) + nz * (cp.z - v.z) > 0;
       v.project(cam);
-      return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, seen: facing && v.z > -1 && v.z < 1 };
+      out.x = ((v.x + 1) / 2) * w;
+      out.y = ((1 - v.y) / 2) * h;
+      out.seen = facing && v.z > -1 && v.z < 1;
     };
     const hs = this.routeHeights();
-    const route = this.route.map((p, i) => {
-      const c = toCard(this.landing, p);
-      return toPx(c.x, hs[i] + 30, c.z);
-    });
+    const L = this.routeLocal;
+    const n = this.route.length;
+    let pts = this.routePx;
+    if (!reuse || pts.length !== n) {
+      pts = Array.from({ length: n }, () => ({ x: 0, y: 0, seen: false }));
+      if (reuse) this.routePx = pts;
+    }
+    for (let i = 0; i < n; i++) toPx(L[i * 2], hs[i] + 30, L[i * 2 + 1], pts[i]);
+    return this.finishView(cam, pts, w, h);
+  }
+
+  private finishView(cam: THREE.PerspectiveCamera, route: CardView['route'], w: number, h: number): CardView {
     const s = route[0], l = route[route.length - 1];
+    const v = this.sv, cp = cam.position;
     // the horizon: where lines of sight graze the Earth (a circle round the point under the camera)
     const horizon: { x: number; y: number }[] = [];
-    const O = new THREE.Vector3(0, -EARTH_R_M, 0);
-    const C = cam.position.clone().sub(O);
+    const C = this.sC.copy(cp);
+    C.y += EARTH_R_M;
     const dC = C.length();
     if (dC > EARTH_R_M * 1.00001) {
-      const n = C.clone().normalize();
-      const centre = O.clone().addScaledVector(n, (EARTH_R_M * EARTH_R_M) / dC);
+      const nrm = this.sN.copy(C).normalize();
+      const centre = this.sCentre.set(0, -EARTH_R_M, 0).addScaledVector(nrm, (EARTH_R_M * EARTH_R_M) / dC);
       const r = EARTH_R_M * Math.sqrt(1 - (EARTH_R_M * EARTH_R_M) / (dC * dC));
-      const a = new THREE.Vector3(1, 0, 0).cross(n).normalize();
-      if (a.lengthSq() < 0.5) a.set(0, 0, 1).cross(n).normalize();
-      const b = n.clone().cross(a);
-      for (let i = 0; i <= 720; i++) {
-        const t = (i / 720) * Math.PI * 2;
+      const a = this.sA.set(1, 0, 0).cross(nrm);
+      if (a.lengthSq() < 0.25) a.set(0, 0, 1).cross(nrm);
+      a.normalize();
+      const b = this.sB.copy(nrm).cross(a);
+      const dir = cam.getWorldDirection(this.sDir);
+      const STEPS = 180;
+      for (let i = 0; i <= STEPS; i++) {
+        const t = (i / STEPS) * Math.PI * 2;
         v.copy(centre).addScaledVector(a, Math.cos(t) * r).addScaledVector(b, Math.sin(t) * r);
-        const p = v.clone().project(cam);
-        if (p.z < -1 || p.z > 1) continue;
         // in front of the camera
-        const rel = v.clone().sub(cam.position);
-        if (rel.dot(cam.getWorldDirection(new THREE.Vector3())) <= 0) continue;
-        const x = ((p.x + 1) / 2) * w, y = ((1 - p.y) / 2) * h;
-        if (x >= -w * 0.2 && x <= w * 1.2 && y >= -h && y <= h * 2) horizon.push({ x, y });
+        if ((v.x - cp.x) * dir.x + (v.y - cp.y) * dir.y + (v.z - cp.z) * dir.z <= 0) continue;
+        v.project(cam);
+        if (v.z < -1 || v.z > 1) continue;
+        const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
+        if (x >= -w * 0.2 && x <= w * 1.2 && y >= -h * 0.05 && y <= h) horizon.push({ x, y });
       }
       horizon.sort((p, q) => p.x - q.x);
     }
     const places: CardView['places'] = [];
     const towns: CardView['towns'] = [];
-    for (const lab of this.stream.labelsNear(this.landing, 40_000)) {
-      const c = toCard(this.landing, lab);
-      const p = toPx(c.x, 0, c.z);
-      if (!p.seen) continue;
-      if (lab.kind === 'country') places.push({ text: labelText(lab), kind: 'country', rank: lab.rank ?? 3, x: p.x, y: p.y });
-      else if (WATER_KINDS.has(lab.kind)) places.push({ text: labelText(lab), kind: 'sea', rank: lab.rank ?? (lab.kind === 'ocean' ? 1 : 2), x: p.x, y: p.y });
-      else if (lab.kind === 'city' || lab.kind === 'town') towns.push({ x: p.x, y: p.y, rank: lab.rank ?? (lab.kind === 'city' ? 6 : 9) });
+    for (const lab of this.labels()) {
+      v.set(lab.x, -dropAt(lab.x, lab.z), lab.z);
+      const facing = v.x * (cp.x - v.x) + (v.y + EARTH_R_M) * (cp.y - v.y) + v.z * (cp.z - v.z) > 0;
+      if (!facing) continue;
+      v.project(cam);
+      if (v.z < -1 || v.z > 1) continue;
+      const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
+      if (lab.kind === 'country') places.push({ text: lab.text, kind: 'country', rank: lab.rank ?? 3, x, y });
+      else if (WATER_KINDS.has(lab.kind)) places.push({ text: lab.text, kind: 'sea', rank: lab.rank ?? (lab.kind === 'ocean' ? 1 : 2), x, y });
+      else if (lab.kind === 'city' || lab.kind === 'town') towns.push({ x, y, rank: lab.rank ?? (lab.kind === 'city' ? 6 : 9) });
     }
-    towns.sort((a, b) => a.rank - b.rank);
+    towns.sort((p, q) => p.rank - q.rank);
     return {
       w,
       h,
       route,
       start: s.seen ? { x: s.x, y: s.y } : null,
       landing: l.seen ? { x: l.x, y: l.y } : null,
-      horizon: horizon.filter((p) => p.y >= -h * 0.05 && p.y <= h),
+      horizon,
       places,
       towns,
-      landingDistM: cam.position.length(),
+      landingDistM: cp.length(),
     };
+  }
+
+  /** The map's labels in card-world metres, worked out once the tiles are in (not every frame). */
+  private labels(): { text: string; kind: string; rank?: number; x: number; z: number }[] {
+    if (this.labelCache) return this.labelCache;
+    this.labelCache = this.stream.labelsNear(this.landing, 40_000).map((lab) => {
+      const c = toCard(this.landing, lab);
+      return { text: labelText(lab), kind: lab.kind, rank: lab.rank, x: c.x, z: c.z };
+    });
+    return this.labelCache;
   }
 
   /** Where in the world a picture point is (for checks), or null in the sky. */

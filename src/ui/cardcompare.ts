@@ -122,12 +122,26 @@ const ANYWHERE: Familiar[] = [{ text: 'a marathon', km: 42.195 }];
 
 export const familiarKm = (f: Familiar): number => ('km' in f ? f.km : haversineKm(f.a, f.b));
 
-/** The comparison for a trip of `km` let go in `country` ("About the length of Britain"), or null. */
-export function compareLine(km: number, country: string | null | undefined): string | null {
+/** A familiar distance whose two places are this close to the trip's own ends is the trip itself. */
+export const SAME_PLACE_KM = 30;
+
+/** Whether a familiar distance runs between the trip's own two ends (either way round). */
+function isTheTrip(f: Familiar, ends?: { start: LatLon; end: LatLon }): boolean {
+  if (!ends || 'km' in f) return false;
+  const near = (p: LatLon, q: LatLon) => haversineKm(p, q) <= SAME_PLACE_KM;
+  return (near(f.a, ends.start) && near(f.b, ends.end)) || (near(f.a, ends.end) && near(f.b, ends.start));
+}
+
+/**
+ * The comparison for a trip of `km` let go in `country` ("About the length of Britain"), or null. A
+ * familiar distance between the trip's own ends ("Paris to Berlin" on a Paris to Berlin card) says
+ * nothing: it is passed over for the next one.
+ */
+export function compareLine(km: number, country: string | null | undefined, ends?: { start: LatLon; end: LatLon }): string | null {
   if (!(km > 0)) return null;
   const list = [...(country ? BY_COUNTRY[country] ?? [] : []), ...ANYWHERE];
   // the lists run from the most familiar: the first one close enough
-  const hit = list.find((f) => Math.abs(km / familiarKm(f) - 1) <= COMPARE_TOLERANCE);
+  const hit = list.find((f) => Math.abs(km / familiarKm(f) - 1) <= COMPARE_TOLERANCE && !isTheTrip(f, ends));
   return hit ? `About ${hit.text}` : null;
 }
 

@@ -32,3 +32,23 @@ describe('the comparison line', () => {
     expect(compareLine(700, 'Australia')).toBe('About the distance from Sydney to Melbourne');
   });
 });
+
+describe('never the trip itself', () => {
+  const PARIS = { lat: 48.8566, lon: 2.3522 }, BERLIN = { lat: 52.52, lon: 13.405 }, LONDON = { lat: 51.5072, lon: -0.1276 };
+  test('Paris to Berlin is not compared with "Paris to Berlin", either way round; the next match is used, or none', () => {
+    const km = 878;
+    expect(compareLine(km, 'France')).toBe('About the distance from Paris to Berlin');
+    expect(compareLine(km, 'France', { start: PARIS, end: BERLIN })).toBeNull();
+    expect(compareLine(km, 'Germany', { start: BERLIN, end: PARIS })).toBeNull();
+    // starting a few kilometres out of central Paris is still the same trip
+    expect(compareLine(km, 'France', { start: { lat: 48.9, lon: 2.25 }, end: { lat: 52.45, lon: 13.3 } })).toBeNull();
+  });
+
+  test('London to Edinburgh (534 km) passes over itself to the next familiar distance when one fits', () => {
+    const EDINBURGH = { lat: 55.9533, lon: -3.1883 };
+    expect(compareLine(534, 'United Kingdom', { start: LONDON, end: EDINBURGH })).toBeNull();
+    expect(compareLine(534, 'United Kingdom', { start: LONDON, end: { lat: 50.9, lon: 6.9 } })).toBe('About the distance from London to Edinburgh');
+    // Manchester to London (262 km) skips "London to Manchester" and lands on nothing else that close
+    expect(compareLine(262, 'United Kingdom', { start: { lat: 53.4794, lon: -2.2453 }, end: LONDON })).toBeNull();
+  });
+});

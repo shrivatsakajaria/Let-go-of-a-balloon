@@ -17,8 +17,11 @@ import type { LiveScene } from './scene';
 
 /** How long the card world may take to draw before the picture is taken anyway. */
 const FAR_WAIT_MS = 20000;
-/** And this much longer for the reveal's tiles (round the balloon, on the way up); later than that, no reveal. */
-const REVEAL_WAIT_MS = 20000;
+/** At the trip's end, this much longer for the reveal's tiles (round the balloon, on the way up); later, no reveal. */
+const REVEAL_WAIT_MS = 3500;
+/** During a replay, the reveal's tiles load this many at a time, until the replay ends (at the most this long). */
+const REPLAY_IN_FLIGHT = 2;
+const REPLAY_REVEAL_MS = 60000;
 /** The still's size: the card's picture. */
 const W = 1080, H = 1000;
 
@@ -54,13 +57,13 @@ export type RevealSource = {
   dispose(): void;
 };
 
-function picture(view: CardView, image: CanvasImageSource | null, world: CardWorld, route: Route): CardPicture {
+function picture(view: CardView, image: CanvasImageSource | null, world: CardWorld, routeSec: number[]): CardPicture {
   const L = world.look.light;
   return {
     image,
     sky: { top: L.skyTop, horizon: L.skyHorizon, night: world.look.night },
     route: view.route,
-    routeSec: route.points.map((p) => p.tSec),
+    routeSec,
     start: view.start,
     landing: view.landing,
     horizon: view.horizon,
@@ -83,12 +86,17 @@ function still(world: CardWorld, route: Route): CardPicture | null {
   const img = ctx.getImageData(0, 0, W, H);
   tameWarm(img.data);
   ctx.putImageData(img, 0, 0);
-  return picture(world.view(world.shot, W, H), c, world, route);
+  return picture(world.view(world.shot, W, H), c, world, route.points.map((p) => p.tSec));
 }
 
 export type CardSceneOpts = {
-  /** Keep the world for the reveal: the picture comes with a RevealSource (the caller disposes it). */
+  /**
+   * Keep the world for the reveal: the picture comes with a RevealSource (the caller disposes it). The
+   * caller decides first whether a reveal can play at all (not in an in-app browser, not with reduced motion).
+   */
   reveal?: boolean;
+  /** At the trip's end, how long the reveal's own tiles may take once the card's are in (default REVEAL_WAIT_MS). */
+  revealWaitMs?: number;
 };
 
 /** A picture made for the card, and the world kept for its reveal (when asked and its tiles all came in). */
@@ -119,13 +127,18 @@ export function cardScene(live: LiveScene, opts: CardSceneOpts = {}): CardScene 
         farStats.how = how;
         if (how === 'cancelled') return null;
         farStats.readyAt = Date.now();
-        // the reveal's tiles (round the balloon, on the way up), while the replay plays where there is one;
-        // the reveal only over a whole world: a late one gives the card without it, never holes
+        // the reveal's tiles (round the balloon, on the way up). During a replay they come a couple at a time
+        // (its own streaming shares the workers) and stop at its end: what is in by then decides. At the
+        // trip's end they get a few seconds, the live view holding on the landed balloon meanwhile. The
+        // reveal plays only over a whole world: otherwise the card comes in with its cross-fade, never holes.
         let more: Awaited<ReturnType<CardWorld['loadReveal']>> | null = null;
         if (opts.reveal && how === 'ready') {
-          more = await world.loadReveal({ maxMs: REVEAL_WAIT_MS, alive: going });
-          farStats.how = `${how}+${more}`;
+          more = gate
+            ? await world.loadReveal({ maxMs: REPLAY_REVEAL_MS, alive: going, stop: () => opened, inFlight: REPLAY_IN_FLIGHT })
+            : await world.loadReveal({ maxMs: opts.revealWaitMs ?? REVEAL_WAIT_MS, alive: going });
           if (more === 'cancelled') return null;
+          if (more === 'stopped' && world.complete()) more = 'ready';
+          farStats.how = `${how}+${more}`;
         }
         // the picture waits for its moment (the end of the replay), the land drawing meanwhile
         if (gate) {
@@ -153,13 +166,14 @@ export function cardScene(live: LiveScene, opts: CardSceneOpts = {}): CardScene 
 
 function revealFrom(world: CardWorld, route: Route): RevealSource {
   let gone = false;
+  const routeSec = route.points.map((p) => p.tSec);
   return {
     frame(k, w, h) {
       if (gone) return null;
       const pose: CardPose = poseAt(world.start, world.shot, k);
       const image = world.draw(pose, w, h);
       if (!image) return null;
-      return picture(world.view(pose, W, H), image, world, route);
+      return picture(world.view(pose, W, H, true), image, world, routeSec);
     },
     balloonScale: (k) => 1 + 1.6 * (1 - Math.min(1, k * 1.4)) ** 2,
     dispose() {

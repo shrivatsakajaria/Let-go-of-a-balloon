@@ -181,8 +181,10 @@ async function makeCard(o: PresentOpts, landed: boolean): Promise<Made | null> {
 function revealFor(card: Made, src: RevealSource): CardReveal {
   return {
     draw(ctx, st, w, h) {
-      const pic = st.move >= 1 ? card.picture : src.frame(st.move, w, h) ?? card.picture;
-      paintCard(ctx, pic, card.words, card.plan, st, src.balloonScale(st.move), Math.max(0, 1 - st.move * 2.5));
+      const frame = st.move >= 1 ? null : src.frame(st.move, w, h);
+      // the finished picture (the move is over, or a lost context drew nothing): its own balloon size
+      if (!frame) paintCard(ctx, card.picture, card.words, card.plan, st);
+      else paintCard(ctx, frame, card.words, card.plan, st, src.balloonScale(st.move), Math.max(0, 1 - st.move * 2.5));
     },
     dispose: () => src.dispose(),
   };
@@ -231,6 +233,8 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
       closeLabel: o.closeLabel,
       fallbackFocus: o.fallbackFocus,
       reveal: src ? revealFor(card, src) : undefined,
+      // a reveal was wanted but its world was not ready in time: the cross-fade instead
+      fadeIn: !!o.reveal && !src,
       onRevealed: (how) => Object.assign(cardHook, { revealed: true, reveal: how }),
       onRevealPlaying: o.onRevealPlaying,
       onClose: () => {

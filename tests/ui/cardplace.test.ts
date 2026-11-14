@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CARD_H, CARD_W, costGrid, costUnder, fitName, lineHits, MARGIN, MAX_PLACES, NAME_MAX, NAME_MAX_W, NAME_MIN, overlaps, panelLayout, pickPlaces, placeNames, type Box, type CardFont, type CostGrid, type Pt } from '../../src/ui/cardplace';
+import { CARD_H, CARD_W, NAME_STEPS, placeNamesFitting, costGrid, costUnder, fitName, lineHits, MARGIN, MAX_PLACES, NAME_MAX, NAME_MAX_W, NAME_MIN, overlaps, panelLayout, pickPlaces, placeNames, type Box, type CardFont, type CostGrid, type Pt } from '../../src/ui/cardplace';
 
 /** A stand-in for measureText: about 0.47 em a character bold condensed, wider for the plain face. */
 const measure = (text: string, f: CardFont) => [...text].reduce((w, c) => w + f.size * (c === ' ' ? 0.22 : f.weight >= 600 ? 0.47 : 0.42) * (f.condensed ? 1 : 1.25) + (f.spacing ?? 0), 0);
@@ -175,5 +175,21 @@ describe('panelLayout', () => {
     const unit0 = P.texts.find((t) => t.role === 'stat-unit' && t.stat === 0)!;
     expect(unit0.x + unit0.width).toBeLessThan(P.texts.find((t) => t.role === 'stat-value' && t.stat === 1)!.x);
     expect(P.texts.some((t) => t.role === 'compare')).toBe(false);
+  });
+});
+
+describe('placeNamesFitting', () => {
+  test('when every spot at the full size covers the route or a marker, the name steps down until one does not', () => {
+    const grid = costGrid(picture(CARD_W, 1000, () => false), CARD_W, 1000);
+    // a long name between two runs of the route 500 px apart: at its full size nowhere fits, smaller it does
+    const at = { x: 540, y: 500 };
+    const route: Pt[] = [{ x: 290, y: 40 }, { x: 290, y: 950 }, { x: 790, y: 950 }, { x: 790, y: 40 }];
+    const r = placeNamesFitting({ start: null, landing: (size) => ({ block: fitName('Huddersfield', '', measure, undefined, size), at, clear: balloon(at) }), route, grid, bounds: BOUNDS });
+    expect(r.hit).toBe(false);
+    expect(r.landingIn!.block.size).toBeLessThan(NAME_STEPS[0]);
+    expect(lineHits(route, r.landing!.box, 14)).toBe(false);
+    // with room, the full size
+    const free = placeNamesFitting({ start: null, landing: (size) => ({ block: fitName('Huddersfield', '', measure, undefined, size), at, clear: balloon(at) }), route: [], grid, bounds: BOUNDS });
+    expect(free.landingIn!.block.size).toBe(fitName('Huddersfield', '', measure).size);
   });
 });

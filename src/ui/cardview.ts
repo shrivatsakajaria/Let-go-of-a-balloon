@@ -40,6 +40,8 @@ export type CardViewOpts = {
   reveal?: CardReveal;
   /** The reveal starts (true) and ends (false): the live view can stop drawing meanwhile. */
   onRevealPlaying?(on: boolean): void;
+  /** Come in with the short cross-fade (the trip's end, when its reveal could not be got ready in time). */
+  fadeIn?: boolean;
   /** The card is in: after the reveal ('played'), the reduced-motion cross-fade ('faded'), or straight away ('none'). */
   onRevealed?(how: 'played' | 'faded' | 'none'): void;
 };
@@ -245,10 +247,11 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
     // the dialog itself has focus while the reveal plays (Tab reaches Close; Escape closes)
     el.tabIndex = -1;
     el.focus({ preventScroll: true });
-  } else if (o.reveal && !o.inApp) {
-    // reduced motion: no camera move and no count-up, a short cross-fade to the finished card (the
-    // Web Animations API: the page's reduced-motion rule turns CSS animations off)
-    o.reveal.dispose();
+  } else if ((o.reveal || o.fadeIn) && !o.inApp) {
+    // reduced motion, or a reveal whose world was not ready in time: no camera move and no count-up, a
+    // short cross-fade to the finished card (the Web Animations API: the page's reduced-motion rule turns
+    // CSS animations off)
+    o.reveal?.dispose();
     for (const n of [frame, actions]) n.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_FADE_S * 1000, easing: 'cubic-bezier(0.22,1,0.36,1)' });
     first.focus({ preventScroll: true });
     o.onRevealed?.('faded');
@@ -267,8 +270,12 @@ export async function showCardView(o: CardViewOpts): Promise<CardView | null> {
 function playReveal(r: CardReveal, frame: HTMLElement, img: HTMLImageElement, actions: HTMLElement, onButtons: () => void, onDone: () => void): () => void {
   const c = document.createElement('canvas');
   c.className = 'card-reveal';
-  c.width = 1080;
-  c.height = 1350;
+  // the frame's own pixels (CSS size x device pixels, at most 1.5 a CSS pixel and the card's 1080):
+  // the card is painted in its 1080 x 1350 units, scaled down
+  const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  const box0 = img.getBoundingClientRect();
+  c.width = Math.max(108, Math.min(1080, Math.round((box0.width || 360) * dpr)));
+  c.height = Math.round((c.width * 1350) / 1080);
   c.setAttribute('aria-hidden', 'true');
   frame.append(c);
   frame.classList.add('revealing');
@@ -310,11 +317,11 @@ function playReveal(r: CardReveal, frame: HTMLElement, img: HTMLImageElement, ac
     }
     lastHeld = held;
     const st = revealAt(t);
-    // the 3D view at the frame's own size (at most 1.5 device pixels a CSS pixel), 1080:1000
-    const box = c.getBoundingClientRect();
-    const w = Math.max(64, Math.min(1080, Math.round(box.width * Math.min(1.5, window.devicePixelRatio || 1))));
+    // the 3D view at the frame's own size, 1080:1000
+    const w = c.width;
     const h = Math.round((w * 1000) / 1080);
     try {
+      ctx.setTransform(c.width / 1080, 0, 0, c.width / 1080, 0, 0);
       r.draw(ctx, st, w, h);
     } catch (e) {
       console.warn('the reveal could not be drawn', e);

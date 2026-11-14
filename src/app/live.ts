@@ -31,6 +31,7 @@ import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
 import { LiveScene, type SceneFrame } from './scene';
 import { cardHook, homeFor, prepareCard, presentCard } from './landingcard';
+import { isInAppBrowser } from '../ui/card';
 import { cardScene, farStats } from './cardshot';
 import { closeCardView } from '../ui/cardview';
 import { watchContextLoss, type ContextWatch } from './contextloss';
@@ -472,7 +473,7 @@ export class Live {
     const replaying = () => this.replayRun === ctl && this.flight === fl && !this.scene.gone;
     // the card for the state the replay began in: a balloon that lands meanwhile still ends on this one
     const landed = Date.now() >= landedAt(fl.route);
-    void prepareCard({ scene: cardScene(this.scene, { reveal: true }), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate, landed });
+    void prepareCard({ scene: cardScene(this.scene, { reveal: this.canReveal() }), route: fl.route, saved: fl.saved, own: fl.own, landing: prep.landing, isCurrent: replaying, alive: replaying, gate, landed });
     void playReplay(fl.route, {
       host: {
         scene: this.scene,
@@ -672,7 +673,8 @@ export class Live {
     cardHook.world = farStats;
     const view = await presentCard({
       // the card's world is its own (no wait for the live world round the landing)
-      scene: cardScene(this.scene, { reveal: !!opts.reveal }),
+      // whether a reveal can play at all is known now: its world is only loaded for one that can
+      scene: cardScene(this.scene, { reveal: !!opts.reveal && this.canReveal() }),
       reveal: opts.reveal,
       onRevealPlaying: (on) => {
         if (!this.scene.gone) this.scene.holdRender = on;
@@ -691,6 +693,11 @@ export class Live {
       fallbackFocus: () => hudFocusTarget(this.hud.el),
     });
     return view !== null;
+  }
+
+  /** The card's reveal can play here: not with reduced motion (a cross-fade), not in an in-app browser (a still to save). */
+  private canReveal(): boolean {
+    return !this.reduced && !isInAppBrowser(navigator.userAgent);
   }
 
   private event(kind: DirectorEvent): void {

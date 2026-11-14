@@ -39,7 +39,7 @@ import {
   PICTURE_H,
   PLACE_FONT,
   pickPlaces,
-  placeNames,
+  placeNamesFitting,
   statFont,
   subFont,
   type Box,
@@ -227,7 +227,7 @@ export function cardWords(f: CardFacts): CardWords {
   const from = f.home.charAt(0).toUpperCase() + f.home.slice(1);
   const route = to ? `${from} to ${to}` : `From ${f.home}`;
   const when = dayTime(f.downMs, tzOf(f.end));
-  const compare = compareLine(f.distanceKm, f.country);
+  const compare = compareLine(f.distanceKm, f.country, { start: f.start, end: f.end });
   return {
     kicker,
     when,
@@ -359,15 +359,17 @@ export function planCard(pic: CardPicture, words: CardWords, m: Measure, pixels:
   const bounds: Box = { x0: 44, y0: 36, x1: CARD_W - 44, y1: 0 };
   const panel = panelLayout({ kicker: words.kicker, when: words.when, stats: words.stats.map((s) => ({ label: s.label, num: s.value.replace(/\s.*$/, ''), unit: s.unit })), compare: words.compare, credit: words.creditLine, ticks: words.ticks }, m);
   bounds.y1 = panel.fadeBottom - 4;
-  const sBlock = pic.start ? fitName(words.from, words.fromLine, m) : null;
-  const lBlock = pic.landing && words.toName ? fitName(words.toName, '', m) : null;
-  const placed = placeNames({
-    start: sBlock && pic.start ? { block: sBlock, at: pic.start, clear: ringBox(pic.start) } : null,
-    landing: lBlock && pic.landing ? { block: lBlock, at: pic.landing, clear: balloonBox(pic.landing) } : null,
+  // the largest size at which neither name has to cover the route or a marker
+  const ps = pic.start, pl = pic.landing;
+  const placed = placeNamesFitting({
+    start: ps ? (size) => ({ block: fitName(words.from, words.fromLine, m, undefined, size), at: ps, clear: ringBox(ps) }) : null,
+    landing: pl && words.toName ? (size) => ({ block: fitName(words.toName, '', m, undefined, size), at: pl, clear: balloonBox(pl) }) : null,
     route: line,
     grid,
     bounds,
   });
+  const sBlock = placed.startIn?.block ?? null;
+  const lBlock = placed.landingIn?.block ?? null;
   const avoid = [placed.start?.box, placed.landing?.box, pic.start && ringBox(pic.start), pic.landing && balloonBox(pic.landing)].filter((b): b is Box => !!b);
   const skyY = pic.horizon.length ? Math.max(...pic.horizon.map((p) => p.y)) : undefined;
   const places = pickPlaces({ places: pic.places, route: line, avoid, m, bounds: { x0: 44, y0: 36, x1: CARD_W - 44, y1: panel.fadeTop + 60 }, skyY, exclude: [words.toName, words.from] });
