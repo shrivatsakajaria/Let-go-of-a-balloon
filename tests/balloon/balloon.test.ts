@@ -179,7 +179,7 @@ describe('the string, through a scripted flight', () => {
         // compared at the same moment (the frames fall at different times): the nearer sample of each
         const ta = ra.t, tb = rb.t;
         if (Math.abs(ta - tb) > 0.2) continue;
-        const slack = t <= 2 ? MAX_TURN_DEG_S / hz : 0;
+        const slack = t <= 3.5 ? MAX_TURN_DEG_S / hz : 0;
         expect(Math.acos(Math.min(1, ra.dir.dot(rb.dir))) / RAD, `${hz} Hz t=${t}`).toBeLessThan(2 + slack + MAX_TURN_DEG_S * Math.abs(ta - tb));
       }
     }

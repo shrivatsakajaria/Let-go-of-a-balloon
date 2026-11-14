@@ -139,7 +139,7 @@ describe('balloon on its string', () => {
     for (let i = 0; i < 30; i++) b.setState(point(0), 1 / 60, DAY, { pos, camera: cam });
     b.release();
     let prevY = b.mesh.position.y;
-    for (let i = 1; i <= 300; i++) {
+    for (let i = 1; i <= 480; i++) {
       const t = i / 60;
       pos.set(0, 1.5 + 1.5 * t, 0);
       b.setState(point(t), 1 / 60, DAY, { pos, camera: cam });

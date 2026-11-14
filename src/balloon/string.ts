@@ -24,6 +24,8 @@ export const STRING_LENGTH_M = 1.2;
 export const STRING_SEGMENTS = 24;
 /** The let-go: from the hand to hanging, this long (s). */
 export const RELEASE_S = 1.3;
+/** The air past the knot leans the string only from the let-go on over this long (s). */
+const AIR_IN_S = 3;
 
 const RAD = Math.PI / 180;
 const LEAN_T_S = 1.2;
@@ -141,8 +143,10 @@ export class BalloonString {
       tx = (ang * ax) / across;
       tz = (ang * az) / across;
     }
-    if (!this.held && this.since < RELEASE_S) {
-      const k = smootherstep(this.since / RELEASE_S);
+    if (!this.held && this.since < AIR_IN_S) {
+      // (the drawn balloon eases onto the wind for a couple of seconds: the air it seems to feel meanwhile is
+      // not real, and comes in only as it settles)
+      const k = smootherstep(this.since / AIR_IN_S);
       tx *= k * k;
       tz *= k * k;
     }
@@ -151,7 +155,7 @@ export class BalloonString {
       this.lz = tz;
     } else if (dt > 0) this.lean(tx, tz, dt);
     if (!this.held) {
-      if (this.since < RELEASE_S + 1) this.since += dt;
+      if (this.since < AIR_IN_S + SWAY_IN_S) this.since += dt;
       this.swayT += dt;
     }
     this.started = true;

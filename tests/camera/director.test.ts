@@ -971,7 +971,7 @@ describe('launch crane', () => {
       if (k > 2 && k < late) expect(cam.position.distanceTo(held!)).toBeLessThan(1e-3);
       if (k === late) d.release();
     });
-    expect(Math.hypot(cam.position.x, cam.position.z)).toBeGreaterThan(Math.hypot(held!.x, held!.z) + 5);
+    expect(cam.position.distanceTo(held!)).toBeGreaterThan(5); // then the crane: it goes with the balloon
   });
 
   test('a featured landmark stays in frame through the crane', () => {
@@ -1160,11 +1160,12 @@ describe('launch: one smooth move', () => {
     }
     return { tgt, acc, w, a, at };
   }
-  const expectSmooth = (r: ReturnType<typeof worst>, msg: string) => {
-    expect(r.tgt, `${msg}: target speed at ${r.at.tgt.toFixed(2)} s`).toBeLessThan(12);
-    expect(r.acc, `${msg}: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(10);
+  /** (slack: a 32 km/h wind takes the balloon from rest to 9 m/s in a second or two, and the camera with it) */
+  const expectSmooth = (r: ReturnType<typeof worst>, msg: string, slack = 1) => {
+    expect(r.tgt, `${msg}: target speed at ${r.at.tgt.toFixed(2)} s`).toBeLessThan(12 * slack);
+    expect(r.acc, `${msg}: acceleration at ${r.at.acc.toFixed(2)} s`).toBeLessThan(10 * slack);
     expect(r.w, `${msg}: turn rate at ${r.at.w.toFixed(2)} s`).toBeLessThan(35);
-    expect(r.a, `${msg}: turn acceleration at ${r.at.a.toFixed(2)} s`).toBeLessThan(60);
+    expect(r.a, `${msg}: turn acceleration at ${r.at.a.toFixed(2)} s`).toBeLessThan(60 * slack);
   };
 
   test('in the open, at 30 and 60 Hz with jitter, any wind: from Let go to Ride the target never steps and nothing kicks', () => {
@@ -1174,6 +1175,12 @@ describe('launch: one smooth move', () => {
         expect(settled).toBeGreaterThan(11.9);
         expectSmooth(worst(rec), `${hz} Hz wind ${heading}`);
       }
+    }
+  });
+
+  test('a strong wind (9 m/s, any way round): the camera goes with the balloon as it gets going, it never has to whip round after it', () => {
+    for (const heading of [0, 90, 180, 270]) {
+      for (const landmark of [undefined, 30]) expectSmooth(worst(fly({ heading, speed: 9, landmark, hz: 60, jitterMs: 4 }).rec), `9 m/s wind ${heading}, landmark ${landmark}`, 1.25);
     }
   });
 
