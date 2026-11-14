@@ -29,9 +29,9 @@
  */
 export const HAND_OPEN_S = 0.25;
 /** The string's end starts to slide once the fingers have loosened a little ... */
-export const SLIP_FROM_S = 0.05;
+export const SLIP_FROM_S = 0.03;
 /** ... and is out past the fingertips this long after (s). */
-export const SLIP_S = 0.22;
+export const SLIP_S = 0.2;
 /** The anticipation is complete this long after the tap (before the 1.2 s hand opening). */
 export const ANTICIPATE_S = 1.05;
 

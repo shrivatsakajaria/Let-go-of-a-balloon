@@ -64,7 +64,7 @@ describe('the hand and the string (StringGrip)', () => {
     const slipping = frames.filter((f) => f.s >= 0 && f.releaseT < 1);
     expect(slipping.length).toBeGreaterThan(8); // a quarter of a second or so at 60 Hz
     // at the fingers (or, as the rising balloon draws it out, just past them along the string)
-    for (const f of slipping) expect(f.end.distanceTo(f.hand), `s=${f.s.toFixed(3)}`).toBeLessThan(0.12);
+    for (const f of slipping) expect(f.end.distanceTo(f.hand), `s=${f.s.toFixed(3)}`).toBeLessThan(0.05);
     expect(slipping[0].end.distanceTo(slipping[0].hand)).toBeLessThan(0.005);
     const later = frames.find((f) => f.s > 1.5)!;
     expect(later.end.distanceTo(later.hand)).toBeGreaterThan(0.2); // gone with the balloon

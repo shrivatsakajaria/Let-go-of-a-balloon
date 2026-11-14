@@ -48,7 +48,7 @@ export interface StringGrip {
   readonly hand: THREE.Vector3;
   /**
    * 0 while the fist is closed round the string (also before the hand opens, and on the start
-   * screen); from the hand opening it runs 0 to 1 over the slip (about 0.22 s, starting 0.05 s after
+   * screen); from the hand opening it runs 0 to 1 over the slip (about 0.2 s, starting 0.03 s after
    * onRelease) as the end leaves the fingers; 1 once it is free, and it stays 1. While it is below 1
    * the string's end belongs to the hand (pin it to `hand`); at 1 it is the string's own.
    */
