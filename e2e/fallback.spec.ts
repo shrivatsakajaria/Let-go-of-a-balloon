@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { eastward, linkTo, liveWorld, startAtAlbertSquare, SWIFTSHADER } from './fixtures';
 import { offline } from './net';
+import { SHADE_FAINT } from '../src/fallback/map2d';
 
 /**
  * The 2D fallback (spec 6.7: no WebGL, or a phone that keeps losing it) and the credits (the plan's
@@ -12,7 +13,7 @@ import { offline } from './net';
 test.use(SWIFTSHADER);
 test.describe.configure({ mode: 'default', timeout: 90_000 });
 
-const NOTE = "Your phone can't show the 3D world, so here is the route on a map.";
+const NOTE = "Your phone can’t show the 3D world, so here is the route on a map.";
 const Z5 = readFileSync(new URL('../tests/fixtures/omt_5_15_10.pbf', import.meta.url));
 const view = (page: Page) => page.evaluate(() => document.documentElement.dataset.view);
 
@@ -83,13 +84,36 @@ for (const size of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { 
     const top = await box('.hud-top');
     // below the dark part of the top shading and the clock
     expect(b.y).toBeGreaterThan(Math.max(top.y + top.height, shadeTop.y + shadeTop.height - 30));
-    // and not under the bottom shading or the stack
-    const underBottom = b.y > shadeBottom.y && b.x < shadeBottom.x + shadeBottom.width - 30;
+    // and not under the dark part of the bottom shading (below its faint top: SHADE_FAINT) or the stack
+    const underBottom = b.y > shadeBottom.y + SHADE_FAINT * shadeBottom.height && b.x < shadeBottom.x + shadeBottom.width - 30;
     expect(underBottom).toBe(false);
     expect(b.y < stack.y || b.x > stack.x + stack.width).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`fallback-${size.width}x${size.height}.png`) });
   });
 }
+
+test('at 640x360 the HUD fits without scrolling: the credit runs as wide as the column, its links 24 px, the fact clear of "Over ..."', async ({ context, page }) => {
+  await page.setViewportSize({ width: 640, height: 360 });
+  await liveWorld(context);
+  await coast(context);
+  await noWebGL(context);
+  await page.goto(await linkTo(eastward(30)));
+  await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
+  await page.waitForTimeout(800);
+  const m = await page.evaluate(() => {
+    const hud = document.getElementById('hud')!;
+    const box = (s: string) => hud.querySelector(s)!.getBoundingClientRect();
+    return {
+      scroll: hud.scrollHeight - hud.clientHeight,
+      links: [...hud.querySelectorAll('.map-credit a')].map((a) => a.getBoundingClientRect().height),
+      gap: box('.fact').top - box('.over').bottom,
+    };
+  });
+  expect(m.scroll).toBeLessThanOrEqual(0);
+  expect(m.links).toHaveLength(4);
+  for (const h of m.links) expect(h).toBeGreaterThanOrEqual(24);
+  expect(m.gap).toBeGreaterThanOrEqual(4);
+});
 
 test.describe('without WebGL', () => {
   test('Let go draws the route on a 2D map with the coastline, under the live HUD and facts', async ({ context, page }) => {
@@ -103,7 +127,7 @@ test.describe('without WebGL', () => {
 
     // the map, not the winds error and not a 3D canvas
     await expect(page.getByText(NOTE)).toBeVisible();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toHaveCount(0);
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toHaveCount(0);
     await expect(page.locator('canvas.world')).toHaveCount(0);
     const map = page.locator('.map2d');
     await expect(map).toBeVisible();
@@ -142,11 +166,12 @@ test.describe('without WebGL', () => {
     await noWebGL(context);
     await page.goto(await linkTo(eastward(80)));
     await expect.poll(() => view(page), { timeout: 15_000 }).toBe('flight');
-    await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.locator('.hud .over')).toHaveText(/^(Landed near|Landed in|Came down in) /, { timeout: 20_000 });
     await expect(page.locator('.hud .day')).toHaveText('Landed · 72 h aloft');
-    // the landing card opens over the map (its own test is below); closed, the landed map is there
+    // the landing card opens over the map (its own test is below; the chrome steps back under it, and it can
+    // be up before anything here looks); closed, the landed map is there with its note
     await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click({ timeout: 30_000 });
+    await expect(page.getByText(NOTE)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Let go of your own' })).toBeVisible();
     await expect.poll(() => orangePixels(page)).toBeGreaterThan(40);
   });
@@ -157,7 +182,7 @@ test.describe('without WebGL', () => {
     await startAtAlbertSquare(context);
     await page.goto('/');
     await page.getByRole('button', { name: 'Let go', exact: true }).click();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
   });

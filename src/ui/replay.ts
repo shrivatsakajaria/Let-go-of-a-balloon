@@ -47,6 +47,8 @@ const CROSS_KM = 10;
 const SAMPLE_S = 1800;
 /** The landing lines fade in over the first part of the descent. */
 const LANDING_IN_S = 0.6;
+/** With no frame by then (a hidden tab), the replay's clock starts anyway, and its end comes on time. */
+const FIRST_FRAME_WAIT_MS = 2000;
 
 export type { ReplayName } from './replaymath';
 
@@ -159,8 +161,10 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
   slot.innerHTML = `<p class="replay-name"></p><p class="replay-when"></p>`;
   const [nameEl, whenEl] = Array.from(slot.children) as HTMLElement[];
   slot.classList.toggle('is-still', still);
-  const t0 = clock();
-  const t = () => (clock() - t0) / 1000;
+  // the replay's clock starts on its first frame, not here: setting up the replay and the card's world can
+  // hold the main thread for seconds on a slow device, and a clock started before that would skip the trip
+  let t0 = Number.NaN;
+  const t = () => (Number.isNaN(t0) ? 0 : (clock() - t0) / 1000);
   let map: { el: HTMLElement; draw(frac: number): void } | null = null;
 
   if (still) map = routeMap(route, names, opts.home ?? '', () => landing, host);
@@ -225,8 +229,22 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       resolve(); // still on screen, holding on the landing, until Back to live
     };
     const tickFrame = replayFrame(0, total);
+    // the end comes on time even when frames are slow (or the tab is hidden and frames stop)
+    const endS = still ? REDUCED_TOTAL_S : total;
+    const arm = () => {
+      const left = endS * 1000 - (clock() - t0);
+      if (left <= 0) return end();
+      timer = window.setTimeout(arm, Math.min(left, 1000));
+    };
+    const begin = () => {
+      if (!Number.isNaN(t0)) return;
+      t0 = clock();
+      clearTimeout(timer);
+      arm();
+    };
     const tick = () => {
       if (gone || ended) return;
+      begin();
       const s = t();
       let done: boolean;
       if (still) {
@@ -250,14 +268,8 @@ export function playReplay(route: Route, opts: ReplayOpts): Promise<void> {
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    // the end comes on time even when frames are slow (or the tab is hidden and frames stop)
-    const endS = still ? REDUCED_TOTAL_S : total;
-    const arm = () => {
-      const left = endS * 1000 - (clock() - t0);
-      if (left <= 0) return end();
-      timer = window.setTimeout(arm, Math.min(left, 1000));
-    };
-    arm();
+    // a hidden tab draws no frames: the clock then starts anyway after FIRST_FRAME_WAIT_MS
+    timer = window.setTimeout(begin, FIRST_FRAME_WAIT_MS);
   });
 }
 

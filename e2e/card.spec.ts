@@ -37,7 +37,9 @@ test('a link opened after 72 hours opens on the card: a 1080x1350 postcard of th
   // Close returns to the landed balloon, and "Show the card" brings it back
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toHaveCount(0);
+  // the card opened by itself: focus comes back to its way back, not to the top of the page (2.4.3)
   const again = page.getByRole('button', { name: 'Show the card' });
+  await expect(again).toBeFocused();
   await expect(again).toBeVisible();
   // made once per landed route: it reopens at once, without a new render
   await again.click();

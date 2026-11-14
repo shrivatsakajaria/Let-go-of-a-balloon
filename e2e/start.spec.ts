@@ -25,7 +25,7 @@ test.describe('start screen', () => {
     const net = await offline(page);
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Let go of a balloon');
-    await expect(page.getByText("Pick a place, let go, and follow it on today's real winds for three days")).toBeVisible();
+    await expect(page.getByText("Pick a place, let go, and follow it on today’s real winds for three days")).toBeVisible();
     await expect(fromButton(page)).toHaveText('From London');
     const c = await letGo(page);
     expect(c).toEqual({ name: 'London', lat: 51.5007, lon: -0.1263, kind: 'default', cityId: 'london' });
@@ -126,7 +126,7 @@ test.describe('start screen', () => {
     await expect(fromButton(page)).toHaveText('From Paris');
     // Let go still goes, with nowhere to remember the place (offline here, so the winds cannot load)
     await page.getByRole('button', { name: 'Let go', exact: true }).click();
-    await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -272,7 +272,7 @@ test.describe('town search', () => {
     await page.goto('/');
     await fromButton(page).click();
     await page.getByRole('combobox').fill('Leeds');
-    await expect(page.getByText("We can't search right now. Try again in a moment.")).toBeVisible();
+    await expect(page.getByText("We can’t search right now. Try again in a moment.")).toBeVisible();
   });
 
   test('Let go still works when the open-space code cannot load', async ({ page }) => {
@@ -303,12 +303,38 @@ test.describe('town search', () => {
     await expect(fromButton(page)).toBeFocused();
   });
 
-  test('the search input shows the focus ring', async ({ page }) => {
+  test('the search field shows focus as its full-strength 3 px underline, not a ring box (R54)', async ({ page }) => {
     await offline(page);
     await page.goto('/');
     await fromButton(page).click();
-    const ring = await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(ring).toBe('rgb(247, 243, 236) 0px 0px 0px 2px, rgb(10, 14, 28) 0px 0px 0px 4px');
+    expect(await page.getByRole('combobox').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
+    const bar = await page.locator('.search-bar').evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { line: s.borderBottomColor, shadow: s.boxShadow };
+    });
+    // (the 1.5 px border itself is drawn at whole device pixels)
+    expect(bar).toEqual({ line: 'rgb(247, 243, 236)', shadow: 'rgb(247, 243, 236) 0px 1.5px 0px 0px' });
+  });
+
+  test('the search is a modal dialog: Tab stays inside it, and Escape closes it wherever focus is', async ({ page }) => {
+    await offline(page);
+    await page.goto('/');
+    await fromButton(page).click();
+    const layer = page.getByRole('dialog', { name: 'Search for a town' });
+    await expect(layer).toBeVisible();
+    await expect(layer).toHaveAttribute('aria-modal', 'true');
+    await expect(page.getByRole('combobox')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab'); // wraps to the input, never out to the page
+    await expect(page.getByRole('combobox')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    // focus lost to the page (a click on the veil): Escape still closes it
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('combobox')).toBeHidden();
+    await expect(fromButton(page)).toBeFocused();
   });
 
   test('Cancel and Escape return to the start screen unchanged', async ({ page }) => {
@@ -387,7 +413,7 @@ test.describe('my location', () => {
     });
     await page.goto('/');
     await page.getByRole('button', { name: 'Use my location' }).click();
-    await expect(page.getByText("We couldn't find you. Try again, or search for your town.")).toBeVisible();
+    await expect(page.getByText("We couldn’t find you. Try again, or search for your town.")).toBeVisible();
     await expect(page.getByText('Location is off. Search for your town instead.')).toBeHidden();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Use my location' }).click();
@@ -422,7 +448,7 @@ test.describe('page shell', () => {
     await page.goto('/');
     const meta = (sel: string) => page.locator(sel).getAttribute('content');
     expect(await meta('meta[property="og:title"]')).toBe('Let go of a balloon');
-    expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today's real winds for three days");
+    expect(await meta('meta[property="og:description"]')).toBe("Pick a place, let go, and follow it on today’s real winds for three days");
     expect(await meta('meta[property="og:image"]')).toBe('https://let-go-of-a-balloon.pages.dev/og.png');
     expect(await meta('meta[property="og:image:width"]')).toBe('1200');
     expect(await meta('meta[property="og:image:height"]')).toBe('627');

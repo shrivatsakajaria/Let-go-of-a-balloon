@@ -121,6 +121,11 @@ const UP_SHARE = 0.75;
 const UP_AFTER_MS = 4000;
 const UP_MAX_MS = 32000;
 const BOUNCE_MS = 10000;
+/**
+ * A step up whose tiles are not all in after this long (a flight that keeps loading, so the stream never
+ * settles) counts as in from then: a step down long after is not its bounce.
+ */
+const UP_PENDING_MS = 20000;
 /** Frames slower than this (smoothed), for SLOW_FOR_MS, are over budget too (under 20 fps); a step up wants them under QUICK_FRAME_MS (a 30 Hz phone is quick enough). */
 const SLOW_FRAME_MS = 50;
 const SLOW_FOR_MS = 3000;
@@ -173,6 +178,9 @@ export class DetailBudget {
         this.upPending = false;
         this.upLandedAt = nowMs;
       }
+    } else if (this.upPending && nowMs - this.changedAt >= UP_PENDING_MS) {
+      this.upPending = false;
+      this.upLandedAt = this.changedAt + UP_PENDING_MS;
     }
     // frame time, smoothed over about a second: a phone that stays slow is over budget too
     if (frameMs !== undefined && Number.isFinite(frameMs)) {

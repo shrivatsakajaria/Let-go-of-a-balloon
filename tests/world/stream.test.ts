@@ -649,6 +649,50 @@ describe('WorldStream: review carries', () => {
     }
   });
 
+  it('fitView again in the same frame (the frame budget\'s refit) does not count as a frame: a left-out still sits out its frames', async () => {
+    const { stream, camera } = await buildingsEverywhere();
+    const full = stream.fitView(camera, Infinity);
+    const meshes = () => stream.tiles().flatMap((x) => (stream.groupOf(x.key)?.children ?? []) as THREE.Mesh[]);
+    stream.fitView(camera, full - 2500);
+    expect(meshes().some((m) => !m.visible)).toBe(true);
+    // many refits with room to spare: no new frame, so nothing comes back yet
+    for (let k = 0; k < 100; k++) stream.fitView(camera, full + 30_000, true);
+    expect(meshes().some((m) => !m.visible)).toBe(true);
+    // real frames: back once the left-outs have sat out their time
+    for (let f = 0; f < 40; f++) stream.fitView(camera, full + 30_000);
+    expect(meshes().every((m) => m.visible)).toBe(true);
+  });
+
+  it('a swap that needs no room made still keeps the margin a left-out comes back with', async () => {
+    const { stream, camera, row } = await buildingsInARow(20);
+    const frustum = () => new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const drawn = () => {
+      const f = frustum();
+      let n = 0;
+      for (const x of stream.tiles()) for (const m of stream.groupOf(x.key)!.children as THREE.Mesh[]) if (m.visible && m.layers.isEnabled(0) && m.intersectsFrustum(f)) n += m.geometry.getAttribute('position').count / 3;
+      return n;
+    };
+    const all = stream.fitView(camera, Infinity);
+    stream.fitView(camera, all - 2500);
+    expect(row.filter((m) => !m.visible).length).toBeGreaterThan(0);
+    // fly toward the left-outs with the cap held just over what is drawn: every swap must leave the margin
+    const x0 = camera.position.x;
+    for (let f = 0; f <= 300; f++) {
+      camera.position.x = x0 + (7000 * f) / 300;
+      camera.lookAt(camera.position.x + 1000, camera.position.y, camera.position.z);
+      camera.updateMatrixWorld();
+      // room for one left-out exactly, but not for the margin a left-out comes back with
+      const outTris = row.filter((m) => !m.visible).map((m) => m.geometry.getAttribute('position').count / 3);
+      const cap = drawn() + (outTris.length ? Math.min(...outTris) : 0) + 50;
+      const was = row.map((m) => m.visible);
+      const t = stream.fitView(camera, cap);
+      const back = row.filter((m, i) => m.visible && !was[i]).length;
+      const gone = row.filter((m, i) => !m.visible && was[i]).length;
+      // a mesh brought back with none sent away must fit with the margin to spare
+      if (back > 0 && gone === 0) expect(t).toBeLessThanOrEqual(cap - Math.min(20_000, cap * 0.04));
+    }
+  });
+
   it('stats are read without building a new object each frame, and agree with the tiles', async () => {
     const { pool, stream } = setup();
     await start(stream, cam(MANCHESTER));

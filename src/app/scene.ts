@@ -207,8 +207,9 @@ export class LiveScene {
     this.budget = new FrameBudget(this.stream, this.sky.light, { frameTimes: !isSoftwareRenderer(this.renderer) });
     this.clouds = new Clouds(this.scene, { haze: this.sky.haze, seed: 11, groundAt: (x, z) => this.stream.groundAt(this.stream.fromScene(x, z)) });
     // off with reduced motion, and on a software renderer, where they cost frames for nothing (the
-    // browser tests, which draw in software, turn them on with window.__lgoabStreaks)
-    const forceStreaks = typeof window !== 'undefined' && !!(window as unknown as { __lgoabStreaks?: boolean }).__lgoabStreaks;
+    // browser tests, which draw in software, turn them on with window.__lgoabStreaks; only a test or preview
+    // build reads it: the live site's build has no such switch)
+    const forceStreaks = __LGOAB_TEST_HOOKS__ && typeof window !== 'undefined' && !!(window as unknown as { __lgoabStreaks?: boolean }).__lgoabStreaks;
     const streaksOn = !this.reduced && (forceStreaks || !isSoftwareRenderer(this.renderer));
     this.streaks = new WindStreaks(this.scene, { haze: this.sky.haze, enabled: streaksOn, pixelRatio: this.renderer.getPixelRatio() });
     this.stream.onRecentre = (e) => {

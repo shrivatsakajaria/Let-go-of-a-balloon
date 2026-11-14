@@ -95,7 +95,18 @@ export type Chrome = {
   stackRight: number;
   /** The bottom shading covers only the stack's column (wide screens), not the full width. */
   narrowShade: boolean;
+  /**
+   * Where the bottom shading turns dark (its top edge plus its faint top, SHADE_FAINT of it): sized to the stack's
+   * text, it can reach well above the stack. Left out, the stack's top is the limit.
+   */
+  shadeBottomTop?: number;
 };
+
+/**
+ * The top 15% of the bottom shading is faint (a third of its strength or less: the 85% stop in styles.css
+ * .ink-bottom): the map may run under it, never under the darker part below.
+ */
+export const SHADE_FAINT = 0.15;
 
 const GAP = 16;
 const MIN_BAND = 160;
@@ -108,7 +119,7 @@ const MIN_BAND = 160;
  */
 export function freeBand(c: Chrome): Band {
   const top = Math.max(c.hudTop + GAP, c.shadeTop - 24);
-  const above: Band = { left: GAP, right: c.w - GAP, top, bottom: c.stackTop - GAP };
+  const above: Band = { left: GAP, right: c.w - GAP, top, bottom: Math.min(c.stackTop, c.narrowShade ? Infinity : c.shadeBottomTop ?? Infinity) - GAP };
   if (above.bottom - above.top >= MIN_BAND) return above;
   const beside: Band = { left: c.stackRight + 24, right: c.w - GAP, top, bottom: c.h - GAP };
   if (c.narrowShade && beside.right - beside.left >= MIN_BAND && beside.bottom - beside.top >= 120) return beside;

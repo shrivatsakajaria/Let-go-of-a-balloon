@@ -19,6 +19,13 @@ export type Place = {
   generic?: boolean;
 };
 
+/**
+ * The generic names, lower case everywhere (they are descriptions, not names; ruling R56): what a
+ * balloon is over where the data has no name, and the same words wherever else that is said.
+ */
+export const GENERIC_SEA = 'open sea';
+export const GENERIC_LAND = 'open countryside';
+
 type Tile = { towns: Town[]; names: [string, 's' | 'r'][]; grid: Uint16Array | null; side: number };
 const EMPTY: Tile = { towns: [], names: [], grid: null, side: 0 };
 
@@ -132,12 +139,12 @@ export async function nearestPlace(p: LatLon): Promise<Place> {
     cell = own.grid[r * own.side + c];
   }
   const named = cell >= 2 ? own.names[cell - 2] : undefined;
-  if (cell === 1) return { kind: 'sea', name: 'open sea', generic: true };
+  if (cell === 1) return { kind: 'sea', name: GENERIC_SEA, generic: true };
   if (named?.[1] === 's') return { kind: 'sea', name: named[0] };
 
   const region = named?.[0];
   const [town] = await townsNear(p, NEAREST_TOWN_KM);
   if (town) return { kind: 'town', name: town.name, country: town.country, distanceKm: town.distanceKm, ...(region ? { region } : {}) };
   if (region) return { kind: 'region', name: region };
-  return { kind: 'region', name: 'open countryside', generic: true };
+  return { kind: 'region', name: GENERIC_LAND, generic: true };
 }

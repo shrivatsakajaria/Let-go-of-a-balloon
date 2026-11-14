@@ -123,9 +123,14 @@ export type StreamStats = {
   arriveMsMax: number;
 };
 
-/** A mesh the frame budget left out stays out this many frames at least, and comes back only with this many triangles (at most 4% of the budget) to spare. */
+/**
+ * A mesh the frame budget left out stays out this many frames at least, and comes back only with this many
+ * triangles (at most 4% of the budget) to spare. Frames, not fitView calls: a refit in the same frame
+ * (fitView's `again`) does not count.
+ */
 const BENCH_FRAMES = 30;
 const BENCH_MARGIN = 20_000;
+const backMargin = (budget: number): number => Math.min(BENCH_MARGIN, budget * 0.04);
 /**
  * Every SWAP_FRAMES frames a mesh left out that is now nearer than SWAP_NEARER of the distance of
  * the farthest one drawn (the camera came to it) is swapped back in for the farthest, so a view
@@ -322,10 +327,12 @@ export class WorldStream {
    * in its place, so what is left out is always the far land, never a hole by the camera. The detail
    * budget (lod.ts DetailBudget) brings the tiles themselves nearer meanwhile.
    * `budget` Infinity shows everything again at once (the replay, the card's picture). Returns the
-   * triangles drawn. Call once a frame; nothing is allocated when the view fits.
+   * triangles drawn. Call once a frame, and again with `again` for a tighter budget in the same frame (the
+   * frame budget's refit when the shadow pass is over its share), which does not count as a frame; nothing
+   * is allocated when the view fits.
    */
-  fitView(camera: THREE.Camera, budget: number): number {
-    const frame = ++this.fitFrame;
+  fitView(camera: THREE.Camera, budget: number, again = false): number {
+    const frame = again ? this.fitFrame : ++this.fitFrame;
     // left-outs whose tile has gone are forgotten; with no budget, everything is shown again
     const bm = this.benchMesh, bv = this.benchView;
     for (let i = bm.length - 1; i >= 0; i--) {
@@ -420,7 +427,7 @@ export class WorldStream {
       const mesh = bm[i];
       const inView = !mesh.frustumCulled || mesh.intersectsFrustum(frustum);
       const tris = inView && mesh.layers.test(layers) ? drawTriangles(mesh) : 0;
-      if (total + tris > budget - Math.min(BENCH_MARGIN, budget * 0.04)) continue;
+      if (total + tris > budget - backMargin(budget)) continue;
       total += tris;
       back.push(mesh);
     }
@@ -465,8 +472,9 @@ export class WorldStream {
     let far = 0;
     for (const k of near) {
       if (far >= idx.length || sd[k] >= k2 * cd[idx[far]]) break; // nearer ones all tried; the rest are farther
-      // the drawn meshes clearly farther than it, farthest first, until it fits
-      const need = total + st[k] - budget;
+      // the drawn meshes clearly farther than it, farthest first, until it fits with the margin a left-out
+      // comes back with (as in bringBack), so a swap that frees nothing never lands on the cap itself
+      const need = total + st[k] - (budget - backMargin(budget));
       let freed = 0, end = far;
       while (freed < need && end < idx.length && sd[k] < k2 * cd[idx[end]]) freed += ct[idx[end++]];
       if (freed < need) continue;

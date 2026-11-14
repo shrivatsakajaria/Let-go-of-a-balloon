@@ -10,6 +10,7 @@ import type { LatLon } from '../geo/coords';
 import { sunPosition } from '../geo/sun';
 import { lightFor, parseHex } from '../world/palette';
 import { COPY } from './copy';
+import { shadeBottomPx, shadeTopPx } from './shade';
 import { CREDITS, MAP_CREDIT, creditHtml } from './credits';
 import { featuredCities } from './featured';
 import { mountSearch, type Place } from './search';
@@ -72,6 +73,21 @@ export function writeLastPlace(c: StartChoice): void {
 /** The tappable line above Let go: "From London", "From your location". */
 export function fromLine(c: StartChoice): string {
   return `${COPY.from} ${c.kind === 'gps' ? COPY.yourLocation.toLowerCase() : c.name}`;
+}
+
+/**
+ * The names in "Your balloons" (2.4.6): a balloon let go from "Your location" goes by its place once that is
+ * known (as on its card), and balloons that share a name each say when they were let go ("Bristol · let go
+ * 14:05"). `place` is null until looked up (the name stays as it was).
+ */
+export function mineNames(items: { name: string; place: string | null; letGo: string }[]): string[] {
+  const names = items.map((i) => (i.name === COPY.yourLocation && i.place ? i.place : i.name));
+  return names.map((n, k) => (items[k].letGo && names.filter((m) => m === n).length > 1 ? `${n} · let go ${items[k].letGo}` : n));
+}
+
+/** Names that need the gazetteer or a time to tell them apart: a "Your location" balloon, or a name shared. */
+export function mineNeedsNaming(names: string[]): boolean {
+  return names.some((n, k) => n === COPY.yourLocation || names.indexOf(n) !== k);
 }
 
 /** WCAG relative luminance of a hex colour. */
@@ -191,14 +207,16 @@ export function mountStart(
   };
   const sceneTimer = setInterval(paintSky, 60_000);
 
-  // ---- the bottom shading grows with the stack when "Your balloons" adds a row ----
+  // ---- the shading fits the text: each stack sits in its band's full-strength part ----
+  const head = $<HTMLElement>('.top');
   const fitShade = () => {
-    const h = bottom.getBoundingClientRect().height;
-    const need = Math.max(300, Math.ceil(h + 70));
-    document.documentElement.style.setProperty('--shade-bottom-h', `${need}px`);
+    const root = document.documentElement.style;
+    root.setProperty('--shade-bottom-h', `${shadeBottomPx(bottom.getBoundingClientRect().height)}px`);
+    root.setProperty('--shade-top-start', `${shadeTopPx(head.getBoundingClientRect().bottom)}px`);
   };
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fitShade) : null;
   ro?.observe(bottom);
+  ro?.observe(head);
 
   // ---- start place ----
   const render = () => {
@@ -217,7 +235,25 @@ export function mountStart(
   };
 
   // ---- your balloons ----
+  let mineRun = 0;
+  /** Name the "Your location" balloons by their place (looked up in the background; the code loads on demand). */
+  const nameMine = async (list: SavedBalloon[], els: HTMLElement[], run: number) => {
+    try {
+      const [{ startName }, { nearestPlace }, { localTime }] = await Promise.all([import('./card'), import('../geo/gazetteer'), import('../geo/time')]);
+      const places = await Promise.all(
+        list.map((b) => (b.name === COPY.yourLocation ? nearestPlace(b.start).then((p) => startName(b.start, p), () => startName(b.start, null)) : null)),
+      );
+      if (run !== mineRun) return;
+      const names = mineNames(list.map((b, k) => ({ name: b.name, place: places[k], letGo: localTime(b.release, b.start).label.split(' ').pop() ?? '' })));
+      names.forEach((n, k) => {
+        if (els[k].textContent !== n) els[k].textContent = n;
+      });
+    } catch {
+      /* the names stay as saved */
+    }
+  };
   const renderMine = () => {
+    const run = ++mineRun;
     const list = store.list();
     mine.hidden = list.length === 0;
     mine.replaceChildren();
@@ -229,12 +265,16 @@ export function mountStart(
     mine.setAttribute('role', 'group');
     mine.setAttribute('aria-labelledby', 'mine-label');
     mine.append(label);
+    const nameEls: HTMLElement[] = [];
     for (const b of list) {
       const s = balloonStatus(b, now());
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'link';
-      btn.textContent = b.name;
+      const nm = document.createElement('span');
+      nm.textContent = b.name;
+      nameEls.push(nm);
+      btn.append(nm);
       const st = document.createElement('span');
       st.className = 'status';
       st.textContent = ` · ${s.landed ? COPY.landed : COPY.aloft(Math.floor(s.hoursAloft))}`;
@@ -244,6 +284,7 @@ export function mountStart(
       });
       mine.append(btn);
     }
+    if (mineNeedsNaming(list.map((b) => b.name))) void nameMine(list, nameEls, run);
   };
 
   // ---- search ----

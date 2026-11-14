@@ -3,6 +3,7 @@ import {
   MAX_NAMES,
   NAME_ON_S,
   landingLines,
+  replayLabel,
   nameOpacity,
   pickNames,
   reducedFrame,
@@ -136,13 +137,24 @@ describe('the landing, as the replay ends', () => {
   const at = { lat: 60.39, lon: 5.32 }; // Bergen
   const ms = Date.UTC(2026, 10, 15, 13, 20);
   test('a town: "Bergen", then "Expected to land here" and the local day and time under it', () => {
-    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, false)).toEqual({ name: 'Bergen', line: 'Expected to land here · Sun 15 Nov, 14:20' });
+    expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, false)).toEqual({ name: 'Bergen', line: 'Expected to land here · Sun 15 Nov at 14:20' });
   });
   test('the sea: "The North Sea", "Expected to come down here"', () => {
-    expect(landingLines({ name: 'North Sea', kind: 'sea' }, { lat: 57, lon: 3 }, ms, false)).toMatchObject({ name: 'The North Sea', line: expect.stringMatching(/^Expected to come down here · Sun 15 Nov, \d\d:20$/) });
+    expect(landingLines({ name: 'North Sea', kind: 'sea' }, { lat: 57, lon: 3 }, ms, false)).toMatchObject({ name: 'The North Sea', line: expect.stringMatching(/^Expected to come down here · Sun 15 Nov at \d\d:20$/) });
   });
   test('after 72 hours: "Landed here", "Came down here"', () => {
     expect(landingLines({ name: 'Bergen', kind: 'town' }, at, ms, true).line).toMatch(/^Landed here · /);
     expect(landingLines({ name: 'North Sea', kind: 'sea' }, at, ms, true).line).toMatch(/^Came down here · /);
+  });
+  test('the canvas label carries the landing place and time for screen readers (the drawn names are hidden from them)', () => {
+    const fl = { own: false, home: 'Manchester' };
+    expect(replayLabel(fl, null, at, ms, false)).toBe('The forecast route of this balloon from Manchester');
+    expect(replayLabel(fl, { name: 'Bergen', kind: 'town' }, at, ms, false)).toBe(
+      'The forecast route of this balloon from Manchester, expected to land near Bergen on Sun 15 Nov at 14:20',
+    );
+    expect(replayLabel({ ...fl, own: true }, { name: 'North Sea', kind: 'sea' }, at, ms, true)).toBe(
+      'The forecast route of your balloon from Manchester, came down in the North Sea on Sun 15 Nov at 14:20',
+    );
+    expect(replayLabel(fl, { name: 'Lake District', kind: 'region' }, at, ms, true)).toMatch(/, landed in the Lake District on Sun 15 Nov at 14:20$/);
   });
 });

@@ -173,6 +173,8 @@ describe('announcements: only the launch, a change of country and the landing', 
   });
   test('a new country, also after a stretch of sea', () => {
     expect(announcement(base, { ...base, country: 'France' })).toBe('Your balloon is over France now');
+    expect(announcement({ ...base, country: 'France' }, { ...base, country: 'Netherlands' })).toBe('Your balloon is over the Netherlands now');
+    expect(announcement({ ...base, country: 'France' }, { ...base, country: 'United Kingdom' })).toBe('Your balloon is over the United Kingdom now');
     expect(announcement({ ...base, country: null, lastCountry: 'United Kingdom' }, { ...base, country: 'United Kingdom', lastCountry: 'United Kingdom' })).toBeNull();
     expect(announcement({ ...base, country: null, lastCountry: 'United Kingdom' }, { ...base, country: 'Norway', lastCountry: 'United Kingdom' })).toBe('Your balloon is over Norway now');
   });

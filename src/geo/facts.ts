@@ -1,12 +1,12 @@
 /**
  * The live fact line (spec 6.3, wording from 7.4: British English, km/h, no exclamation marks).
  * factsFor returns every fact that applies right now; the caller shows one at a time and moves on
- * every FACT_ROTATE_MS.
+ * every FACT_ROTATE_MS. What the balloon is over and the local time are left out: the header carries them.
  */
 import { FLIGHT_HOURS } from '../config';
 import { haversineKm, type LatLon } from './coords';
 import { nearestPlace, type Place } from './gazetteer';
-import { overText, withArticle } from './places';
+import { withArticle } from './places';
 import { nextSunEvent } from './sun';
 import { localTime } from './time';
 import { positionAt, type Route, type RoutePoint } from '../flight/route';
@@ -19,8 +19,6 @@ export type FactState = {
   home: { name: string; lat: number; lon: number };
   /** Where the balloon is now: positionAt(route, nowUtcMs). */
   here: RoutePoint;
-  /** What it is over, with its article ("the North Sea", "Leeds"): placeOver. */
-  over: string;
   /** The nearest town ahead along the heading, if any (see townAhead): the crossing fact needs it. */
   nearestTown?: { name: string; population: number; distanceKm: number };
   /** Where the route ends, from nearestPlace on the last point. */
@@ -29,6 +27,11 @@ export type FactState = {
 
 /** Below this the crossing time is silly (hours to cross a village), so the fact is skipped. */
 export const MIN_CROSSING_KMH = 3;
+/**
+ * A crossing longer than this (minutes) is skipped too: a big city in a light wind takes longer than the
+ * wind stays the same or the town stays ahead (ruling R56: the fact shows only for 3 hours or less).
+ */
+export const MAX_CROSSING_MIN = 180;
 /** Only a town this close ahead is worth mentioning. */
 export const TOWN_AHEAD_KM = 30;
 
@@ -120,14 +123,14 @@ export function factsFor(s: FactState): string[] {
 
   const town = s.nearestTown;
   if (town && kmh >= MIN_CROSSING_KMH && town.distanceKm <= TOWN_AHEAD_KM) {
-    facts.push(`At this speed it would cross ${town.name} in ${crossingTime((townDiameterKm(town.population) / kmh) * 60)}`);
+    const mins = (townDiameterKm(town.population) / kmh) * 60;
+    if (mins <= MAX_CROSSING_MIN) facts.push(`At this speed it would cross ${town.name} in ${crossingTime(mins)}`);
   }
 
   const gone = fromHomeKm < 1 ? `Just let go from ${home.name}` : `${distanceText(fromHomeKm)} km from ${home.name} so far`;
   facts.push(`${gone} · Expected to land in ${formatDuration(landingMs - nowUtcMs)}`);
 
-  facts.push(overText(s.over));
-  facts.push(`Local time ${localTime(nowUtcMs, here).label.split(' ').pop()}`);
+  // "Over ..." and the local time are not facts here: the header shows both all the time (under and in the clock)
 
   const sun = nextSunEvent(nowUtcMs, here, (t) => positionAt(route, t));
   if (sun) facts.push(`${sun.kind === 'sunrise' ? 'Sunrise' : 'Sunset'} in ${formatDuration(sun.utcMs - nowUtcMs)}`);

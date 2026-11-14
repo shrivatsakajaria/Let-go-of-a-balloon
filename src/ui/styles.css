@@ -65,18 +65,27 @@ body {
   pointer-events: none;
   transition: opacity 600ms var(--ease);
 }
-/* Eased stops: full strength under the text, then a long soft fall to nothing, so no edge shows. */
+/*
+ * Eased stops: full strength under the text, then a long soft fall to nothing over the lower half, so no
+ * band shows over bright ground. Each band is sized to its text (start.ts, hud.ts) so the text sits in the
+ * full-strength part: 170 px at the least, taller when the text needs it (ruling R54).
+ */
 .shade-top {
   top: 0;
-  height: 170px;
+  height: var(--shade-top-start, 170px);
   background: linear-gradient(to bottom,
     rgba(var(--ink), var(--shade-top)) 0%,
-    rgba(var(--ink), var(--shade-top)) 64%,
-    rgba(var(--ink), calc(var(--shade-top) * 0.74)) 78%,
-    rgba(var(--ink), calc(var(--shade-top) * 0.38)) 89%,
-    rgba(var(--ink), calc(var(--shade-top) * 0.1)) 96%,
+    rgba(var(--ink), var(--shade-top)) 45%,
+    rgba(var(--ink), calc(var(--shade-top) * 0.92)) 55%,
+    rgba(var(--ink), calc(var(--shade-top) * 0.75)) 65%,
+    rgba(var(--ink), calc(var(--shade-top) * 0.52)) 75%,
+    rgba(var(--ink), calc(var(--shade-top) * 0.28)) 85%,
+    rgba(var(--ink), calc(var(--shade-top) * 0.1)) 93%,
     rgba(var(--ink), 0) 100%);
 }
+/* in the launch and the flight the HUD's clock and "Over ..." are the text under it */
+:root[data-view='launch'] .shade-top,
+:root[data-view='flight'] .shade-top { height: var(--shade-top-hud, 170px); }
 .shade-bottom {
   bottom: 0;
   height: var(--shade-bottom-h, 300px);
@@ -85,10 +94,11 @@ body {
 .ink-bottom {
   background: linear-gradient(to top,
     rgba(var(--ink), var(--shade-bottom)) 0%,
-    rgba(var(--ink), var(--shade-bottom)) 66%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.8)) 79%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.45)) 89%,
-    rgba(var(--ink), calc(var(--shade-bottom) * 0.12)) 96%,
+    rgba(var(--ink), var(--shade-bottom)) 55%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.85)) 65%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.6)) 75%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.33)) 85%,
+    rgba(var(--ink), calc(var(--shade-bottom) * 0.12)) 93%,
     rgba(var(--ink), 0) 100%);
 }
 
@@ -217,6 +227,7 @@ a.link, .small a { color: var(--paper); }
   padding: 0 var(--gutter);
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  scroll-padding-inline: var(--gutter) 40px; /* a focused city at the end scrolls clear of the edge fade */
   scrollbar-width: none;
   list-style: none;
   /* a soft fade where the row runs off the right edge */
@@ -246,6 +257,7 @@ a.link, .small a { color: var(--paper); }
   padding: 0 var(--gutter);
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  scroll-padding-inline: var(--gutter) 40px;
   scrollbar-width: none;
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
@@ -254,7 +266,7 @@ a.link, .small a { color: var(--paper); }
 .mine-label { flex: none; font-size: 13px; font-weight: 500; margin-right: 4px; }
 .mine .link { font-size: 15px; font-weight: 600; white-space: nowrap; text-decoration-color: transparent; }
 .mine .link:hover { text-decoration-color: rgba(247, 243, 236, 0.45); }
-.mine .status { font-variant-numeric: tabular-nums; }
+.mine .status { font-variant-numeric: tabular-nums; font-weight: 450; } /* meta: quieter than the name */
 
 /* one row of small print: the notice on the left, the map credit on the right, sharing a bottom line */
 .fineprint {
@@ -266,15 +278,21 @@ a.link, .small a { color: var(--paper); }
 }
 .small {
   margin: 0;
-  font-size: 10px;
+  font-size: 11px; /* 7.1: footer 11 px */
   font-weight: 450;
   line-height: 1.35;
   color: rgba(247, 243, 236, 0.88);
   text-wrap: pretty;
 }
 .notice { flex: 1 1 0; min-width: 0; max-width: 62ch; text-align: left; }
-.map-credit { flex: 0 1 auto; min-width: min-content; max-width: 40%; text-align: right; } /* the 40% cap yields to the min-content floor (min-width beats max-width): never narrower than its longest link */
+/* wide enough on a phone that "OpenFreeMap © OpenMapTiles" share a line (three 24 px lines, not four), so the
+   row and the shading sized to it stay low; the cap yields to the min-content floor (min-width beats
+   max-width): never narrower than its longest link */
+.map-credit { flex: 0 1 auto; min-width: min-content; max-width: min(48%, 172px); text-align: right; line-height: 24px; }
 .small a {
+  /* each credit link is a 24 px target (WCAG 2.5.8): a line of links, not a sentence */
+  display: inline-block;
+  min-height: 24px;
   white-space: nowrap;
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -330,7 +348,10 @@ a.link, .small a { color: var(--paper); }
   font-variation-settings: 'wdth' 87;
 }
 .search-input::placeholder { color: rgba(247, 243, 236, 0.72); font-weight: 450; }
-.search-bar:focus-within { border-bottom-color: var(--paper); }
+/* the field's focus indicator is its underline, full strength and 3 px (1.5 px border + 1.5 px shadow), not the
+   ring: the ring would box a text-only bar (ruling R54) */
+.search-input:focus-visible { box-shadow: none; }
+.search-bar:focus-within { border-bottom-color: var(--paper); box-shadow: 0 1.5px 0 0 var(--paper); }
 .cancel { margin-right: -8px; font-size: 15px; font-weight: 600; }
 
 .search-list {
@@ -418,7 +439,9 @@ a.link, .small a { color: var(--paper); }
   .top { padding-top: 22px; }
   .title { font-size: 56px; }
   .explainer { font-size: 18px; margin-top: 8px; max-width: none; }
-  .bottom { padding-bottom: 28px; max-width: 560px; }
+  .bottom { padding-bottom: 28px; }
+  /* the column stays 560 px; the small print spans the screen, so the map credit sits in its corner */
+  .bottom > :not(.fineprint) { max-width: 560px; }
   .cities, .mine { margin-right: 0; -webkit-mask-image: none; mask-image: none; }
   .search { padding-top: 32px; }
   .search > * { width: 100%; max-width: 560px; }
@@ -574,7 +597,7 @@ a.link, .small a { color: var(--paper); }
 .string .ticks i { position: absolute; width: 1.5px; height: 7px; margin: -3.5px 0 0 -0.75px; background: rgba(247, 243, 236, 0.75); }
 .string .ring { right: 0; width: 9px; height: 9px; margin: -4.5px -4.5px 0 0; box-sizing: border-box; border: 1.5px solid var(--paper); border-radius: 50%; }
 
-.day-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.day-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .day { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .pause { margin-right: -8px; font-size: 15px; font-weight: 600; }
 
@@ -605,7 +628,12 @@ a.link, .small a { color: var(--paper); }
 }
 .main-action:hover { background: #fffaf2; }
 .main-action:active { transform: scale(0.97); }
-.main-action:focus-visible { border-radius: 8px; }
+.main-action:focus-visible {
+  border-radius: 8px;
+  /* the 7.1 ring (2 px off-white, 2 px ink outside it) with an ink gap inside it, so the off-white ring stands
+     apart from the off-white fill (ruling R54) */
+  box-shadow: 0 0 0 2px rgb(var(--ink)), 0 0 0 4px var(--paper), 0 0 0 6px rgb(var(--ink));
+}
 .hud .fineprint { margin-top: 8px; }
 
 /* ---- notices: the winds error and the broken link ---- */
@@ -623,7 +651,8 @@ a.link, .small a { color: var(--paper); }
 .notice-actions .link { font-size: 15px; font-weight: 600; }
 
 @media (min-width: 720px) {
-  .hud-bottom { max-width: 560px; }
+  /* the string line, the day row (and Pause) and the small print span the screen; the rest keeps the column */
+  .hud-bottom > :not(.string):not(.day-row):not(.fineprint) { max-width: 560px; }
   .notice-layer { max-width: 560px; }
 }
 
@@ -641,6 +670,8 @@ a.link, .small a { color: var(--paper); }
 .hud.is-replay .replay-slot.is-still { display: none; }
 /* Pause steps aside but keeps the day row's height, so the string line does not move */
 .hud.is-replay .pause { visibility: hidden; }
+/* the stats are hidden in the replay: the label has the width and keeps to one line */
+.hud.is-replay .over { max-width: none; }
 .hud.is-replay .fact,
 .hud.is-replay .views,
 .hud.is-replay .again,
@@ -659,7 +690,7 @@ a.link, .small a { color: var(--paper); }
 }
 
 /* reduced motion: the route drawn in place over the dimmed scene (no box: the whole view dims) */
-.replay-map { position: absolute; inset: 0; background: rgba(var(--ink), 0.78); pointer-events: none; }
+.replay-map { position: absolute; inset: 0; background: rgba(var(--ink), 0.88); pointer-events: none; }
 /* the map carries its own ink: no second shading over its lower names */
 .hud.is-replay:has(.replay-slot.is-still) .hud-shade,
 :root:has(.replay-map) .shade-top { display: none; }
@@ -723,7 +754,6 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 .actions .show-card[hidden] { display: none; } /* .link sets display, which would undo [hidden] */
 /* the whole trip, the card and "Let go of ..." together (a landed balloon): the row wraps rather than overflows */
 .hud .actions { flex-wrap: wrap; row-gap: 0; }
-.actions .show-card:not([hidden]) + .again { margin-left: 0; }
 
 /* a link that could not be copied: said plainly, and shown to copy by hand */
 .card-note { margin: 0; max-width: 34ch; font-size: 15px; font-weight: 500; text-align: center; }
@@ -753,4 +783,36 @@ a.main-action { display: inline-flex; align-items: center; text-decoration: none
 @media (min-width: 720px) {
   .card-layer { gap: 20px; }
   .card-img { max-height: calc(100dvh - 200px); }
+}
+
+/*
+ * Short landscape screens (a phone on its side, 640 x 360 to 844 x 390): the bottom stack tightens (a
+ * one-line fact keeps one line, the main action is 44 px, as every other control), and the flight HUD
+ * scrolls rather than clips if it is still taller than the screen (the 2D map's narrow column).
+ */
+@media (max-height: 420px) and (orientation: landscape) {
+  .hud .fact { min-height: 1.35em; }
+  .hud .main-action { min-height: 44px; }
+  .hud .fineprint { margin-top: 4px; }
+  :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
+  .hud > * { flex-shrink: 0; }
+}
+
+/*
+ * 200% zoom and small windows (WCAG 1.4.4, 1.4.10): rows wrap, the small print stacks, and the start screen
+ * and the flight HUD scroll rather than clip (a 1280 px window at 200% is 640 x 350 or so). A 320 px phone and
+ * landscape phones (844 x 390, 667 x 375, 640 x 360) keep their layout. The canvas
+ * takes no pointer input, so a HUD that takes taps here blocks nothing; it does so only in the flight,
+ * so it never covers the start screen's own controls.
+ */
+@media (max-width: 300px), (max-height: 359px) and (max-width: 700px) {
+  .start, :root[data-view='flight'] .hud { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
+  .start > *, .hud > * { flex-shrink: 0; }
+  .hud-top, .go-row, .views, .actions, .day-row { flex-wrap: wrap; }
+  .link, .credits-link, .locate, .view { white-space: normal; line-height: 1.35; padding-block: 12px; }
+  .fineprint { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .notice { flex: none; max-width: none; }
+  .map-credit { max-width: none; text-align: left; }
+  /* a text control wrapped onto its own line keeps its label on the column */
+  .go-row .locate, .day-row .pause { margin-left: -8px; }
 }

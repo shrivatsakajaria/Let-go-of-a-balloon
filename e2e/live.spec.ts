@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { midnightTicks } from '../src/ui/hudmath';
 import { routeFromHourly } from '../src/flight/route';
@@ -84,7 +88,7 @@ test('route not ready at 1.2 s: the person holds on, then the winds error after 
   const t0 = Date.now();
   await page.waitForTimeout(2500);
   expect((await hook(page))!.person).toBe('holding'); // no spinner: the person keeps holding it
-  const msg = page.getByText("We can't get today's winds right now. Try again in a few minutes.");
+  const msg = page.getByText("We can’t get today’s winds right now. Try again in a few minutes.");
   await expect(msg).toBeVisible({ timeout: 20_000 });
   expect(Date.now() - t0).toBeGreaterThan(5500);
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
@@ -101,7 +105,7 @@ test('winds unavailable says so plainly, with Try again', async ({ context, page
   await page.goto('/');
   await ready(page);
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
   // it tries again (and the person holds on again) rather than staying stuck
@@ -170,6 +174,56 @@ test('a link opened after 72 hours shows the balloon landed', async ({ context, 
   await expect(page.locator('.hud .day')).toHaveText('Landed · 72 h aloft');
   await expect(page.locator('.hud .status')).toHaveText(/^This balloon (landed|came down) /, { timeout: 10_000 });
   expect(await page.locator('.string .fill').evaluate((e) => parseFloat((e as HTMLElement).style.width))).toBe(100);
+});
+
+test('a balloon opened from "Your balloons" with the keyboard: focus moves to the flight, not back to the top of the page', async ({ context, page }) => {
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await context.addInitScript((v) => localStorage.setItem('lgoab.balloons.v1', v), JSON.stringify([eastward(14)]));
+  await page.goto('/');
+  await ready(page);
+  const mine = page.getByRole('group', { name: 'Your balloons' }).getByRole('button').first();
+  await mine.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
+});
+
+test('Let go with the keyboard: when the flight comes in, focus is on the HUD\'s main action, not lost to the page', async ({ context, page }) => {
+  test.setTimeout(200_000); // the launch is up to 40 s of the director's clock, which slow frames stretch
+  await liveWorld(context);
+  await startAtAlbertSquare(context);
+  await page.goto('/');
+  await ready(page);
+  await page.getByRole('button', { name: 'Let go', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => view(page), { timeout: 110_000, intervals: [250] }).toBe('flight');
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
+  // hudFocusTarget's order: the way back to the card, else the whole trip, else Pause. Focus moves on the
+  // next frame, which a software renderer on a busy machine can take seconds to draw
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const hud = document.getElementById('hud')!;
+          const want = hud.querySelector('.show-card:not([hidden])') ?? hud.querySelector('.trip:not([hidden])') ?? hud.querySelector('.pause');
+          return want !== null && document.activeElement === want;
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeFocused();
+});
+
+test('a link opened by a tap or a click draws no focus ring: focus is not moved for it', async ({ context, page }) => {
+  await liveWorld(context);
+  await page.goto(await linkTo(eastward(14)));
+  await ready(page);
+  await expect.poll(() => view(page), { timeout: 30_000 }).toBe('flight');
+  await expect(page.getByRole('button', { name: 'Show me the whole trip' })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => document.querySelectorAll(':focus-visible').length)).toBe(0);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 });
 
 test('the older ?b= link form opens too', async ({ context, page }) => {
@@ -324,9 +378,9 @@ test('with no WebGL a link opens on the 2D map (not that the winds failed); "Let
     } as typeof get;
   });
   await page.goto(await linkTo(eastward(10)));
-  await expect(page.getByText("Your phone can't show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Your phone can’t show the 3D world, so here is the route on a map.")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.map2d')).toBeVisible();
-  await expect(page.getByText("We can't get today's winds right now. Try again in a few minutes.")).toBeHidden();
+  await expect(page.getByText("We can’t get today’s winds right now. Try again in a few minutes.")).toBeHidden();
   await page.getByRole('button', { name: 'Let go of your own' }).click();
   expect(new URL(page.url()).hash).toBe('');
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
@@ -337,7 +391,7 @@ test('if the world cannot be fetched, Let go says so and offers Try again', asyn
   await context.route(/\/assets\/live-[^/]*\.js$/, (r) => r.abort('failed'));
   await page.goto('/');
   await page.getByRole('button', { name: 'Let go', exact: true }).click();
-  await expect(page.getByText("The balloon didn't load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("The balloon didn’t load. Check your connection and try again.")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Let go', exact: true })).toBeVisible();
@@ -380,6 +434,37 @@ test('the page keeps no test hook unless a test asks for one', async ({ context,
   await page.goto('/');
   await ready(page);
   expect(await page.evaluate(() => '__lgoabTest' in window || '__live' in window)).toBe(false);
+});
+
+test('the live site\'s build does not read window.__lgoabStreaks (only test and preview builds do)', async () => {
+  test.setTimeout(240_000);
+  // both builds made here, each into its own folder (the one under test is not assumed to be either)
+  const build = (env: Record<string, string>) => {
+    const out = mkdtempSync(join(tmpdir(), 'lgoab-build-'));
+    execFileSync('npx', ['vite', 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'error'], {
+      env: { ...process.env, ...env },
+      stdio: 'pipe',
+      timeout: 110_000,
+    });
+    return out;
+  };
+  const reads = (dir: string) => {
+    const assets = join(dir, 'assets');
+    const js = existsSync(assets) ? readdirSync(assets).filter((f) => f.endsWith('.js')) : [];
+    expect(js.length).toBeGreaterThan(0);
+    return js.some((f) => readFileSync(join(assets, f), 'utf8').includes('__lgoabStreaks'));
+  };
+  const dirs: string[] = [];
+  try {
+    // a test build (DEBUG_PAGES=1) has the switch: the streak tests use it
+    dirs.push(build({ DEBUG_PAGES: '1', BRANCH: '' }));
+    expect(reads(dirs[0])).toBe(true);
+    // the live site's build (main, no proof pages) leaves it out
+    dirs.push(build({ DEBUG_PAGES: '0', BRANCH: 'main' }));
+    expect(reads(dirs[1])).toBe(false);
+  } finally {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  }
 });
 
 test('disposing the live flight stops drawing and frees the scene, the HUD and the listeners', async ({ context, page }) => {

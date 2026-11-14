@@ -2,6 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { destination } from '../../src/geo/coords';
 import {
   FACT_ROTATE_MS,
+  MAX_CROSSING_MIN,
   compassWord,
   crossingTime,
   factsFor,
@@ -31,7 +32,7 @@ function straightRoute(start: { lat: number; lon: number }, releaseUtcMs: number
 const RELEASE = Date.UTC(2026, 10, 12, 20, 0);
 function state(over: Partial<FactState> = {}, nowUtcMs = RELEASE + 2 * HOUR, headingDeg = 45, speedMs = 31 / 3.6): FactState {
   const route = straightRoute(MANCHESTER, RELEASE, headingDeg, speedMs);
-  return { route, nowUtcMs, home: MANCHESTER, here: positionAt(route, nowUtcMs), over: 'the North Sea', ...over };
+  return { route, nowUtcMs, home: MANCHESTER, here: positionAt(route, nowUtcMs), ...over };
 }
 
 beforeEach(() => {
@@ -85,17 +86,28 @@ test('no crossing fact when the balloon is nearly still, or no town is ahead, or
   expect(factsFor(state({ nearestTown: { ...town, distanceKm: 45 } })).some((f) => f.includes('cross'))).toBe(false);
 });
 
+test('the crossing fact only when the crossing takes 3 hours or less (London at 7 km/h is silly, at 20 km/h it is fine)', () => {
+  expect(MAX_CROSSING_MIN).toBe(180);
+  const london = { name: 'London', population: 8_960_000, distanceKm: 10 };
+  const at = (kmh: number) => factsFor(state({ nearestTown: london }, RELEASE + 2 * HOUR, 45, kmh / 3.6)).filter((f) => f.includes('cross'));
+  expect(at(7)).toEqual([]);
+  expect(at(20)).toEqual(['At this speed it would cross London in about 3 hours']);
+  // a village at a normal speed is the fact at its best
+  expect(factsFor(state({ nearestTown: { name: 'Saffron Walden', population: 16_000, distanceKm: 8 } }, RELEASE + 2 * HOUR, 45, 7 / 3.6))).toContain(
+    'At this speed it would cross Saffron Walden in about 19 minutes',
+  );
+});
+
 test('distance from home and time to landing share a line', () => {
   const s = state({}, RELEASE + 2 * HOUR); // 62 km along
   const line = factsFor(s)[1];
   expect(line).toBe('62 km from Manchester so far · Expected to land in 2 days 22 hours');
 });
 
-test('over the sea reads "Over the North Sea"', () => expect(factsFor(state())).toContain('Over the North Sea'));
-
-test('local time is the clock at the balloon, without the weekday', () => {
-  const s = state({}, Date.UTC(2026, 10, 13, 7, 42));
-  expect(factsFor(s)).toContain('Local time 07:42');
+test('no fact repeats the header: "Over ..." and the local time are already under and in the clock', () => {
+  const facts = factsFor(state({}, Date.UTC(2026, 10, 13, 7, 42)));
+  expect(facts.some((f) => /^Over /.test(f))).toBe(false);
+  expect(facts.some((f) => /^Local time/.test(f))).toBe(false);
 });
 
 test('sunrise or sunset is counted along the route', () => {
@@ -125,7 +137,7 @@ test('after landing the facts say where and when', () => {
   // released 12 Nov 20:00 UTC, lands 15 Nov 20:00 UTC = Sun 15 Nov 21:00 in Bergen
   const route = straightRoute({ lat: 60.39, lon: 5.32 }, RELEASE, 90, 0);
   const now = RELEASE + 80 * HOUR;
-  const facts = factsFor({ route, nowUtcMs: now, home: MANCHESTER, here: positionAt(route, now), over: 'Bergen', landing: { name: 'Bergen', kind: 'town' } });
+  const facts = factsFor({ route, nowUtcMs: now, home: MANCHESTER, here: positionAt(route, now), landing: { name: 'Bergen', kind: 'town' } });
   expect(facts[0]).toBe('Landed near Bergen on Sun 15 Nov');
   expect(facts[1]).toMatch(/^\d+ km from Manchester in 72 hours$/);
   expect(facts.join(' ')).not.toMatch(/Expected|Wind/);
@@ -133,7 +145,7 @@ test('after landing the facts say where and when', () => {
 
 test('landed at sea', () => {
   const route = straightRoute({ lat: 56, lon: 3 }, RELEASE, 90, 0);
-  const facts = factsFor({ route, nowUtcMs: RELEASE + 73 * HOUR, home: MANCHESTER, here: route.points[432], over: '', landing: { name: 'North Sea', kind: 'sea' } });
+  const facts = factsFor({ route, nowUtcMs: RELEASE + 73 * HOUR, home: MANCHESTER, here: route.points[432], landing: { name: 'North Sea', kind: 'sea' } });
   expect(facts[0]).toBe('Came down in the North Sea on Sun 15 Nov');
 });
 

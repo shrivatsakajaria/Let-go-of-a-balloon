@@ -17,13 +17,15 @@ import { positionAt, type Route } from '../flight/route';
 import { balloonId, store } from '../flight/store';
 import { haversineKm, type LatLon } from '../geo/coords';
 import { factsFor, landingPlace } from '../geo/facts';
-import { nearestPlace, type Place } from '../geo/gazetteer';
+import { GENERIC_LAND, nearestPlace, type Place } from '../geo/gazetteer';
 import { overText, placeOver, townAhead } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
 import { announcement, landedOver, midnightTicks, sceneLabel, startLabel, type AnnounceState } from '../ui/hudmath';
 import { showNotice, type Notice } from '../ui/notice';
 import { playReplay, replayNames, type ReplayName } from '../ui/replay';
+import { replayLabel } from '../ui/replaymath';
+import { hudFocusTarget } from '../ui/focus';
 import { landmarkHeading } from '../ui/featured';
 import type { StartChoice, StartScreen } from '../ui/start';
 import { landedAt, linkRoute, releaseRoute, surfaceWind, warm, windsIn } from './data';
@@ -448,7 +450,12 @@ export class Live {
     this.pausedBefore = this.hud.paused;
     this.hud.setPaused(false);
     this.scene.setPaused(false);
-    this.canvas.setAttribute('aria-label', `The forecast route of ${fl.own ? 'your' : 'this'} balloon from ${fl.home.name}`);
+    // the drawn names are hidden from screen readers: the label says where and when it comes down, once known
+    const downAt = landedAt(fl.route);
+    const end = fl.route.points[fl.route.points.length - 1];
+    const label = (l: Place | null) => replayLabel({ own: fl.own, home: fl.home.name }, l, end, downAt, Date.now() >= downAt);
+    this.canvas.setAttribute('aria-label', label(null));
+    prep.landing.then((l) => this.replayRun === ctl && l && this.canvas.setAttribute('aria-label', label(l))).catch(() => {});
     const top = this.hud.el.querySelector('.hud-top'), bottom = this.hud.el.querySelector('.hud-bottom');
     // the landing card is made while the replay plays (its land loads meanwhile) and pictured at the end,
     // so it is ready as the replay holds on the landing; Back to live before the end cancels it
@@ -668,6 +675,8 @@ export class Live {
       closeLabel: opts.closeLabel,
       onClose: opts.onClose,
       landed: opts.landed,
+      // a card that opened by itself (a landed link, the landing) hands focus to its way back
+      fallbackFocus: () => hudFocusTarget(this.hud.el),
     });
     return view !== null;
   }
@@ -700,7 +709,7 @@ export class Live {
       const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
       this.overLine = landed ? landedOver(landing ?? null) : over ? overText(over) : '';
       this.hud.setOver(this.overLine);
-      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
+      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing }));
 
       // film events: a coast crossed, a town reached
       const kind = place ? (place.kind === 'sea' ? 'sea' : 'land') : null;
@@ -721,7 +730,7 @@ export class Live {
 
       this.canvas.setAttribute(
         'aria-label',
-        sceneLabel({ own: fl.own, over: over || 'open country', km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
+        sceneLabel({ own: fl.own, over: over || GENERIC_LAND, km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
       );
     } catch {
       /* names are a nicety: the flight goes on without them */

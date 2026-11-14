@@ -8,7 +8,7 @@ import tzlookup from '@photostructure/tz-lookup';
 import { FLIGHT_HOURS } from '../config';
 import type { Route } from '../flight/route';
 import type { LatLon } from '../geo/coords';
-import { withArticle } from '../geo/places';
+import { countryName, withArticle } from '../geo/places';
 import { localTime } from '../geo/time';
 
 const H = 3600e3;
@@ -189,7 +189,7 @@ export function announcement(prev: AnnounceState | null, next: AnnounceState): s
   }
   if (!prev) return next.launched ? `${whose(next.own)} is on its way from ${next.home}` : null;
   const ref = prev.country ?? prev.lastCountry ?? null;
-  if (next.country && ref && next.country !== ref) return `${whose(next.own)} is over ${next.country} now`;
+  if (next.country && ref && next.country !== ref) return `${whose(next.own)} is over ${countryName(next.country)} now`;
   return null;
 }
 

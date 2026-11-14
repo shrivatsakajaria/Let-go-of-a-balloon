@@ -13,6 +13,7 @@
 import type { DirectorMode } from '../camera/director';
 import { FACT_ROTATE_MS } from '../config';
 import { COPY } from './copy';
+import { shadeBottomPx, shadeTopPx } from './shade';
 import { MAP_CREDIT, creditHtml } from './credits';
 import { clockFor, dayLine, heightText, progress, speedText } from './hudmath';
 import type { LatLon } from '../geo/coords';
@@ -148,15 +149,16 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
     show(facts[idx]);
   }, FACT_ROTATE_MS);
 
-  // ---- the bottom shading fits the stack ----
+  // ---- the shading fits the text: the bottom band the stack, the top band the clock and "Over ..." ----
+  const where = $('.where');
   const fit = () => {
-    const h = bottom.getBoundingClientRect().height;
-    // tall enough that the fact line, the top of the stack, still sits where the shading is at 80% (the
-    // 79% stop), which keeps 16 px text at 4.5:1 over snow
-    root.style.setProperty('--hud-shade-h', `${Math.max(300, Math.ceil(h / 0.78))}px`);
+    root.style.setProperty('--hud-shade-h', `${shadeBottomPx(bottom.getBoundingClientRect().height)}px`);
+    // the top band is the page's one .shade-top (the start screen's), at this height in the launch and flight
+    document.documentElement.style.setProperty('--shade-top-hud', `${shadeTopPx(where.getBoundingClientRect().bottom)}px`);
   };
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
   ro?.observe(bottom);
+  ro?.observe(where);
 
   // ---- controls ----
   const setView = (mode: DirectorMode) => {

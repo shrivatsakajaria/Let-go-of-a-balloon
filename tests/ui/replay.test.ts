@@ -113,6 +113,30 @@ describe('playReplay: the end, Back to live and Escape (fake timers, a fake page
     expect((h.hud.replaySlot.children[1] as unknown as { textContent: string }).textContent).toMatch(/^Landed here · /); // (this test route flew in 1970)
   });
 
+  test('the 20 s start on the first frame: a set-up that holds the page for 3 s does not skip the trip', async () => {
+    const h = host();
+    // starting the replay (and the card's world) holds the main thread for 3 s
+    h.scene.startReplay = vi.fn(() => vi.setSystemTime(Date.now() + 3000));
+    const onEnd = vi.fn();
+    const t0 = Date.now();
+    void playReplay(manchesterToBergen(), { host: h, onEnd, signal: new AbortController().signal, clock: () => Date.now() });
+    expect(Date.now() - t0).toBe(3000);
+    await vi.advanceTimersByTimeAsync(19_900);
+    expect(onEnd).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  test('with no frames at all (a hidden tab) the clock starts after 2 s, and the end still comes', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    const onEnd = vi.fn();
+    void playReplay(manchesterToBergen(), { host: host(), onEnd, signal: new AbortController().signal, clock: () => Date.now() });
+    await vi.advanceTimersByTimeAsync(2000 + 19_900);
+    expect(onEnd).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
   test('Back to live at 5 s: gone at once, no onEnd ever, nothing left listening or ticking', async () => {
     const h = host();
     const onEnd = vi.fn();

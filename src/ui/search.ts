@@ -129,6 +129,10 @@ export function mountSearch(
   const id = `place-${++uid}`;
   const el = document.createElement('div');
   el.className = 'search';
+  // a modal layer over the inert page: focus stays in it, and Escape closes it wherever focus is (2.4.3)
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', COPY.searchPlaceholder);
   el.hidden = true;
   el.innerHTML = `
     <div class="search-bar">
@@ -213,10 +217,20 @@ export function mountSearch(
   };
 
   input.addEventListener('input', () => searcher.input(input.value));
-  // on the whole layer, so Escape also works from Cancel; arrows and Enter belong to the input
-  el.addEventListener('keydown', (e) => {
+  // on the document while open, so Escape works from Cancel or with focus lost to the page behind; Tab
+  // wraps between the input and Cancel; arrows and Enter belong to the input
+  const onKey = (e: KeyboardEvent) => {
     const n = places.length;
     const inInput = e.target === input;
+    if (e.key === 'Tab') {
+      const back = e.shiftKey;
+      const at = document.activeElement;
+      if (!el.contains(at) || (back ? at === input : at === cancel)) {
+        e.preventDefault();
+        (back ? cancel : input).focus({ preventScroll: true });
+      }
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       if (inInput && !list.hidden) setExpanded(false);
@@ -237,7 +251,7 @@ export function mountSearch(
       e.preventDefault();
       if (n && !list.hidden) pick(active >= 0 ? active : 0);
     }
-  });
+  };
   // keep focus in the input while choosing with a pointer
   list.addEventListener('pointerdown', (e) => e.preventDefault());
   list.addEventListener('click', (e) => {
@@ -255,6 +269,7 @@ export function mountSearch(
       if (!el.hidden) return;
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.hidden = false;
+      document.addEventListener('keydown', onKey);
       document.documentElement.classList.add('searching');
       opts.onOpenChange?.(true);
       input.value = '';
@@ -270,6 +285,7 @@ export function mountSearch(
     close() {
       if (el.hidden) return;
       searcher.cancel();
+      document.removeEventListener('keydown', onKey);
       el.hidden = true;
       document.documentElement.classList.remove('searching');
       opts.onOpenChange?.(false);

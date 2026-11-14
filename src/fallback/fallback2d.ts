@@ -17,7 +17,7 @@ import { positionAt, type Route } from '../flight/route';
 import { balloonId, store } from '../flight/store';
 import { haversineKm } from '../geo/coords';
 import { factsFor, landingPlace } from '../geo/facts';
-import { nearestPlace, type Place } from '../geo/gazetteer';
+import { GENERIC_LAND, nearestPlace, type Place } from '../geo/gazetteer';
 import { overText, placeOver, townAhead } from '../geo/places';
 import { COPY } from '../ui/copy';
 import { mountHud, type Hud } from '../ui/hud';
@@ -32,7 +32,7 @@ import { fetchVectorTile, vectorTileTemplate } from '../world/vector';
 import { landedAt, linkRoute, releaseRoute, warm } from '../app/data';
 import type { LiveDeps } from '../app/live';
 import type { Flight, World } from '../app/world';
-import { decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
+import { SHADE_FAINT, decodeCoast, fitView, freeBand, mercX, mercY, pickZoom, tilesFor, toPx, unwrapLons, type Band, type Coast, type MapTile, type MapView, type Size } from './map2d';
 
 const LAND = CONTOUR.land[1];
 const SEA = CONTOUR.waterDeep;
@@ -233,7 +233,7 @@ export class Fallback implements World {
     this.wrap = document.createElement('div');
     this.wrap.className = 'map2d';
     this.wrap.setAttribute('role', 'img');
-    this.wrap.setAttribute('aria-label', "A map of your balloon's route");
+    this.wrap.setAttribute('aria-label', 'A map of the balloon’s route');
     this.base = document.createElement('canvas');
     this.base.className = 'map2d-coast';
     this.top = document.createElement('canvas');
@@ -246,6 +246,8 @@ export class Fallback implements World {
       { reducedMotion: reduced, note: COPY.noWebGL },
     );
     window.addEventListener('resize', this.onResize);
+    // the shading is sized to the text, which comes in after the map is laid out: lay it out again
+    for (const el of [this.deps.hudEl.querySelector('.hud-shade'), this.deps.hudEl.querySelector('.hud-top'), document.querySelector('.shade-top')]) if (el) this.chromeRo?.observe(el);
     this.setStart(choice);
   }
 
@@ -394,6 +396,7 @@ export class Fallback implements World {
     closeCardView();
     clearInterval(this.timer);
     window.removeEventListener('resize', this.onResize);
+    this.chromeRo?.disconnect();
     this.hud.destroy();
     this.wrap.remove();
     delete document.documentElement.dataset.map;
@@ -404,6 +407,16 @@ export class Fallback implements World {
   private readonly onResize = () => {
     if (this.flight) this.layout();
   };
+
+  /** The band laid out for last (as text), so a change in the chrome lays the map out again only when it moves the band. */
+  private bandKey = '';
+  private readonly chromeRo = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => {
+        if (!this.flight) return;
+        const { w, h } = this.size;
+        if (JSON.stringify(this.band(w, h)) !== this.bandKey) this.layout();
+      })
+    : null;
 
   /** Fit the route into the band the HUD leaves free, then draw the coast for that view. */
   private layout(): void {
@@ -417,7 +430,9 @@ export class Fallback implements World {
       c.width = Math.round(w * this.dpr);
       c.height = Math.round(h * this.dpr);
     }
-    const v = fitView(fl.route.points, this.band(w, h));
+    const band = this.band(w, h);
+    this.bandKey = JSON.stringify(band);
+    const v = fitView(fl.route.points, band);
     this.px = routePx(fl.route, v);
     this.drawTop();
     const drawn = ++this.drawn;
@@ -448,6 +463,7 @@ export class Fallback implements World {
       stackTop: stack?.top ?? h,
       stackRight: Math.max(stack?.right ?? w, shade?.right ?? w),
       narrowShade: !!shade && shade.width > 0 && shade.right < w - 1,
+      shadeBottomTop: shade && shade.height > 0 ? shade.top + SHADE_FAINT * shade.height : undefined,
     });
   }
 
@@ -496,7 +512,7 @@ export class Fallback implements World {
       if (this.flight !== fl) return;
       const landing = this.landing ? { name: this.landing.name, kind: this.landing.kind } : undefined;
       this.hud.setOver(landed ? landedOver(landing ?? null) : over ? overText(over) : '');
-      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, over: over || 'open country', nearestTown: town ?? undefined, landing }));
+      this.hud.setFacts(factsFor({ route: fl.route, nowUtcMs: now, home: fl.home, here, nearestTown: town ?? undefined, landing }));
       const country = place?.kind === 'town' ? place.country ?? null : null;
       const next: AnnounceState = { phase: landed ? 'landed' : 'flying', home: fl.home.name, country, lastCountry: this.lastCountry, landing: landing ?? null, own: fl.own, launched: fl.launched ?? false };
       const say = announcement(this.said, next);
@@ -505,7 +521,7 @@ export class Fallback implements World {
       if (country) this.lastCountry = country;
       this.wrap.setAttribute(
         'aria-label',
-        sceneLabel({ own: fl.own, over: over || 'open country', km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
+        sceneLabel({ own: fl.own, over: over || GENERIC_LAND, km: haversineKm(fl.home, here), home: fl.home.name, landed: landed ? landedOver(landing ?? null) : null }),
       );
     } catch {
       /* names are a nicety: the map goes on without them */

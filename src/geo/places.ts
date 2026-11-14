@@ -40,6 +40,29 @@ export function withArticle(name: string, kind: string): string {
   return name;
 }
 
+/** CLDR's long forms (the gazetteer's country names come from Intl.DisplayNames), as people say them. */
+const COUNTRY_TIDY: [RegExp, string][] = [
+  [/^Congo - Brazzaville$/, 'Republic of the Congo'],
+  [/^Congo - Kinshasa$/, 'Democratic Republic of the Congo'],
+  [/^Myanmar \(Burma\)$/, 'Myanmar'],
+  [/^(Hong Kong|Macao) SAR China$/, '$1'],
+  [/^St\. /, 'St '],
+  [/^U\.S\. /, 'US '],
+  [/ & /g, ' and '],
+];
+/** Country names English gives "the". */
+const THE_COUNTRY =
+  /^(United\s|US\s|Netherlands$|Philippines$|Bahamas$|Gambia$|Maldives$|Seychelles$|Comoros$|Czech Republic$|Dominican Republic$|Central African Republic$|Democratic Republic|Republic of|Palestinian Territories$|.+\sIslands$)/;
+
+/**
+ * A country's name as it reads in a sentence ("over the Netherlands now", "over the United Kingdom"):
+ * tidied from CLDR's long forms, with "the" where English uses it.
+ */
+export function countryName(c: string): string {
+  const name = COUNTRY_TIDY.reduce((s, [re, to]) => s.replace(re, to), c.trim());
+  return THE_COUNTRY.test(name) ? `the ${name}` : name;
+}
+
 /** "Over the North Sea", "Over Leeds". */
 export const overText = (place: string): string => `Over ${place}`;
 

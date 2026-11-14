@@ -7,11 +7,13 @@ import { FRAME_BUDGET, VIEW_CAP, type SunLight } from '../../src/world/sunlight'
 /** A stream whose view's tiles draw `tiles` (or the cap, if less), and a light whose smallest disc draws `pass`. */
 function rig(tiles: number, pass: number) {
   const caps: number[] = [];
+  const agains: boolean[] = [];
   const stream = {
     detailScale: 1,
     settled: true,
-    fitView: (_c: THREE.Camera, cap: number) => {
+    fitView: (_c: THREE.Camera, cap: number, again = false) => {
       caps.push(cap);
+      agains.push(again);
       return Math.min(tiles, cap);
     },
     setShadowFocus: () => {},
@@ -20,7 +22,7 @@ function rig(tiles: number, pass: number) {
     fit: () => ({ triangles: pass, calls: 20, radius: 200 }),
     casters: () => ({ triangles: pass, calls: 20 }),
   } as unknown as SunLight;
-  return { budget: new FrameBudget(stream, light, { frameTimes: false }), caps, stream };
+  return { budget: new FrameBudget(stream, light, { frameTimes: false }), caps, agains, stream };
 }
 
 describe('FrameBudget', () => {
@@ -48,6 +50,13 @@ describe('FrameBudget', () => {
     }
     // the frame with the redraw stays inside the frame budget
     expect(VIEW_CAP - over + 120_000).toBeLessThanOrEqual(FRAME_BUDGET.triangles);
+  });
+
+  it('the refit for a shadow pass over its share is the same frame (the stream does not count it as one)', () => {
+    const { budget, agains } = rig(600_000, 120_000);
+    budget.fitView(camera);
+    budget.fitShadows(scene, { x: 0, z: 0 });
+    expect(agains).toEqual([false, true]);
   });
 
   it('a shadow pass that fits gives the view its cap back', () => {

@@ -109,6 +109,8 @@ export type PresentOpts = {
   landed?: boolean;
   closeLabel?: string;
   onClose?(): void;
+  /** Where focus goes when the card closes and what had it before is gone (see CardViewOpts). */
+  fallbackFocus?(): HTMLElement | null;
 };
 
 let latest = 0;
@@ -171,6 +173,7 @@ export async function presentCard(o: PresentOpts): Promise<CardView | null> {
       ua,
       isCurrent: o.isCurrent,
       closeLabel: o.closeLabel,
+      fallbackFocus: o.fallbackFocus,
       onClose: () => {
         cardHook.state = 'closed';
         o.onClose?.();
