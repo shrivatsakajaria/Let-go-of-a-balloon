@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Decide whether a GFS run newer than the deployed one is ready.
-# "Ready" means its f096 index file exists on NOAA's public bucket.
+# "Ready" means its f120 index file exists (the last hour the site needs) on NOAA's public bucket.
 # Prints "new=true|false" and "run=YYYYMMDDHH" lines (suitable for $GITHUB_OUTPUT).
 # Deployed run id comes from the live manifest; if missing, treat as new.
 set -u
@@ -13,7 +13,7 @@ latest=""
 for day_offset in 0 1; do
   day=$(date -u -d "-${day_offset} day" +%Y%m%d)
   for cycle in 18 12 06 00; do
-    url="${BUCKET}/gfs.${day}/${cycle}/atmos/gfs.t${cycle}z.pgrb2.0p25.f096.idx"
+    url="${BUCKET}/gfs.${day}/${cycle}/atmos/gfs.t${cycle}z.pgrb2.0p25.f120.idx"
     code=$(curl -s -o /dev/null -I -m 20 -w '%{http_code}' "$url" || echo 000)
     if [ "$code" = "200" ]; then
       latest="${day}${cycle}"
@@ -23,7 +23,7 @@ for day_offset in 0 1; do
 done
 
 if [ -z "$latest" ]; then
-  echo "No GFS run with an f096 file found for today or yesterday." >&2
+  echo "No GFS run with an f120 file found for today or yesterday." >&2
   echo "new=false"
   echo "run="
   exit 0
@@ -42,7 +42,7 @@ except Exception:
 ' 2>/dev/null || true)
 deployed=$(echo "$deployed" | tr -dc '0-9')
 
-echo "Newest run with f096: ${latest}; deployed: ${deployed:-none}" >&2
+echo "Newest run with f120: ${latest}; deployed: ${deployed:-none}" >&2
 if [ -z "$deployed" ] || [ "$latest" -gt "$deployed" ]; then
   echo "new=true"
 else

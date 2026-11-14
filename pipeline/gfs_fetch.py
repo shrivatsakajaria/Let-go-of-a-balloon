@@ -23,6 +23,9 @@ PRODUCT_RES = {'0p25': 0.25, '1p00': 1.0}
 SHORT_NAMES = {'UGRD': 'u', 'VGRD': 'v', 'HGT': 'gh', 'LAND': 'lsm'}
 FIELD_KEYS = {'UGRD': 'u', 'VGRD': 'v', 'HGT': 'gh'}
 USER_AGENT = 'let-go-of-a-balloon-wind-pipeline/1'
+# Last forecast hour the site needs (R59): a run is used until it is 48 h old, and a flight lasts
+# 72 h, so 48 + 72 = 120. A run is ready once its f120 files exist.
+LAST_HOUR = 120
 
 
 def log(msg: str) -> None:
@@ -209,12 +212,12 @@ def fetch_land(run_id: str, workers: int = 4) -> np.ndarray:
 
 
 def run_is_ready(run_id: str) -> bool:
-    """A run is ready when both products have their f096 index."""
-    return all(http_exists(file_url(run_id, p, 96) + '.idx') for p in ('1p00', '0p25'))
+    """A run is ready when both products have the index of their last needed hour (f120)."""
+    return all(http_exists(file_url(run_id, p, LAST_HOUR) + '.idx') for p in ('1p00', '0p25'))
 
 
 def latest_run(now: dt.datetime | None = None, lookback_cycles: int = 8) -> str:
-    """Newest GFS run whose f096 files exist (checks back two days)."""
+    """Newest GFS run whose f120 files exist (checks back two days)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     t = now.replace(minute=0, second=0, microsecond=0, hour=now.hour - now.hour % 6)
     for _ in range(lookback_cycles):
@@ -222,4 +225,4 @@ def latest_run(now: dt.datetime | None = None, lookback_cycles: int = 8) -> str:
         if run_is_ready(run_id):
             return run_id
         t -= dt.timedelta(hours=6)
-    raise RuntimeError('no GFS run with f096 found in the last two days')
+    raise RuntimeError(f'no GFS run with f{LAST_HOUR:03d} found in the last two days')
