@@ -11,20 +11,42 @@ import { CLIMB_RATE_MS } from '../config';
  *   balloon never sinks);
  * - back: metres the drawn balloon is held back along its drift while it is still below the top of a wall
  *   just ahead (it is pressed against the wall and slides up it), let go again as the lift clears it.
+ * Both are then eased (critically damped, over smoothLiftS and smoothBackS; Task 26c): the drawn balloon
+ * slows to a stop at the wall and gets going again past it, with no lurch the launch camera, aimed at it,
+ * would pass on.
  * No allocation per step.
  */
-export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 3, riseTauS: 0.5, maxRiseMs: 6, decayMs: 0.8 } as const;
+export const SLIDE = { marginM: 1.2, radiusM: 1, aheadS: 3, riseTauS: 0.5, maxRiseMs: 6, decayMs: 0.8, smoothLiftS: 0.3, smoothBackS: 0.5 } as const;
 
 /** Highest building or landmark top (absolute) within r of the scene point (x, z); ground or less where none. */
 export type TopAt = (x: number, z: number, r: number) => number;
 
 export class FacadeSlide {
+  /** The eased lift and hold-back (m): read these. */
   lift = 0;
   back = 0;
+  private liftV = 0;
+  private backV = 0;
+  /** What the facade asks for (before easing). */
+  private rawLift = 0;
+  private rawBack = 0;
   private v = 0;
 
   reset(): void {
-    this.lift = this.back = this.v = 0;
+    this.lift = this.back = this.v = this.rawLift = this.rawBack = this.liftV = this.backV = 0;
+  }
+
+  /** Ease lift and back toward what is asked (exact critically damped steps; never below what lifts it clear). */
+  private smooth(dt: number): void {
+    const step = (x: number, v: number, target: number, T: number): [number, number] => {
+      const w = 2 / T, e = Math.exp(-w * dt);
+      const d = x - target, t = v + w * d;
+      return [target + (d + t * dt) * e, (v - w * t * dt) * e];
+    };
+    [this.lift, this.liftV] = step(this.lift, this.liftV, this.rawLift, SLIDE.smoothLiftS);
+    [this.back, this.backV] = step(this.back, this.backV, this.rawBack, SLIDE.smoothBackS);
+    if (this.lift < 1e-6 && this.rawLift === 0) this.lift = this.liftV = 0;
+    if (this.back < 1e-6 && this.rawBack === 0) this.back = this.backV = 0;
   }
 
   /**
@@ -38,7 +60,7 @@ export class FacadeSlide {
     // within half the look-ahead, part of the way beyond: it starts up the wall early, not at it)
     let want = 0;
     const n = 6;
-    const bx = x - ux * this.back, bz = z - uz * this.back;
+    const bx = x - ux * this.rawBack, bz = z - uz * this.rawBack;
     for (let k = 0; k <= n; k++) {
       const tau = (SLIDE.aheadS * k) / n;
       const T = top(bx + ux * v * tau, bz + uz * v * tau, SLIDE.radiusM);
@@ -46,39 +68,41 @@ export class FacadeSlide {
       const need = T + SLIDE.marginM - (y + CLIMB_RATE_MS * tau);
       if (need > 0) want = Math.max(want, need * Math.min(1, (2 * (n + 1 - k)) / (n + 2)));
     }
-    if (want > this.lift) {
+    if (want > this.rawLift) {
       // eased up (critically damped), no faster than maxRiseMs
       const w = 2 / SLIDE.riseTauS;
       const ex = Math.exp(-w * dt);
-      const d = this.lift - want;
+      const d = this.rawLift - want;
       const tmp = this.v + w * d;
       let next = want + (d + tmp * dt) * ex;
       this.v = (this.v - w * tmp * dt) * ex;
-      if (next - this.lift > SLIDE.maxRiseMs * dt) {
-        next = this.lift + SLIDE.maxRiseMs * dt;
+      if (next - this.rawLift > SLIDE.maxRiseMs * dt) {
+        next = this.rawLift + SLIDE.maxRiseMs * dt;
         this.v = SLIDE.maxRiseMs;
       }
-      this.lift = Math.max(this.lift, next);
+      this.rawLift = Math.max(this.rawLift, next);
     } else {
       this.v = 0;
-      this.lift = Math.max(want, this.lift - SLIDE.decayMs * dt);
+      this.rawLift = Math.max(want, this.rawLift - SLIDE.decayMs * dt);
     }
     // pressed against a wall it has not yet cleared: held back along the drift (it slides up the wall);
     // let go again (catching up no faster than its own speed) once the way ahead is clear at its height
-    const yNow = y + this.lift;
-    if (blockedAt(x, z, ux, uz, this.back, yNow, top)) this.back += v * dt;
-    else if (this.back > 0) {
-      const nb = Math.max(0, this.back - v * dt);
-      if (!blockedAt(x, z, ux, uz, nb, yNow, top)) this.back = nb;
+    const yNow = y + this.rawLift;
+    if (blockedAt(x, z, ux, uz, this.rawBack, yNow, top)) this.rawBack += v * dt;
+    else if (this.rawBack > 0) {
+      const nb = Math.max(0, this.rawBack - v * dt);
+      if (!blockedAt(x, z, ux, uz, nb, yNow, top)) this.rawBack = nb;
     }
+    this.smooth(dt);
   }
 
   /** Well up, with nothing to look up (no lookups): the lift goes as in step, the hold catches up. */
   ease(speed: number, dt: number): void {
     if (!(dt > 0)) return;
     this.v = 0;
-    this.lift = Math.max(0, this.lift - SLIDE.decayMs * dt);
-    this.back = Math.max(0, this.back - (Number.isFinite(speed) ? Math.max(0, speed) : 0) * dt);
+    this.rawLift = Math.max(0, this.rawLift - SLIDE.decayMs * dt);
+    this.rawBack = Math.max(0, this.rawBack - (Number.isFinite(speed) ? Math.max(0, speed) : 0) * dt);
+    this.smooth(dt);
   }
 }
 
