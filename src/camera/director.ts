@@ -234,8 +234,9 @@ export class Director {
   private launchOpts: LaunchOpts | null = null;
   /** Last finite route heading, for frames whose heading is not finite. */
   private heading = Number.NaN;
-  /** Street camera position for this launch (world), chosen on the first launch frame. */
+  /** Street camera position for this launch (world), chosen on the first launch frame, and whether it saw the person then. */
   private street: THREE.Vector3 | null = null;
+  private streetSeen = false;
   /** Start screen: the establishing shot is held, and the launch clock waits, until go(). */
   private wait: WaitFrame | null = null;
   /** The establishing shot's camera position (world), chosen once per launch, and how blocked it was then (waitTarget). */
@@ -770,9 +771,13 @@ export class Director {
       // the ground and the buildings stream in after the spot was chosen: stand on the ground as drawn, and
       // while waiting (nothing has moved yet) choose again if a building has arrived on the spot
       const check = this.wait !== null && this.recheck % 20 === 0;
-      if (this.settle(this.street, b, B0, check)) return this.street;
-      this.street = null;
-      this.wide = null;
+      if (!this.settle(this.street, b, B0, check)) {
+        this.street = null;
+        this.wide = null;
+      } else if (check && this.streetSeen && !this.seesPerson(this.street, b, B0)) {
+        // it saw the person when chosen, and a tree or a building has since arrived in between: choose again
+        this.street = null;
+      } else return this.street;
     }
     const o = this.launchOpts!;
     const ps = this.deps.toScene(o.personAt);
@@ -807,16 +812,12 @@ export class Director {
       if (this.spotTop(ll, STREET_CLEAR_M) > g + 0.5) continue;
       c.setY(g + EYE_M);
       first ??= c;
-      let seen = true;
-      for (const f of [0.35, 0.7]) {
-        const q = this.fromScene(c.x + (P.x - c.x) * f, c.z + (P.z - c.z) * f, b, B0);
-        if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) seen = false;
-      }
-      if (seen) {
+      if (this.seesPerson(c, b, B0)) {
         pick = c;
         break;
       }
     }
+    this.streetSeen = pick !== null;
     pick ??= first;
     if (!pick) pick = P.clone().addScaledVector(dir, -1.5).setY(this.deps.groundAt(o.personAt) + EYE_M);
     if (!finite3(pick)) return P.clone().setY(EYE_M); // never cache a non-finite spot; try again next frame
@@ -1412,6 +1413,16 @@ export class Director {
       p.x = t.x + dx * f;
       p.z = t.z + dz * f;
     }
+  }
+
+  /** Does the eye-height spot c see the person (nothing standing on the line between, tree crowns included)? */
+  private seesPerson(c: THREE.Vector3, b: RoutePoint, B0: THREE.Vector3): boolean {
+    const ps = this.deps.toScene(this.launchOpts!.personAt);
+    for (const f of [0.2, 0.35, 0.5, 0.7, 0.85]) {
+      const q = this.fromScene(c.x + (ps.x - c.x) * f, c.z + (ps.z - c.z) * f, b, B0, this.ll);
+      if (this.spotTop(q, 0.6) > this.deps.groundAt(q) + 1) return false;
+    }
+    return true;
   }
 
   /** What stands at an eye-height camera spot or on its sightline: buildings, landmarks and trees (absolute top). */

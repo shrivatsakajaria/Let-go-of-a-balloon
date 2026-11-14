@@ -465,6 +465,28 @@ describe('Director', () => {
     }
   });
 
+  test('trees streaming in after the street spot was chosen: it is chosen again where it sees the person', () => {
+    const cam = mkPhone(50);
+    let trees: [number, number][] = [];
+    const treeTopAt = (p: LatLon, r: number) => {
+      const s = toScene(p);
+      return trees.some(([x, z]) => Math.hypot(s.x - x, s.z - z) <= r + 3.4) ? 11 : -Infinity;
+    };
+    const d = new Director(cam, deps({ balloonRadius: REAL, treeTopAt }));
+    d.setLaunch({ personAt: { lat: 50, lon: 0 }, landmarkHeadingDeg: 315, startUtcMs: 0, waiting: { centerY: 0.2, spanY: 1.2 }, cueRelease: true });
+    const held = (t: number): RoutePoint => ({ tSec: t, lat: 50, lon: 0, altM: 2.4, groundM: 0, speedMs: 3, headingDeg: 225 });
+    run(d, 0, 2, 0.05, held);
+    const S = (d as unknown as { street: THREE.Vector3 }).street.clone();
+    // a tree arrives right on the line from that spot to the person
+    trees = [[S.x * 0.5, S.z * 0.5]];
+    run(d, 2, 3, 0.05, held);
+    const S2 = (d as unknown as { street: THREE.Vector3 }).street;
+    for (const f of [0.2, 0.35, 0.5, 0.7, 0.85]) {
+      const q = { x: S2.x * (1 - f), z: S2.z * (1 - f) };
+      expect(Math.hypot(q.x - trees[0][0], q.z - trees[0][1])).toBeGreaterThan(3.4 + 0.6);
+    }
+  });
+
   test('waiting: the camera stands on the ground as drawn once finer tiles arrive, and moves off a building that arrives on its spot', () => {
     const person: LatLon = { lat: 50, lon: 0 };
     let ground = 60; // the coarse fallback before any tile is in
