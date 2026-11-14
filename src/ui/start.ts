@@ -255,7 +255,7 @@ export function mountStart(
   /** Name the "Your location" balloons by their place (looked up in the background; the code loads on demand). */
   const nameMine = async (list: SavedBalloon[], els: HTMLElement[], run: number) => {
     try {
-      const [{ startName }, { nearestPlace }, { localTime }] = await Promise.all([import('./card'), import('../geo/gazetteer'), import('../geo/time')]);
+      const [{ startName }, { localTime }] = await Promise.all([import('./card'), import('../geo/time')]);
       const places = await Promise.all(
         list.map((b) => (b.name === COPY.yourLocation ? nearestPlace(b.start).then((p) => startName(b.start, p), () => startName(b.start, null)) : null)),
       );
