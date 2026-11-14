@@ -212,7 +212,8 @@ export function mountHud(root: HTMLElement, handlers: HudHandlers, opts: { reduc
       release = f.release;
       own = f.own;
       home = f.home ?? '';
-      lead = f.own && f.home ? COPY.next : '';
+      // only while it is new: a balloon of your own opened again on day 3 does not need telling
+      lead = f.own && f.home && Date.now() - f.release < 6 * 3600e3 ? COPY.next : '';
       cal.hidden = !f.home;
       lastP = -1;
       again.textContent = f.own ? COPY.letGoAnother : COPY.letGoYourOwn;
