@@ -12,12 +12,15 @@
  *   copy of each is drawn. Every face fades to nothing, so a streak never pops in or runs out.
  * - The slab: they keep to the balloon's height band (STREAK_SLAB) and clear of the ground.
  * - Speed: the balloon rides the wind, so in its own frame the air is still, and streaks at the
- *   wind's speed would hang beside it. They cross the ground at STREAK_SPEEDUP times the wind's
- *   speed, along its direction, and at least STREAK_MIN_REL_MS faster than the balloon, so they
- *   visibly flow past it in any wind.
+ *   wind's speed would hang beside it. They flow past the balloon at STREAK_REL_MIN_MS plus
+ *   STREAK_REL_GAIN times the wind's speed (so 3x the wind over the ground, plus 5 m/s): a light
+ *   wind still flows, a stronger one visibly faster. Their direction eases toward the wind's, so
+ *   in a calm they keep drifting slowly the way it last blew rather than stopping dead.
+ * - Pause holds them still (spec 7.3), still shown.
  * - Look: off-white quads about 1.5 CSS px wide (screen space), varied in length and brightness,
  *   fading at both ends, near the camera, at the faces of their box and into the haze; each slowly
- *   brightens and fades again as it travels. More visible at night, subtler by day.
+ *   brightens and fades again as it travels. More visible at night, subtler by day. None is ever
+ *   drawn over the balloon: one in front of it, near the line from the camera, fades out.
  * - One draw: an instanced quad, STREAK_COUNT instances (4 vertices each). Every position is worked
  *   out in the vertex shader from a few uniforms; the CPU only advances the wind's offset and places
  *   the boxes (no allocation per frame).
@@ -37,10 +40,11 @@ const ANCHOR_WRAP_M = STREAK_LAYERS[STREAK_LAYERS.length - 1];
 const LAYER_COVER = 1.3;
 /** Heights round the balloon they keep to (m below and above), fading over FADE_M. */
 export const STREAK_SLAB = { below: 900, above: 400, fadeM: 250 } as const;
-/** Streaks cross the ground at this many times the wind's speed... */
-export const STREAK_SPEEDUP = 3;
-/** ...and at least this much faster than the balloon (m/s), so they flow in a light wind. */
-export const STREAK_MIN_REL_MS = 12;
+/** Streaks flow past the balloon at STREAK_REL_MIN_MS + STREAK_REL_GAIN x the wind's speed (m/s). */
+export const STREAK_REL_MIN_MS = 5;
+export const STREAK_REL_GAIN = 2;
+/** Seconds: their direction eases toward the wind's with this time constant. */
+export const STREAK_TURN_S = 3;
 /** Heights above the ground (m) over which they come in. */
 export const STREAK_FADE_AGL = { from: 300, to: 600 } as const;
 /** Seconds before the landing over which they go. */
@@ -94,19 +98,33 @@ export function easeToward(cur: number, target: number, dtS: number, tauS: numbe
 
 /**
  * The streaks' velocity over the ground (scene m/s: x east, z south) for the wind at the balloon
- * (u east, v north, m/s): along the wind, STREAK_SPEEDUP times its speed and at least
- * STREAK_MIN_REL_MS faster than it. A calm (or no wind) leaves them still.
+ * (u east, v north, m/s) and their current direction `dir` (scene xz, unit; eased toward the
+ * wind's): the wind itself, plus STREAK_REL_GAIN x the wind and STREAK_REL_MIN_MS along dir past
+ * the balloon. Continuous in the wind: in a calm they drift at STREAK_REL_MIN_MS along dir.
  */
-export function streakVelocity(u: number, v: number, out: { x: number; z: number }): { x: number; z: number } {
-  const s = Math.hypot(u, v);
-  if (!(s > 1e-3)) {
-    out.x = out.z = 0;
-    return out;
-  }
-  const k = Math.max(s * STREAK_SPEEDUP, s + STREAK_MIN_REL_MS) / s;
-  out.x = u * k;
-  out.z = -v * k;
+export function streakVelocity(u: number, v: number, dir: { x: number; z: number }, out: { x: number; z: number }): { x: number; z: number } {
+  const ok = Number.isFinite(u) && Number.isFinite(v);
+  const k = 1 + STREAK_REL_GAIN;
+  out.x = (ok ? u * k : 0) + dir.x * STREAK_REL_MIN_MS;
+  out.z = (ok ? -v * k : 0) + dir.z * STREAK_REL_MIN_MS;
   return out;
+}
+
+/** One step of the streaks' direction (scene xz, unit, in place) toward the wind's (u east, v north). */
+export function turnToward(dir: { x: number; z: number }, u: number, v: number, dtS: number): { x: number; z: number } {
+  const s = Math.hypot(u, v);
+  if (!(s > 1e-3) || !(dtS > 0)) return dir;
+  const k = 1 - Math.exp(-dtS / STREAK_TURN_S);
+  const x = dir.x + (u / s - dir.x) * k, z = dir.z + (-v / s - dir.z) * k;
+  const l = Math.hypot(x, z);
+  if (l > 1e-6) {
+    dir.x = x / l;
+    dir.z = z / l;
+  } else {
+    dir.x = u / s; // exactly about-face: take the wind's
+    dir.z = -v / s;
+  }
+  return dir;
 }
 
 type V3 = { x: number; y: number; z: number };
@@ -138,17 +156,20 @@ export function edgeFade(q: V3): number {
 
 /**
  * How far along the look a box of `size` sits from the camera: where the view (vertical field of
- * view fovDeg) is about as tall as the box.
+ * view fovDeg, width over height `aspect`) is about as tall, or as wide, as the box, whichever is
+ * larger: a landscape screen is covered side to side.
  */
-export function layerDistance(size: number, fovDeg: number): number {
-  return size / (2 * LAYER_COVER * Math.tan((Math.max(10, Math.min(120, fovDeg)) * Math.PI) / 360));
+export function layerDistance(size: number, fovDeg: number, aspect = 1): number {
+  const tanV = Math.tan((Math.max(10, Math.min(120, fovDeg)) * Math.PI) / 360);
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  return size / (2 * LAYER_COVER * Math.max(tanV, tanV * a));
 }
 
 const N_LAYERS = STREAK_LAYERS.length;
 
 const VERT = /* glsl */ `
 uniform vec3 uCenter[${N_LAYERS}]; uniform vec3 uShift[${N_LAYERS}]; uniform float uSize[${N_LAYERS}];
-uniform vec3 uDir; uniform vec3 uFocus; uniform float uGround;
+uniform vec3 uDir; uniform vec3 uFocus; uniform float uFocusR; uniform float uGround;
 uniform float uPxScale; uniform float uWidthPx; uniform float uTime; uniform float uOpacity;
 uniform float fogNear; uniform float fogFar;
 attribute vec2 corner;  // x: 0 tail .. 1 head; y: -1 .. 1 across
@@ -180,6 +201,14 @@ void main() {
   vAcross = corner.y;
   vA = a;
   vec3 hl = uDir * (0.5 * aLook.x * size);
+  // never over the balloon: one in front of it, whose span comes near the line to it, fades out
+  vec3 tb = uFocus - cameraPosition;
+  float db = length(tb);
+  if (dc < db + 0.5 * aLook.x * size) {
+    float sep = acos(clamp(dot((c - cameraPosition) / max(dc, 1e-3), tb / max(db, 1e-3)), -1.0, 1.0));
+    float reach = uFocusR / max(db, 1e-3) + 0.5 * aLook.x * size / max(dc, 1e-3);
+    a *= smoothstep(reach, reach * 1.5 + 0.02, sep);
+  }
   vec4 t = projectionMatrix * viewMatrix * vec4(c - hl, 1.0);
   vec4 hd = projectionMatrix * viewMatrix * vec4(c + hl, 1.0);
   if (a < 0.002 || t.w < 1.0 || hd.w < 1.0) {
@@ -211,8 +240,9 @@ void main() {
 }`;
 
 export type StreakFrame = {
-  /** The balloon as drawn, scene metres. */
+  /** The balloon as drawn, scene metres, and its drawn radius (m). */
   focus: THREE.Vector3;
+  focusRadius: number;
   /** The camera this frame (its position, look and field of view place the boxes). */
   camera: THREE.PerspectiveCamera;
   /** The drawn ground under the balloon, m. */
@@ -242,6 +272,7 @@ export class WindStreaks {
     uSize: { value: number[] };
     uDir: { value: THREE.Vector3 };
     uFocus: { value: THREE.Vector3 };
+    uFocusR: { value: number };
     uGround: { value: number };
     uWidthPx: { value: number };
     uTime: { value: number };
@@ -251,6 +282,11 @@ export class WindStreaks {
   /** Where the wind has carried the streaks (scene metres; kept within ANCHOR_WRAP_M of the origin). */
   private readonly anchor = { x: 0, y: 0, z: 0 };
   private readonly vel = { x: 0, z: 0 };
+  /** Their direction (scene xz, unit), eased toward the wind's. */
+  private readonly dir = { x: 1, z: 0 };
+  private dirSet = false;
+  /** Pause (spec 7.3): they hold still where they are, still shown. */
+  paused = false;
   private readonly look = new THREE.Vector3();
   private eased = 0;
   private clock = 0;
@@ -284,6 +320,7 @@ export class WindStreaks {
       uSize: { value: [...STREAK_LAYERS] },
       uDir: { value: new THREE.Vector3(1, 0, 0) },
       uFocus: { value: new THREE.Vector3() },
+      uFocusR: { value: 0.15 },
       uGround: { value: 0 },
       uWidthPx: { value: 1.5 * (opts.pixelRatio ?? 1) },
       uTime: { value: 0 },
@@ -331,27 +368,65 @@ export class WindStreaks {
     this.eased = this.enabled ? easeToward(this.eased, Math.min(1, Math.max(0, f.target)), dt, STREAK_EASE_S) : 0;
     if (this.eased < 1e-3 && f.target === 0) this.eased = 0;
     const u = this.u;
-    streakVelocity(f.wind.u, f.wind.v, this.vel);
-    const sp = Math.hypot(this.vel.x, this.vel.z);
-    if (sp > 1e-3) u.uDir.value.set(this.vel.x / sp, 0, this.vel.z / sp);
-    // the anchor stays within the largest box of the origin: the lattice repeats there
-    this.anchor.x = (this.anchor.x + this.vel.x * dt) % ANCHOR_WRAP_M;
-    this.anchor.z = (this.anchor.z + this.vel.z * dt) % ANCHOR_WRAP_M;
-    this.clock = (this.clock + dt) % LIFE_WRAP_S;
+    const ws = Math.hypot(f.wind.u, f.wind.v);
+    if (!this.dirSet && ws > 1e-3) {
+      // the first wind: face it at once
+      this.dir.x = f.wind.u / ws;
+      this.dir.z = -f.wind.v / ws;
+      this.dirSet = true;
+    }
+    if (!this.paused) {
+      turnToward(this.dir, f.wind.u, f.wind.v, dt);
+      streakVelocity(f.wind.u, f.wind.v, this.dir, this.vel);
+      const sp = Math.hypot(this.vel.x, this.vel.z);
+      if (sp > 1e-3) u.uDir.value.set(this.vel.x / sp, 0, this.vel.z / sp);
+      // the anchor stays within the largest box of the origin: the lattice repeats there
+      this.anchor.x = (this.anchor.x + this.vel.x * dt) % ANCHOR_WRAP_M;
+      this.anchor.z = (this.anchor.z + this.vel.z * dt) % ANCHOR_WRAP_M;
+      this.clock = (this.clock + dt) % LIFE_WRAP_S;
+    }
     this.mesh.visible = this.eased > 0;
     if (!this.mesh.visible) return;
     const cam = f.camera;
     cam.getWorldDirection(this.look);
     for (let k = 0; k < N_LAYERS; k++) {
       const size = STREAK_LAYERS[k];
-      const c = u.uCenter.value[k].copy(cam.position).addScaledVector(this.look, layerDistance(size, cam.fov));
+      const c = u.uCenter.value[k].copy(cam.position).addScaledVector(this.look, layerDistance(size, cam.fov, cam.aspect));
       boxShift(this.anchor, c, size, u.uShift.value[k]);
     }
     u.uFocus.value.copy(f.focus);
+    u.uFocusR.value = Number.isFinite(f.focusRadius) ? f.focusRadius : 0.15;
     u.uGround.value = Number.isFinite(f.groundM) ? f.groundM : 0;
     u.uTime.value = this.clock;
     const night = this.haze.uNight.value;
     u.uOpacity.value = this.eased * (STREAK_DAY + (STREAK_NIGHT - STREAK_DAY) * night);
+  }
+
+  /**
+   * For checks: how many streaks are on screen now and well inside their box (their middle within
+   * the view, in front of the camera), worked out as the shader places them. 0 when not drawn.
+   */
+  onScreen(camera: THREE.Camera): number {
+    if (!this.mesh.visible) return 0;
+    const seed = this.mesh.geometry.getAttribute('aSeed') as THREE.InstancedBufferAttribute;
+    const look = this.mesh.geometry.getAttribute('aLook') as THREE.InstancedBufferAttribute;
+    const p = new THREE.Vector3(), q = { x: 0, y: 0, z: 0 }, sd = { x: 0, y: 0, z: 0 };
+    let n = 0;
+    for (let i = 0; i < seed.count; i++) {
+      const k = Math.round(look.getW(i)), size = STREAK_LAYERS[k];
+      const c = this.u.uCenter.value[k];
+      sd.x = seed.getX(i);
+      sd.y = seed.getY(i);
+      sd.z = seed.getZ(i);
+      streakPos(sd, this.u.uShift.value[k], c, size, p);
+      q.x = (p.x - c.x) / size;
+      q.y = (p.y - c.y) / size;
+      q.z = (p.z - c.z) / size;
+      if (edgeFade(q) < 0.5) continue;
+      p.project(camera);
+      if (p.z > -1 && p.z < 1 && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1) n++;
+    }
+    return n;
   }
 
   dispose(): void {

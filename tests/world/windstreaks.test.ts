@@ -7,13 +7,19 @@ import {
   layerDistance,
   STREAK_COUNT,
   STREAK_LAYERS,
-  STREAK_MIN_REL_MS,
-  STREAK_SPEEDUP,
+  STREAK_REL_GAIN,
+  STREAK_REL_MIN_MS,
   streakPos,
   streakTarget,
   streakVelocity,
+  turnToward,
+  WindStreaks,
   type StreakState,
 } from '../../src/world/windstreaks';
+import * as THREE from 'three';
+import { createHaze } from '../../src/world/haze';
+import { lightFor } from '../../src/world/palette';
+import { sunDirection } from '../../src/world/sunlight';
 
 const cruise: StreakState = { released: true, landed: false, replay: false, reduced: false, shot: 'ride', aglM: 1500, toLandS: 40 * 3600 };
 
@@ -71,29 +77,66 @@ describe('wind streaks: when they show', () => {
 });
 
 describe('wind streaks: the wind to their velocity', () => {
-  it('travel along the wind (u east is +x, v north is -z), faster than the balloon so they flow past it', () => {
+  const rel = (s: number) => STREAK_REL_MIN_MS + STREAK_REL_GAIN * s;
+
+  it('travel along the wind (u east is +x, v north is -z), flowing past the balloon at 5 m/s plus twice the wind', () => {
     const out = { x: 0, z: 0 };
-    streakVelocity(10, 0, out);
+    streakVelocity(10, 0, { x: 1, z: 0 }, out);
     expect(out.z).toBeCloseTo(0, 9);
-    expect(out.x).toBeCloseTo(10 * STREAK_SPEEDUP, 6);
-    streakVelocity(0, 8, out);
+    expect(out.x).toBeCloseTo(10 + rel(10), 6);
+    streakVelocity(0, 8, { x: 0, z: -1 }, out);
     expect(out.x).toBeCloseTo(0, 9);
-    expect(out.z).toBeCloseTo(-8 * STREAK_SPEEDUP, 6);
-    // the direction is the wind's
-    streakVelocity(3, -4, out);
-    expect(Math.atan2(-out.z, out.x)).toBeCloseTo(Math.atan2(-4, 3), 9);
+    expect(out.z).toBeCloseTo(-(8 + rel(8)), 6);
+    // the direction is the wind's once they have turned to it
+    const dir = { x: 0, z: 1 };
+    for (let i = 0; i < 600; i++) turnToward(dir, 3, -4, 1 / 30);
+    streakVelocity(3, -4, dir, out);
+    expect(Math.atan2(-out.z, out.x)).toBeCloseTo(Math.atan2(-4, 3), 3);
   });
 
-  it('flow past the balloon at least STREAK_MIN_REL_MS in a light wind; stay put in a calm', () => {
+  it('flow faster past the balloon as the wind rises, all through the light winds', () => {
     const out = { x: 0, z: 0 };
-    streakVelocity(1, 0, out);
-    expect(out.x - 1).toBeCloseTo(STREAK_MIN_REL_MS, 6);
-    streakVelocity(0, 0, out);
-    expect(out.x).toBe(0);
-    expect(out.z).toBe(0);
-    streakVelocity(Number.NaN, 2, out);
-    expect(out.x).toBe(0);
-    expect(out.z).toBe(0);
+    let last = -1;
+    for (let s = 0; s <= 12; s += 0.5) {
+      streakVelocity(s, 0, { x: 1, z: 0 }, out);
+      const past = out.x - s; // past the balloon, which moves with the wind
+      expect(past).toBeCloseTo(rel(s), 9);
+      expect(past).toBeGreaterThan(last);
+      last = past;
+    }
+  });
+
+  it('in a calm they drift slowly the way the wind last blew; no jump as the wind dies away', () => {
+    const out = { x: 0, z: 0 };
+    const dir = { x: 0.6, z: -0.8 };
+    streakVelocity(0, 0, dir, out);
+    expect(Math.hypot(out.x, out.z)).toBeCloseTo(STREAK_REL_MIN_MS, 9);
+    expect(out.x / out.z).toBeCloseTo(0.6 / -0.8, 9);
+    streakVelocity(Number.NaN, 2, dir, out);
+    expect(Math.hypot(out.x, out.z)).toBeCloseTo(STREAK_REL_MIN_MS, 9);
+    // the wind falling from 1 m/s to nothing: the velocity changes smoothly, never stops
+    const a = { x: 0, z: 0 }, b = { x: 0, z: 0 };
+    const d = { x: 0.6, z: -0.8 };
+    for (let s = 1; s >= 0; s -= 0.01) {
+      streakVelocity(0.6 * s, 0.8 * s, d, a);
+      streakVelocity(0.6 * Math.max(0, s - 0.01), 0.8 * Math.max(0, s - 0.01), d, b);
+      expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeLessThan(0.05);
+      expect(Math.hypot(b.x, b.z)).toBeGreaterThanOrEqual(STREAK_REL_MIN_MS - 1e-9);
+    }
+  });
+
+  it('turn toward a new wind over a few seconds, staying a unit direction; a calm leaves them as they are', () => {
+    const dir = { x: 1, z: 0 };
+    turnToward(dir, 0, 5, 1); // north: scene -z
+    expect(Math.hypot(dir.x, dir.z)).toBeCloseTo(1, 9);
+    expect(dir.z).toBeLessThan(0);
+    expect(dir.x).toBeGreaterThan(0.5); // only part of the way after a second
+    turnToward(dir, 0, 0, 1);
+    const kept = { ...dir };
+    turnToward(dir, 0, 0, 10);
+    expect(dir).toEqual(kept);
+    for (let i = 0; i < 30; i++) turnToward(dir, 0, 5, 1);
+    expect(dir.z).toBeCloseTo(-1, 3);
   });
 });
 
@@ -196,7 +239,112 @@ describe('wind streaks: recycled round the view', () => {
     }
   });
 
+  it('a landscape screen is covered side to side: on 16:9 each box is as wide as the view', () => {
+    const aspect = 16 / 9;
+    for (const fov of [34, 40, 50])
+      for (const size of STREAK_LAYERS) {
+        const d = layerDistance(size, fov, aspect);
+        const tanV = Math.tan((fov * Math.PI) / 360);
+        const viewW = 2 * d * tanV * aspect, viewH = 2 * d * tanV;
+        expect(size / viewW).toBeGreaterThan(1);
+        expect(size / viewW).toBeLessThan(1.4);
+        expect(size).toBeGreaterThan(viewH);
+        // portrait is as before: sized to the height
+        expect(layerDistance(size, fov, 390 / 844)).toBeCloseTo(layerDistance(size, fov), 9);
+      }
+  });
+
   it('a few thousand vertices in one draw', () => {
     expect(STREAK_COUNT * 4).toBeLessThanOrEqual(4000);
+  });
+});
+
+describe('WindStreaks', () => {
+  function make() {
+    const scene = new THREE.Scene();
+    const haze = createHaze(lightFor(30), sunDirection(30, 180));
+    const streaks = new WindStreaks(scene, { haze });
+    const camera = new THREE.PerspectiveCamera(34, 390 / 844, 0.1, 50000);
+    const focus = new THREE.Vector3(0, 1500, 0);
+    camera.position.set(-40, 1537, 30);
+    camera.lookAt(focus);
+    camera.updateMatrixWorld();
+    const frame = { focus, focusRadius: 0.25, camera, groundM: 0, wind: { u: 8, v: 3 }, target: 1 };
+    return { scene, streaks, camera, focus, frame };
+  }
+  const uniforms = (w: WindStreaks) => w.mesh.material.uniforms as Record<string, { value: unknown }>;
+  /** Every streak's middle (scene metres), as the shader places it. */
+  function positions(w: WindStreaks): THREE.Vector3[] {
+    const seed = w.mesh.geometry.getAttribute('aSeed'), look = w.mesh.geometry.getAttribute('aLook');
+    const centers = uniforms(w).uCenter.value as THREE.Vector3[], shifts = uniforms(w).uShift.value as THREE.Vector3[];
+    return Array.from({ length: seed.count }, (_, i) => {
+      const k = Math.round(look.getW(i));
+      return streakPos({ x: seed.getX(i), y: seed.getY(i), z: seed.getZ(i) }, shifts[k], centers[k], STREAK_LAYERS[k], new THREE.Vector3()) as THREE.Vector3;
+    });
+  }
+
+  it('one hidden mesh until asked for; then most of the view has streaks in it', () => {
+    const { scene, streaks, camera, frame } = make();
+    expect(scene.children.filter((o) => o.name === 'wind-streaks')).toHaveLength(1);
+    expect(streaks.mesh.visible).toBe(false);
+    expect(streaks.onScreen(camera)).toBe(0);
+    for (let i = 0; i < 300; i++) streaks.update(1 / 30, frame);
+    expect(streaks.opacity).toBeGreaterThan(0.99);
+    expect(streaks.mesh.visible).toBe(true);
+    expect(streaks.onScreen(camera)).toBeGreaterThan(200);
+  });
+
+  it('pause holds them where they are, still shown; they flow again on resume', () => {
+    const { streaks, frame } = make();
+    for (let i = 0; i < 100; i++) streaks.update(1 / 30, frame);
+    streaks.paused = true;
+    const before = positions(streaks);
+    const t0 = uniforms(streaks).uTime.value;
+    for (let i = 0; i < 60; i++) streaks.update(1 / 30, frame);
+    expect(streaks.mesh.visible).toBe(true);
+    expect(uniforms(streaks).uTime.value).toBe(t0);
+    positions(streaks).forEach((p, i) => expect(p.distanceTo(before[i])).toBeLessThan(1e-6));
+    streaks.paused = false;
+    streaks.update(1 / 30, frame);
+    expect(positions(streaks).some((p, i) => p.distanceTo(before[i]) > 0.1)).toBe(true);
+  });
+
+  it('a move of the floating origin keeps every streak where it was in the world', () => {
+    const { streaks, camera, focus, frame } = make();
+    for (let i = 0; i < 50; i++) streaks.update(1 / 30, frame);
+    const before = positions(streaks);
+    const dx = 1234.5, dz = -987.25;
+    streaks.shift(dx, dz);
+    focus.x -= dx;
+    focus.z -= dz;
+    camera.position.x -= dx;
+    camera.position.z -= dz;
+    camera.updateMatrixWorld();
+    streaks.update(0, frame);
+    positions(streaks).forEach((p, i) => {
+      expect(p.x).toBeCloseTo(before[i].x - dx, 6);
+      expect(p.y).toBeCloseTo(before[i].y, 6);
+      expect(p.z).toBeCloseTo(before[i].z - dz, 6);
+    });
+  });
+
+  it('cut hides them at once, and they fade in again from nothing', () => {
+    const { streaks, frame } = make();
+    for (let i = 0; i < 300; i++) streaks.update(1 / 30, frame);
+    streaks.cut();
+    expect(streaks.opacity).toBe(0);
+    expect(streaks.mesh.visible).toBe(false);
+    streaks.update(1 / 30, frame);
+    expect(streaks.opacity).toBeLessThan(0.05);
+  });
+
+  it('never shown when disabled (reduced motion)', () => {
+    const scene = new THREE.Scene();
+    const haze = createHaze(lightFor(30), sunDirection(30, 180));
+    const streaks = new WindStreaks(scene, { haze, enabled: false });
+    const { frame } = make();
+    for (let i = 0; i < 300; i++) streaks.update(1 / 30, frame);
+    expect(streaks.opacity).toBe(0);
+    expect(streaks.mesh.visible).toBe(false);
   });
 });
